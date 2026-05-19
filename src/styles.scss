@@ -1,0 +1,11 @@
+@use 'styles/tokens';
+@use 'styles/board';
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  background: var(--majik-bg);
+  color: var(--majik-fg);
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}

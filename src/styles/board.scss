@@ -1,0 +1,44 @@
+.battlefield {
+  display: grid;
+  grid-template-rows: 1fr 1fr;
+  gap: var(--majik-space-3);
+}
+
+.battlefield-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--majik-space-2);
+  padding: var(--majik-space-2);
+  border-radius: var(--majik-radius-panel);
+}
+
+.hand-row {
+  display: flex;
+  justify-content: center;
+  gap: calc(var(--majik-space-2) * -1);
+}
+
+.card {
+  width: 100px;
+  aspect-ratio: 5 / 7;
+  border-radius: var(--majik-radius-card);
+  background: var(--majik-card);
+  transition: transform 100ms ease-out;
+
+  &.is-tapped {
+    transform: rotate(90deg);
+    opacity: 0.85;
+  }
+
+  &.is-hidden {
+    background: var(--majik-card-hidden);
+  }
+
+  &.is-target-eligible {
+    outline: 2px solid var(--majik-outline-target);
+  }
+
+  &.is-target-ineligible {
+    filter: grayscale(1);
+  }
+}
