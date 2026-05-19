@@ -8,6 +8,7 @@ import { provideMajikAuth } from './core/auth/provide-majik-auth';
 import { authInterceptor } from './core/auth/auth.interceptor';
 import { AuthService } from './core/auth/auth.service';
 import { provideApiConfiguration } from './core/api/api-configuration';
+import { ProfileService } from './core/profile/profile.service';
 
 export const appConfig: ApplicationConfig = {
   providers: [
@@ -16,8 +17,9 @@ export const appConfig: ApplicationConfig = {
     provideHttpClient(withInterceptors([authInterceptor])),
     provideApiConfiguration(environment.apiBaseUrl),
     ...provideMajikAuth(),
-    provideAppInitializer(() => {
+    provideAppInitializer(async () => {
       inject(AuthService).bootstrap();
+      await inject(ProfileService).bootstrap();
     })
   ]
 };
