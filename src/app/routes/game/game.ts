@@ -13,6 +13,7 @@ import { GameStateDto } from '../../core/api/models/game-state-dto';
 import { CardSnapshotDto } from '../../core/api/models/card-snapshot-dto';
 import { environment } from '../../../environments/environment';
 import { AuthService } from '../../core/auth/auth.service';
+import { ProfileService } from '../../core/profile/profile.service';
 import { SignalrService } from '../../core/signalr/signalr.service';
 import { BoardComponent } from './components/board.component';
 import { PromptOverlayComponent, PromptDecision } from './components/prompt-overlay.component';
@@ -44,6 +45,7 @@ interface PromptPayload {
       <header class="flex items-center justify-between border-b border-white/10 p-3">
         <h1 class="text-lg">Game <code class="text-[color:var(--majik-accent)]">{{ id }}</code></h1>
         <div class="flex items-center gap-3 text-xs">
+          <span class="opacity-70">{{ profile.handle() ?? auth.principal()?.sub }}</span>
           <span
             class="rounded px-2 py-0.5"
             [class.bg-emerald-700]="signalr.state() === 'open'"
@@ -153,6 +155,7 @@ export class GamePage implements OnInit, OnDestroy {
   private readonly http = inject(HttpClient);
   private readonly destroyRef = inject(DestroyRef);
   readonly auth = inject(AuthService);
+  readonly profile = inject(ProfileService);
   readonly signalr = inject(SignalrService);
 
   readonly id = this.route.snapshot.paramMap.get('id') ?? '';

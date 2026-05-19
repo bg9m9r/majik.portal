@@ -5,6 +5,7 @@ import { Api } from '../../core/api/api';
 import { healthCheck } from '../../core/api/fn/meta/health-check';
 import { createGame } from '../../core/api/fn/games/create-game';
 import { AuthService } from '../../core/auth/auth.service';
+import { ProfileService } from '../../core/profile/profile.service';
 
 type HealthStatus = 'idle' | 'checking' | 'ok' | 'down';
 
@@ -16,7 +17,7 @@ type HealthStatus = 'idle' | 'checking' | 'ok' | 'down';
     <main class="mx-auto flex max-w-3xl flex-col gap-6 p-8">
       <header class="flex items-center justify-between">
         <h1 class="text-2xl font-semibold tracking-wide">Lobby</h1>
-        <span class="text-sm opacity-70">{{ auth.principal()?.sub }}</span>
+        <span class="text-sm opacity-70">{{ profile.handle() ?? auth.principal()?.sub }}</span>
       </header>
 
       <section class="rounded border border-white/10 p-4">
@@ -72,6 +73,7 @@ type HealthStatus = 'idle' | 'checking' | 'ok' | 'down';
 })
 export class LobbyPage implements OnInit {
   readonly auth = inject(AuthService);
+  readonly profile = inject(ProfileService);
   private readonly api = inject(Api);
   private readonly router = inject(Router);
 
