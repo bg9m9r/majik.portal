@@ -14,6 +14,18 @@ async function openAs(browser: Browser, stubName: string): Promise<{ context: Br
   const context = await browser.newContext();
   const page = await context.newPage();
   await page.goto(`/?stub=${stubName}`);
+
+  // Walk onboarding if first time.
+  try {
+    await page.waitForURL(/\/onboarding/, { timeout: 2_000 });
+    const handle = stubName + '-' + Math.floor(Math.random() * 100000);
+    await page.getByRole('textbox').fill(handle);
+    await page.getByRole('button', { name: 'Save' }).click();
+    await page.waitForURL(/\/lobby/, { timeout: 10_000 });
+  } catch {
+    // Already onboarded — proceed.
+  }
+
   await expect(page).toHaveURL(/\/(lobby|login)/);
   return { context, page };
 }
