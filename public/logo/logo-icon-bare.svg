@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="512" height="512" role="img" aria-label="Majik mark">
+  <title>Majik — pentagon mark</title>
+  <defs>
+    <radialGradient id="bp-w" cx="50%" cy="38%" r="60%">
+      <stop offset="0%" stop-color="#ffffff"></stop>
+      <stop offset="100%" stop-color="#fffbd5"></stop>
+    </radialGradient>
+    <radialGradient id="bp-u" cx="50%" cy="38%" r="60%">
+      <stop offset="0%" stop-color="#cfecfd"></stop>
+      <stop offset="100%" stop-color="#aae0fa"></stop>
+    </radialGradient>
+    <radialGradient id="bp-b" cx="50%" cy="38%" r="60%">
+      <stop offset="0%" stop-color="#e1d9d6"></stop>
+      <stop offset="100%" stop-color="#cbc2bf"></stop>
+    </radialGradient>
+    <radialGradient id="bp-r" cx="50%" cy="38%" r="60%">
+      <stop offset="0%" stop-color="#ffcab4"></stop>
+      <stop offset="100%" stop-color="#f9aa8f"></stop>
+    </radialGradient>
+    <radialGradient id="bp-g" cx="50%" cy="38%" r="60%">
+      <stop offset="0%" stop-color="#bce6cb"></stop>
+      <stop offset="100%" stop-color="#9bd3ae"></stop>
+    </radialGradient></defs>
+  <text x="50" y="58" text-anchor="middle" dominant-baseline="middle" font-family="Cinzel, &#39;Trajan Pro&#39;, &#39;Times New Roman&#39;, serif" font-weight="700" font-size="34" fill="currentColor">M</text>
+  
+  <g transform="translate(50.000 17.000)">
+    <circle r="10" fill="url(#bp-w)" stroke="#b9a76c" stroke-width="0.8"></circle>
+    <path d="M 0.000 -7.125 L 1.763 -2.427 L 6.776 -2.202 L 2.853 0.927 L 4.188 5.764 L 0.000 3.000 L -4.188 5.764 L -2.853 0.927 L -6.776 -2.202 L -1.763 -2.427 Z" fill="#b9a76c"></path>
+  </g>
+  <g transform="translate(81.385 39.802)">
+    <circle r="10" fill="url(#bp-u)" stroke="#0e68ab" stroke-width="0.8"></circle>
+    <path d="M 0 -7.125 C -3.953 -0.750, -4.650 0.750, -4.650 2.250 A 4.650 4.418 0 0 0 4.650 2.250 C 4.650 0.750, 3.953 -0.750, 0 -7.125 Z" fill="#0e68ab"></path>
+  </g>
+  <g transform="translate(69.397 76.698)">
+    <circle r="10" fill="url(#bp-b)" stroke="#150b00" stroke-width="0.8"></circle>
+    <path d="M 0 -5.8500000000000005 C 4.9725 -5.8500000000000005, 6.142500000000001 -2.0475, 6.142500000000001 0.5850000000000001 C 6.142500000000001 2.6325000000000003, 4.3875 3.2175000000000007, 3.5100000000000002 3.2175000000000007 L 3.5100000000000002 5.5575 L -3.5100000000000002 5.5575 L -3.5100000000000002 3.2175000000000007 C -4.3875 3.2175000000000007, -6.142500000000001 2.6325000000000003, -6.142500000000001 0.5850000000000001 C -6.142500000000001 -2.0475, -4.9725 -5.8500000000000005, 0 -5.8500000000000005 Z" fill="#150b00"></path>
+        <ellipse cx="-2.4570000000000003" cy="-0.29250000000000004" rx="1.4040000000000001" ry="1.1700000000000002" fill="#cbc2bf"></ellipse>
+        <ellipse cx="2.4570000000000003" cy="-0.29250000000000004" rx="1.4040000000000001" ry="1.1700000000000002" fill="#cbc2bf"></ellipse>
+        <path d="M 0 0.5850000000000001 L -0.8190000000000002 2.6325000000000003 L 0.8190000000000002 2.6325000000000003 Z" fill="#cbc2bf"></path>
+        <path d="M -0.6435000000000001 5.5575 L -0.6435000000000001 3.8025 L 0.6435000000000001 3.8025 L 0.6435000000000001 5.5575 Z" fill="#cbc2bf"></path>
+        <path d="M -2.1879000000000004 5.5575 L -2.1879000000000004 4.41675 L -1.5444000000000002 4.41675 L -1.5444000000000002 5.5575 Z" fill="#cbc2bf"></path>
+        <path d="M 1.5444000000000002 5.5575 L 1.5444000000000002 4.41675 L 2.1879000000000004 4.41675 L 2.1879000000000004 5.5575 Z" fill="#cbc2bf"></path>
+  </g>
+  <g transform="translate(30.603 76.698)">
+    <circle r="10" fill="url(#bp-r)" stroke="#d3202a" stroke-width="0.8"></circle>
+    <path d="M 0 -7.875 C 2.25 -4.125 5.25 -2.25 5.25 2.25&#xA;          A 5.25 5.25 0 0 1 -5.25 2.25&#xA;          C -5.25 -0.375 -3.75 -2.625 -2.25 -4.875&#xA;          C -1.875 -1.875 -0.75 -1.5 0 -2.625&#xA;          C -0.22499999999999998 -4.125 -0.3 -6 0 -7.875 Z" fill="#d3202a"></path>
+  </g>
+  <g transform="translate(18.615 39.802)">
+    <circle r="10" fill="url(#bp-g)" stroke="#00733e" stroke-width="0.8"></circle>
+    <path d="M 0 -7.125 L 3 -2.25 L 1.6500000000000001 -2.25 L 4.875 0.75 L 3.16875 0.75 L 6.75 4.125 L 1.3499999999999999 4.125 L 1.3499999999999999 7.125 L -1.3499999999999999 7.125 L -1.3499999999999999 4.125 L -6.75 4.125 L -3.16875 0.75 L -4.875 0.75 L -1.6500000000000001 -2.25 L -3 -2.25 Z" fill="#00733e"></path>
+  </g>
+</svg>
