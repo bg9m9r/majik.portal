@@ -54,18 +54,18 @@ import { MAJIK_AUTH_CONFIG } from '../../core/auth/auth.config';
   template: `
     <main class="grid min-h-screen place-items-center px-6 py-12"
           style="background: var(--majik-bg); color: var(--majik-fg);">
-      <div class="vignette relative flex w-full max-w-xs flex-col items-center gap-8">
+      <div class="vignette relative flex w-full max-w-sm flex-col items-center gap-8">
 
-        <header class="flex flex-col items-center gap-4">
+        <header class="flex items-center gap-5">
           <img
             src="logo/logo-icon.svg"
             alt=""
-            class="h-24 w-24 select-none drop-shadow-[0_8px_24px_rgba(0,0,0,0.5)]"
+            class="h-20 w-20 select-none drop-shadow-[0_8px_24px_rgba(0,0,0,0.5)]"
             draggable="false" />
           <img
             src="logo/logo-majik-wordmark.svg"
             alt="Majik"
-            class="h-9 select-none"
+            class="h-14 select-none"
             draggable="false" />
         </header>
 
