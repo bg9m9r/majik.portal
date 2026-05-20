@@ -1,12 +1,13 @@
 import { Component, inject, output } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { DeckEditorStore } from '../../../../core/deck/deck-editor.store';
+import { ManaCurveComponent } from './mana-curve.component';
 import { ValidationPanelComponent } from './validation-panel.component';
 
 @Component({
   selector: 'app-deck-info-panel',
   standalone: true,
-  imports: [FormsModule, ValidationPanelComponent],
+  imports: [FormsModule, ManaCurveComponent, ValidationPanelComponent],
   template: `
     <aside class="flex flex-col gap-4">
       <label class="flex flex-col gap-1">
@@ -32,6 +33,8 @@ import { ValidationPanelComponent } from './validation-panel.component';
         <span>Mainboard: {{ store.mainCount() }}</span>
         <span>Sideboard: {{ store.sideCount() }}</span>
       </div>
+
+      <app-mana-curve />
 
       <app-validation-panel />
 
