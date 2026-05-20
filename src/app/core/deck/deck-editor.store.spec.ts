@@ -140,4 +140,19 @@ describe('DeckEditorStore', () => {
     await Promise.resolve();
     expect(toast.error).toHaveBeenCalled();
   });
+
+  it('replaceContents overwrites main + side and flips dirty', () => {
+    const { store } = setup();
+    store.loadFor(null);
+    expect(store.dirty()).toBe(false);
+
+    store.replaceContents(
+      [{ name: 'Forest', count: 60 }],
+      [{ name: 'Grizzly Bears', count: 3 }]
+    );
+
+    expect(store.mainboard()).toEqual([{ name: 'Forest', count: 60 }]);
+    expect(store.sideboard()).toEqual([{ name: 'Grizzly Bears', count: 3 }]);
+    expect(store.dirty()).toBe(true);
+  });
 });

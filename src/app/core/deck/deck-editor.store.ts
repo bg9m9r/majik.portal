@@ -140,6 +140,8 @@ export const DeckEditorStore = signalStore(
       move: (name: string, to: Zone) => patchState(store, s => moveTo(s, name, to)),
       rename: (name: string) => patchState(store, { name }),
       setActiveZone: (z: Zone) => patchState(store, { activeZone: z }),
+      replaceContents: (mainboard: DeckCardEntry[], sideboard: DeckCardEntry[]) =>
+        patchState(store, { mainboard, sideboard, activeZone: 'main' as Zone }),
       save: rxMethod<void>(pipe(
         tap(() => patchState(store, { saving: true, error: null })),
         switchMap(() => {
