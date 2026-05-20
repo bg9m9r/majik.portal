@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40" role="img" aria-label="R mana">
+  <title>{R}</title>
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="38%" r="60%">
+      <stop offset="0%" stop-color="#ffcab4"></stop>
+      <stop offset="100%" stop-color="#f9aa8f"></stop>
+    </radialGradient>
+  </defs>
+  <circle cx="20" cy="20" r="19" fill="url(#bg)" stroke="#d3202a" stroke-width="1"></circle>
+  <path d="M20 5 C 26 13 33 19 33 27 A 13 13 0 0 1 7 27 C 7 20 12 14 16 9 C 17 16 19 17 21 14 C 20.5 11 20.3 8 20 5 Z" fill="#d3202a"></path>
+</svg>

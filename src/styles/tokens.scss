@@ -1,17 +1,221 @@
+/* =========================================================
+   Majik — design tokens (sourced from majik-design-system)
+   Authoritative copy of palette, type, spacing, radii, shadows,
+   and motion. Imported by styles.scss.
+   ========================================================= */
+
 :root {
-  --majik-bg: #0f1722;
-  --majik-fg: #e8eaed;
-  --majik-card: #d6c39a;
-  --majik-card-hidden: #3a4458;
-  --majik-accent: #caa75a;
-  --majik-outline-target: #caa75a;
+  /* ----------------------------------------------------------
+     Surfaces
+     ---------------------------------------------------------- */
+  --majik-bg:            #0f1722;
+  --majik-surface-1:     rgba(0, 0, 0, 0.30); /* battlefield-row self */
+  --majik-surface-2:     rgba(0, 0, 0, 0.20); /* battlefield-row opponent */
+  --majik-surface-3:     rgba(0, 0, 0, 0.40); /* action bar, mana pip bg */
+  --majik-surface-modal: rgba(0, 0, 0, 0.80); /* prompt overlay */
 
-  --majik-radius-card: 6px;
-  --majik-radius-panel: 8px;
+  /* ----------------------------------------------------------
+     Foreground text
+     ---------------------------------------------------------- */
+  --majik-fg:            #e8eaed;
+  --majik-fg-muted:      rgba(232, 234, 237, 0.70);
+  --majik-fg-subtle:     rgba(232, 234, 237, 0.50);
+  --majik-fg-faint:      rgba(232, 234, 237, 0.30);
 
-  --majik-space-1: 4px;
-  --majik-space-2: 8px;
-  --majik-space-3: 12px;
-  --majik-space-4: 16px;
-  --majik-space-5: 24px;
+  /* ----------------------------------------------------------
+     Lines / rims
+     ---------------------------------------------------------- */
+  --majik-line:          rgba(255, 255, 255, 0.10);
+  --majik-line-strong:   rgba(255, 255, 255, 0.20);
+  --majik-line-faint:    rgba(255, 255, 255, 0.05);
+
+  /* ----------------------------------------------------------
+     Card faces (MTG parchment look)
+     ---------------------------------------------------------- */
+  --majik-card:          #d6c39a;
+  --majik-card-hidden:   #3a4458;
+  --majik-card-ink:      #1c1611;
+
+  /* ----------------------------------------------------------
+     Brand accent — warm gold
+     ---------------------------------------------------------- */
+  --majik-accent:        #caa75a;
+  --majik-accent-soft:   rgba(202, 167, 90, 0.10);
+  --majik-accent-strong: #e0c275;
+  --majik-outline-target:#caa75a;
+
+  /* ----------------------------------------------------------
+     WUBRG mana colors (used inside mana pips only)
+     ---------------------------------------------------------- */
+  --mana-w:              #fffbd5;
+  --mana-w-ink:          #b9a76c;
+  --mana-u:              #aae0fa;
+  --mana-u-ink:          #0e68ab;
+  --mana-b:              #cbc2bf;
+  --mana-b-ink:          #150b00;
+  --mana-r:              #f9aa8f;
+  --mana-r-ink:          #d3202a;
+  --mana-g:              #9bd3ae;
+  --mana-g-ink:          #00733e;
+  --mana-c:              #ccc2c0;
+  --mana-c-ink:          #6a6464;
+  --mana-generic:        #beb9b2;
+
+  /* ----------------------------------------------------------
+     Semantic / status colors
+     ---------------------------------------------------------- */
+  --status-ok:           #047857; /* emerald-700 — hub open, current phase */
+  --status-warn:         #b45309; /* amber-700 — connecting / transient */
+  --status-err:          #991b1b; /* red-800 — disconnected, errors */
+  --status-info:         #92400e;
+
+  --text-ok:             #34d399; /* emerald-400 — log marker */
+  --text-warn:           #fcd34d; /* amber-300 — prompt marker, targeting */
+  --text-err:            #fca5a5; /* red-300 — inline errors */
+
+  /* ----------------------------------------------------------
+     Type — families
+     ---------------------------------------------------------- */
+  --font-display:        "Cinzel", "Trajan Pro", "Times New Roman", serif;
+  --font-body:           "Manrope", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono:           "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --font-mana:           "Mana", monospace;
+
+  /* ----------------------------------------------------------
+     Type — scale (semantic; portal runs small + dense)
+     ---------------------------------------------------------- */
+  --type-display-1-size: 48px; --type-display-1-lh: 1.05; --type-display-1-tracking: 0.02em;
+  --type-display-2-size: 32px; --type-display-2-lh: 1.10; --type-display-2-tracking: 0.02em;
+  --type-h1-size:        24px; --type-h1-lh:        1.20; --type-h1-tracking:        0.01em;
+  --type-h2-size:        18px; --type-h2-lh:        1.30; --type-h2-tracking:        0.00em;
+  --type-h3-size:        14px; --type-h3-lh:        1.35; --type-h3-tracking:        0.08em;
+  --type-body-size:      14px; --type-body-lh:      1.50;
+  --type-small-size:     12px; --type-small-lh:     1.45;
+  --type-micro-size:     10px; --type-micro-lh:     1.40; --type-micro-tracking:     0.10em;
+  --type-mono-size:      12px; --type-mono-lh:      1.40;
+
+  /* ----------------------------------------------------------
+     Shape — radii
+     ---------------------------------------------------------- */
+  --majik-radius-card:    6px;
+  --majik-radius-panel:   8px;
+  --majik-radius-control: 4px;
+  --majik-radius-pill:    999px;
+
+  /* ----------------------------------------------------------
+     Spacing scale (4px grid)
+     ---------------------------------------------------------- */
+  --majik-space-1:        4px;
+  --majik-space-2:        8px;
+  --majik-space-3:       12px;
+  --majik-space-4:       16px;
+  --majik-space-5:       24px;
+  --majik-space-6:       32px;
+  --majik-space-8:       48px;
+
+  /* ----------------------------------------------------------
+     Shadows + glows
+     ---------------------------------------------------------- */
+  --shadow-modal:        0 20px 50px -10px rgba(0, 0, 0, 0.70),
+                         0 0 0 1px rgba(202, 167, 90, 0.40);
+  --shadow-card-hover:   0 8px 24px -6px rgba(0, 0, 0, 0.60);
+  --glow-target:         0 0 0 2px var(--majik-outline-target);
+
+  /* ----------------------------------------------------------
+     Motion (restrained per FRONTEND_PLAN)
+     ---------------------------------------------------------- */
+  --motion-tap:          100ms ease-out;
+  --motion-snap:           0ms;
+  --motion-fade:         140ms ease-out;
+}
+
+/* ============================================================
+   Semantic typography helpers
+   ============================================================ */
+.majik-display-1 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: var(--type-display-1-size);
+  line-height: var(--type-display-1-lh);
+  letter-spacing: var(--type-display-1-tracking);
+}
+
+.majik-display-2 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: var(--type-display-2-size);
+  line-height: var(--type-display-2-lh);
+  letter-spacing: var(--type-display-2-tracking);
+}
+
+.majik-h1 {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: var(--type-h1-size);
+  line-height: var(--type-h1-lh);
+  letter-spacing: var(--type-h1-tracking);
+}
+
+.majik-h2 {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: var(--type-h2-size);
+  line-height: var(--type-h2-lh);
+}
+
+.majik-h3 {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: var(--type-h3-size);
+  line-height: var(--type-h3-lh);
+  letter-spacing: var(--type-h3-tracking);
+  text-transform: uppercase;
+}
+
+.majik-body {
+  font-family: var(--font-body);
+  font-weight: 400;
+  font-size: var(--type-body-size);
+  line-height: var(--type-body-lh);
+}
+
+.majik-small {
+  font-family: var(--font-body);
+  font-weight: 400;
+  font-size: var(--type-small-size);
+  line-height: var(--type-small-lh);
+}
+
+.majik-micro {
+  font-family: var(--font-body);
+  font-weight: 500;
+  font-size: var(--type-micro-size);
+  line-height: var(--type-micro-lh);
+  letter-spacing: var(--type-micro-tracking);
+  text-transform: uppercase;
+  color: var(--majik-fg-muted);
+}
+
+.majik-mono {
+  font-family: var(--font-mono);
+  font-weight: 400;
+  font-size: var(--type-mono-size);
+  line-height: var(--type-mono-lh);
+}
+
+.majik-code {
+  font-family: var(--font-mono);
+  color: var(--majik-accent);
+}
+
+/* Mana pip — paint a WUBRG glyph from the Mana font on the surface bg. */
+.majik-mana-pip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.4em;
+  height: 1.4em;
+  border-radius: var(--majik-radius-pill);
+  font-family: var(--font-mana);
+  background: var(--majik-surface-3);
 }

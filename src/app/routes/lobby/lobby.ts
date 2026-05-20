@@ -16,7 +16,7 @@ type HealthStatus = 'idle' | 'checking' | 'ok' | 'down';
   template: `
     <main class="mx-auto flex max-w-3xl flex-col gap-6 p-8">
       <header class="flex items-center justify-between">
-        <h1 class="text-2xl font-semibold tracking-wide">Lobby</h1>
+        <h1 class="majik-display-2">Lobby</h1>
         <span class="text-sm opacity-70">{{ profile.handle() ?? auth.principal()?.sub }}</span>
       </header>
 

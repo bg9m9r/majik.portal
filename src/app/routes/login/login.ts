@@ -10,7 +10,11 @@ import { MAJIK_AUTH_CONFIG } from '../../core/auth/auth.config';
   imports: [DescopeComponent],
   template: `
     <main class="flex min-h-screen flex-col items-center justify-center gap-6 p-8">
-      <h1 class="text-3xl font-semibold tracking-wide">Majik</h1>
+      <img
+        src="logo/logo-majik-wordmark.svg"
+        alt="Majik"
+        class="h-24 select-none"
+        draggable="false" />
 
       @if (auth.isStub) {
         <p class="text-sm opacity-70">Auth stub mode — signed in as <code>{{ auth.principal()?.sub }}</code></p>

@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 80" width="320" height="80" role="img" aria-label="Majik">
+  <title>Majik</title>
+  <defs>
+    <radialGradient id="pip-w" cx="50%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#ffffff"></stop>
+      <stop offset="100%" stop-color="#fffbd5"></stop>
+    </radialGradient>
+    <radialGradient id="pip-u" cx="50%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#cfecfd"></stop>
+      <stop offset="100%" stop-color="#aae0fa"></stop>
+    </radialGradient>
+    <radialGradient id="pip-b" cx="50%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#e1d9d6"></stop>
+      <stop offset="100%" stop-color="#cbc2bf"></stop>
+    </radialGradient>
+    <radialGradient id="pip-r" cx="50%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#ffcab4"></stop>
+      <stop offset="100%" stop-color="#f9aa8f"></stop>
+    </radialGradient>
+    <radialGradient id="pip-g" cx="50%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#bce6cb"></stop>
+      <stop offset="100%" stop-color="#9bd3ae"></stop>
+    </radialGradient>
+  </defs>
+
+  <text x="0" y="48" font-family="Cinzel, &#39;Trajan Pro&#39;, &#39;Times New Roman&#39;, serif" font-weight="700" font-size="44" letter-spacing="6" fill="#e8eaed">MAJIK</text>
+
+  <g transform="translate(2, 60)">
+    
+    <circle cx="9" cy="9" r="8" fill="url(#pip-w)" stroke="#b9a76c" stroke-width="0.8"></circle>
+    <path d="M9 4 L10.2 7.6 L14 7.6 L11 9.8 L12.2 13.4 L9 11.2 L5.8 13.4 L7 9.8 L4 7.6 L7.8 7.6 Z" fill="#b9a76c"></path>
+
+    
+    <circle cx="33" cy="9" r="8" fill="url(#pip-u)" stroke="#0e68ab" stroke-width="0.8"></circle>
+    <path d="M 33 3.7750000000000004 C 30.1015 8.45, 29.59 9.55, 29.59 10.65 A 3.41 3.2395 0 0 0 36.41 10.65 C 36.41 9.55, 35.8985 8.45, 33 3.7750000000000004 Z" fill="#0e68ab"></path>
+
+    
+    <circle cx="57" cy="9" r="8" fill="url(#pip-b)" stroke="#150b00" stroke-width="0.8"></circle>
+    <path d="M 57 4.71 C 60.6465 4.71, 61.5045 7.4985, 61.5045 9.429 C 61.5045 10.9305, 60.2175 11.3595, 59.574 11.3595 L 59.574 13.0755 L 54.426 13.0755 L 54.426 11.3595 C 53.7825 11.3595, 52.4955 10.9305, 52.4955 9.429 C 52.4955 7.4985, 53.3535 4.71, 57 4.71 Z" fill="#150b00"></path>
+    <ellipse cx="55.1982" cy="8.7855" rx="1.0296" ry="0.8580000000000001" fill="#cbc2bf"></ellipse>
+    <ellipse cx="58.8018" cy="8.7855" rx="1.0296" ry="0.8580000000000001" fill="#cbc2bf"></ellipse>
+    <path d="M 57 9.429 L 56.3994 10.9305 L 57.6006 10.9305 Z" fill="#cbc2bf"></path>
+    <path d="M 56.5281 13.0755 L 56.5281 11.788499999999999 L 57.4719 11.788499999999999 L 57.4719 13.0755 Z" fill="#cbc2bf"></path>
+    <path d="M 55.39554 13.0755 L 55.39554 12.238949999999999 L 55.86744 12.238949999999999 L 55.86744 13.0755 Z" fill="#cbc2bf"></path>
+    <path d="M 58.13256 13.0755 L 58.13256 12.238949999999999 L 58.60446 12.238949999999999 L 58.60446 13.0755 Z" fill="#cbc2bf"></path>
+
+    
+    <circle cx="81" cy="9" r="8" fill="url(#pip-r)" stroke="#d3202a" stroke-width="0.8"></circle>
+    <path d="M81 3 C 82.5 6 85 7 85 10 A4 4 0 0 1 77 10 C 77 8 78 6.5 79 5 C 79.3 7 80 7.5 81 7 C 80.8 5.5 80.7 4.3 81 3 Z" fill="#d3202a"></path>
+
+    
+    <circle cx="105" cy="9" r="8" fill="url(#pip-g)" stroke="#00733e" stroke-width="0.8"></circle>
+    <path d="M 105 3.7750000000000004 L 107.2 7.35 L 106.21 7.35 L 108.575 9.55 L 107.32375 9.55 L 109.95 12.025 L 105.99 12.025 L 105.99 14.225 L 104.01 14.225 L 104.01 12.025 L 100.05 12.025 L 102.67625 9.55 L 101.425 9.55 L 103.79 7.35 L 102.8 7.35 Z" fill="#00733e"></path>
+  </g>
+</svg>

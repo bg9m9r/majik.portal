@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 40" width="200" height="40" role="img" aria-label="Majik mana mark">
+  <title>Majik — WUBRG mark</title>
+  <defs>
+    <radialGradient id="m-w" cx="50%" cy="38%" r="60%">
+      <stop offset="0%" stop-color="#ffffff"></stop>
+      <stop offset="100%" stop-color="#fffbd5"></stop>
+    </radialGradient>
+    <radialGradient id="m-u" cx="50%" cy="38%" r="60%">
+      <stop offset="0%" stop-color="#cfecfd"></stop>
+      <stop offset="100%" stop-color="#aae0fa"></stop>
+    </radialGradient>
+    <radialGradient id="m-b" cx="50%" cy="38%" r="60%">
+      <stop offset="0%" stop-color="#e1d9d6"></stop>
+      <stop offset="100%" stop-color="#cbc2bf"></stop>
+    </radialGradient>
+    <radialGradient id="m-r" cx="50%" cy="38%" r="60%">
+      <stop offset="0%" stop-color="#ffcab4"></stop>
+      <stop offset="100%" stop-color="#f9aa8f"></stop>
+    </radialGradient>
+    <radialGradient id="m-g" cx="50%" cy="38%" r="60%">
+      <stop offset="0%" stop-color="#bce6cb"></stop>
+      <stop offset="100%" stop-color="#9bd3ae"></stop>
+    </radialGradient>
+  </defs>
+
+  
+  <g transform="translate(20,20)">
+    <circle r="18" fill="url(#m-w)" stroke="#b9a76c" stroke-width="1.5"></circle>
+    <path d="M 0 -10 L 2.6 -6 L 7.6 -5 L 4 -1.2 L 5 4 L 0 1.4 L -5 4 L -4 -1.2 L -7.6 -5 L -2.6 -6 Z" fill="#b9a76c"></path>
+  </g>
+
+  
+  <g transform="translate(60,20)">
+    <circle r="18" fill="url(#m-u)" stroke="#0e68ab" stroke-width="1.5"></circle>
+    <path d="M 0 -11.399999999999999 C -6.324 -1.2000000000000002, -7.4399999999999995 1.2000000000000002, -7.4399999999999995 3.5999999999999996 A 7.4399999999999995 7.068 0 0 0 7.4399999999999995 3.5999999999999996 C 7.4399999999999995 1.2000000000000002, 6.324 -1.2000000000000002, 0 -11.399999999999999 Z" fill="#0e68ab"></path>
+  </g>
+
+  
+  <g transform="translate(100,20)">
+    <circle r="18" fill="url(#m-b)" stroke="#150b00" stroke-width="1.5"></circle>
+    <path d="M 0 -9.36 C 7.9559999999999995 -9.36, 9.828 -3.276, 9.828 0.9359999999999999 C 9.828 4.212, 7.02 5.148, 5.616 5.148 L 5.616 8.892 L -5.616 8.892 L -5.616 5.148 C -7.02 5.148, -9.828 4.212, -9.828 0.9359999999999999 C -9.828 -3.276, -7.9559999999999995 -9.36, 0 -9.36 Z" fill="#150b00"></path>
+    <ellipse cx="-3.9311999999999996" cy="-0.46799999999999997" rx="2.2464" ry="1.8719999999999999" fill="#cbc2bf"></ellipse>
+    <ellipse cx="3.9311999999999996" cy="-0.46799999999999997" rx="2.2464" ry="1.8719999999999999" fill="#cbc2bf"></ellipse>
+    <path d="M 0 0.9359999999999999 L -1.3104 4.212 L 1.3104 4.212 Z" fill="#cbc2bf"></path>
+    <path d="M -1.0295999999999998 8.892 L -1.0295999999999998 6.084 L 1.0295999999999998 6.084 L 1.0295999999999998 8.892 Z" fill="#cbc2bf"></path>
+    <path d="M -3.5006399999999993 8.892 L -3.5006399999999993 7.0668 L -2.4710399999999995 7.0668 L -2.4710399999999995 8.892 Z" fill="#cbc2bf"></path>
+    <path d="M 2.4710399999999995 8.892 L 2.4710399999999995 7.0668 L 3.5006399999999993 7.0668 L 3.5006399999999993 8.892 Z" fill="#cbc2bf"></path>
+  </g>
+
+  
+  <g transform="translate(140,20)">
+    <circle r="18" fill="url(#m-r)" stroke="#d3202a" stroke-width="1.5"></circle>
+    <path d="M 0 -11 C 3 -6 7 -3 7 3 A 7 7 0 0 1 -7 3 C -7 -1 -5 -4 -3 -7 C -2.5 -3 -1 -2 0 -3.5 C -0.3 -6 -0.4 -8.5 0 -11 Z" fill="#d3202a"></path>
+  </g>
+
+  
+  <g transform="translate(180,20)">
+    <circle r="18" fill="url(#m-g)" stroke="#00733e" stroke-width="1.5"></circle>
+    <path d="M 0 -11.399999999999999 L 4.800000000000001 -3.5999999999999996 L 2.6400000000000006 -3.5999999999999996 L 7.800000000000001 1.2000000000000002 L 5.07 1.2000000000000002 L 10.8 6.6000000000000005 L 2.16 6.6000000000000005 L 2.16 11.399999999999999 L -2.16 11.399999999999999 L -2.16 6.6000000000000005 L -10.8 6.6000000000000005 L -5.07 1.2000000000000002 L -7.800000000000001 1.2000000000000002 L -2.6400000000000006 -3.5999999999999996 L -4.800000000000001 -3.5999999999999996 Z" fill="#00733e"></path>
+  </g>
+</svg>
