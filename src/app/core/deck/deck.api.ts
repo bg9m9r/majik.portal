@@ -3,13 +3,14 @@ import { Injectable, inject } from '@angular/core';
 import { Observable, throwError } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import { environment } from '../../../environments/environment';
-import { CreateDeckRequest, Deck, DeckError, DeckErrorCode, UpdateDeckRequest } from './deck.types';
+import { CreateDeckRequest, Deck, DeckError, DeckErrorCode, ParsedDeck, UpdateDeckRequest } from './deck.types';
 
 interface DeckErrorWire { error?: string; detail?: string; validation?: string[] }
 
 const KNOWN_CODES: ReadonlySet<DeckErrorCode> = new Set<DeckErrorCode>([
   'invalid-deck', 'name-taken', 'deck-cap-reached', 'deck-not-found',
   'concurrent-edit', 'mongo-not-configured', 'no-profile', 'network', 'unknown',
+  'empty-text', 'too-large',
 ]);
 
 function mapDeckError(err: unknown): Observable<never> {
@@ -49,5 +50,9 @@ export class DeckApi {
 
   delete(id: string): Observable<void> {
     return this.http.delete<void>(`${this.base}/decks/${encodeURIComponent(id)}`).pipe(catchError(mapDeckError));
+  }
+
+  parse(text: string): Observable<ParsedDeck> {
+    return this.http.post<ParsedDeck>(`${this.base}/decks/parse`, { text }).pipe(catchError(mapDeckError));
   }
 }

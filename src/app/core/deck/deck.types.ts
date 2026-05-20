@@ -30,10 +30,19 @@ export type DeckErrorCode =
   | 'mongo-not-configured'
   | 'no-profile'
   | 'network'
-  | 'unknown';
+  | 'unknown'
+  | 'empty-text'
+  | 'too-large';
 
 export interface DeckError {
   code: DeckErrorCode;
   validation?: string[];
   detail?: string;
+}
+
+export interface ParsedDeck {
+  mainboard: DeckCardEntry[];
+  sideboard: DeckCardEntry[];
+  unknown: string[];
+  warnings: string[];
 }

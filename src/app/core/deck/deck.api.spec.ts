@@ -99,4 +99,28 @@ describe('DeckApi', () => {
       .error(new ProgressEvent('error'), { status: 0, statusText: 'Unknown Error' });
     expect((await p as DeckError).code).toBe('network');
   });
+
+  it('parse POSTs /decks/parse with text body', async () => {
+    const p = firstValueFrom(api.parse('60 Forest'));
+    const req = http.expectOne(r => r.method === 'POST' && r.url.endsWith('/decks/parse'));
+    expect(req.request.body).toEqual({ text: '60 Forest' });
+    req.flush({ mainboard: [{ name: 'Forest', count: 60 }], sideboard: [], unknown: [], warnings: [] });
+    const result = await p;
+    expect(result.mainboard).toHaveLength(1);
+    expect(result.mainboard[0]).toEqual({ name: 'Forest', count: 60 });
+  });
+
+  it('parse 400 empty-text maps to DeckError', async () => {
+    const p = firstValueFrom(api.parse('')).catch(e => e as DeckError);
+    http.expectOne(r => r.url.endsWith('/decks/parse'))
+      .flush({ error: 'empty-text' }, { status: 400, statusText: 'Bad Request' });
+    expect(((await p) as DeckError).code).toBe('empty-text');
+  });
+
+  it('parse 400 too-large maps to DeckError', async () => {
+    const p = firstValueFrom(api.parse('x'.repeat(100_001))).catch(e => e as DeckError);
+    http.expectOne(r => r.url.endsWith('/decks/parse'))
+      .flush({ error: 'too-large' }, { status: 400, statusText: 'Bad Request' });
+    expect(((await p) as DeckError).code).toBe('too-large');
+  });
 });
