@@ -44,7 +44,7 @@ import { CardFiltersComponent } from './card-filters.component';
                       class="w-full"
                       (click)="add.emit(c.name)"
                       [attr.aria-label]="'Add ' + c.name">
-                <app-card-tile [name]="c.name" [count]="0" />
+                <app-card-tile [name]="c.name" [count]="0" [card]="c" />
               </button>
             </li>
           }
