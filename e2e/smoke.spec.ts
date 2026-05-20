@@ -31,33 +31,29 @@ async function openAs(browser: Browser, stubName: string): Promise<{ context: Br
 }
 
 test.describe('two-player smoke', () => {
-  test('alice creates, bob joins, seats claimed, game starts', async ({ browser }) => {
+  test('alice creates public match, bob joins, both observe rolling', async ({ browser }) => {
     const alice = await openAs(browser, 'alice');
     const bob = await openAs(browser, 'bob');
 
-    // Alice creates a game
+    // Alice creates a public match via wizard
     await alice.page.goto('/lobby');
-    await alice.page.getByRole('button', { name: 'Create game' }).click();
-    await alice.page.waitForURL(/\/game\/[0-9a-f-]+/, { timeout: 10_000 });
+    await alice.page.getByRole('textbox').fill('starter-burn');
+    // Public toggle already default; 20 min already default
+    await alice.page.getByRole('button', { name: 'Create match' }).click();
+    await alice.page.waitForURL(/\/match\/[0-9a-f-]+/, { timeout: 10_000 });
 
-    const gameUrl = new URL(alice.page.url()).pathname;
-    expect(gameUrl).toMatch(/\/game\/[0-9a-f-]+/);
+    const matchUrl = new URL(alice.page.url()).pathname;
+    expect(matchUrl).toMatch(/\/match\/[0-9a-f-]+/);
 
-    // Both claim seats — alice grabs first, bob the other
-    await alice.page.getByRole('button', { name: 'Claim' }).first().click();
-    await expect(alice.page.getByRole('button', { name: 'Yours' })).toBeVisible({ timeout: 5_000 });
+    // Bob opens lobby, sees the public match, clicks Open
+    await bob.page.goto('/lobby');
+    await bob.page.waitForTimeout(1_000); // Wait for list to load
+    await bob.page.getByRole('button', { name: 'Open' }).first().click();
+    await bob.page.waitForURL(/\/match\/[0-9a-f-]+/, { timeout: 10_000 });
 
-    await bob.page.goto(gameUrl);
-    await bob.page.getByRole('button', { name: 'Claim' }).first().click();
-    await expect(bob.page.getByRole('button', { name: 'Yours' })).toBeVisible({ timeout: 5_000 });
-
-    // Alice starts the game
-    await alice.page.getByRole('button', { name: 'Start game' }).click();
-    await expect(alice.page.getByText(/Game started/i)).toBeVisible({ timeout: 10_000 });
-
-    // Hub state should flip to 'open' on both sides
-    await expect(alice.page.getByText(/hub: open/)).toBeVisible({ timeout: 5_000 });
-    await expect(bob.page.getByText(/hub: open/)).toBeVisible({ timeout: 5_000 });
+    // Both observe Rolling state
+    await expect(alice.page.getByText(/Roll for first player|Starting|Opponent joined/i)).toBeVisible({ timeout: 10_000 });
+    await expect(bob.page.getByText(/Roll for first player|Starting|Opponent joined/i)).toBeVisible({ timeout: 10_000 });
 
     await alice.context.close();
     await bob.context.close();
