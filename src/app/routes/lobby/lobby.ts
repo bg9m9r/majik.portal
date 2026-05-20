@@ -4,17 +4,21 @@ import { Match } from '../../core/match/match.types';
 import { MatchService } from '../../core/match/match.service';
 import { AuthService } from '../../core/auth/auth.service';
 import { ProfileService } from '../../core/profile/profile.service';
+import { RouterLink } from '@angular/router';
 import { CreateMatchWizardComponent } from '../match/components/create-match-wizard.component';
 
 @Component({
   selector: 'app-lobby',
   standalone: true,
-  imports: [CreateMatchWizardComponent],
+  imports: [CreateMatchWizardComponent, RouterLink],
   template: `
     <main class="mx-auto flex max-w-3xl flex-col gap-6 p-8">
       <header class="flex items-center justify-between">
         <h1 class="majik-display-2">Lobby</h1>
-        <span class="text-sm opacity-70">{{ profile.handle() ?? auth.principal()?.sub }}</span>
+        <nav class="flex items-center gap-4 text-sm">
+          <a routerLink="/decks" class="opacity-80 hover:text-[color:var(--majik-accent)]">Decks</a>
+          <span class="opacity-70">{{ profile.handle() ?? auth.principal()?.sub }}</span>
+        </nav>
       </header>
 
       <section class="rounded border border-[color:var(--majik-line)] p-4">

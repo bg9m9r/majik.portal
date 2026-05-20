@@ -19,6 +19,11 @@ export const routes: Routes = [
     loadComponent: () => import('./routes/lobby/lobby').then(m => m.LobbyPage)
   },
   {
+    path: 'decks',
+    canActivate: [authGuard, onboardingGuard],
+    loadChildren: () => import('./routes/decks/decks.routes').then(m => m.DECKS_ROUTES)
+  },
+  {
     path: 'match/:id',
     canActivate: [authGuard, onboardingGuard],
     loadComponent: () => import('./routes/match/match').then(m => m.MatchPage)
