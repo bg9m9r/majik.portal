@@ -1,5 +1,5 @@
 import { Component, computed, input } from '@angular/core';
-import { CardSnapshotDto } from '../core/api/models/card-snapshot-dto';
+import { CardSnapshot } from '../core/match/match.types';
 import { ManaCostComponent } from './mana-cost.component';
 
 @Component({
@@ -35,7 +35,7 @@ import { ManaCostComponent } from './mana-cost.component';
   `
 })
 export class CardViewComponent {
-  readonly snapshot = input<CardSnapshotDto | null>(null);
+  readonly snapshot = input<CardSnapshot | null>(null);
   readonly hidden = input<boolean>(false);
 
   readonly typeLine = computed(() => (this.snapshot()?.types ?? []).join(' '));

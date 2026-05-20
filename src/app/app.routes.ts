@@ -19,9 +19,9 @@ export const routes: Routes = [
     loadComponent: () => import('./routes/lobby/lobby').then(m => m.LobbyPage)
   },
   {
-    path: 'game/:id',
+    path: 'match/:id',
     canActivate: [authGuard, onboardingGuard],
-    loadComponent: () => import('./routes/game/game').then(m => m.GamePage)
+    loadComponent: () => import('./routes/match/match').then(m => m.MatchPage)
   },
   { path: '**', redirectTo: 'lobby' }
 ];

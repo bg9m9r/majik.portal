@@ -1,8 +1,6 @@
 import { Component, computed, input, output, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { CardSnapshotDto } from '../../../core/api/models/card-snapshot-dto';
-import { GameStateDto } from '../../../core/api/models/game-state-dto';
-import { PlayerDto } from '../../../core/api/models/player-dto';
+import { CardSnapshot, GameState, GamePlayer } from '../../../core/match/match.types';
 
 interface PromptInfo {
   expectedKinds?: string[];
@@ -24,7 +22,7 @@ export interface PromptDecision {
 }
 
 interface CandidateCard {
-  card: CardSnapshotDto;
+  card: CardSnapshot;
   zone: 'battlefield' | 'hand';
   controllerName: string;
 }
@@ -243,7 +241,7 @@ function detectKind(kinds: string[] | undefined): PromptKind {
   `
 })
 export class PromptOverlayComponent {
-  readonly state = input<GameStateDto | null>(null);
+  readonly state = input<GameState | null>(null);
   readonly prompt = input<PromptInfo | null>(null);
   readonly selfPlayerIds = input<string[]>([]);
 
@@ -257,29 +255,29 @@ export class PromptOverlayComponent {
 
   readonly kind = computed<PromptKind>(() => detectKind(this.prompt()?.expectedKinds));
 
-  readonly self = computed<PlayerDto | null>(() => {
+  readonly self = computed<GamePlayer | null>(() => {
     const s = this.state();
     if (!s) return null;
     const owned = this.selfPlayerIds();
     return s.players.find(p => owned.includes(p.id)) ?? null;
   });
 
-  readonly selfHand = computed<CardSnapshotDto[]>(() => this.self()?.hand.cards ?? []);
+  readonly selfHand = computed<CardSnapshot[]>(() => this.self()?.hand.cards ?? []);
 
-  readonly opponent = computed<PlayerDto | null>(() => {
+  readonly opponent = computed<GamePlayer | null>(() => {
     const s = this.state();
     if (!s) return null;
     const me = this.self();
     return s.players.find(p => p.id !== me?.id) ?? null;
   });
 
-  readonly selfCreatures = computed<CardSnapshotDto[]>(() =>
+  readonly selfCreatures = computed<CardSnapshot[]>(() =>
     (this.self()?.battlefield.cards ?? []).filter(c =>
       (c.types ?? []).some(t => t.toLowerCase().includes('creature'))
     )
   );
 
-  readonly attackerList = computed<CardSnapshotDto[]>(() =>
+  readonly attackerList = computed<CardSnapshot[]>(() =>
     (this.opponent()?.battlefield.cards ?? []).filter(c => c.tapped &&
       (c.types ?? []).some(t => t.toLowerCase().includes('creature'))
     )

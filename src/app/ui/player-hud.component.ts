@@ -1,5 +1,5 @@
 import { Component, computed, input } from '@angular/core';
-import { PlayerDto } from '../core/api/models/player-dto';
+import { GamePlayer } from '../core/match/match.types';
 
 @Component({
   selector: 'app-player-hud',
@@ -35,7 +35,7 @@ import { PlayerDto } from '../core/api/models/player-dto';
   `
 })
 export class PlayerHudComponent {
-  readonly player = input<PlayerDto | null>(null);
+  readonly player = input<GamePlayer | null>(null);
   readonly active = input<boolean>(false);
   readonly label = input<string>('player');
 

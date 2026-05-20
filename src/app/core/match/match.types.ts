@@ -59,6 +59,48 @@ export interface CreateMatchRequest {
 export interface JoinMatchRequest { deckId: string }
 export interface PlayDrawRequest { choice: 'play' | 'draw' }
 
+// Minimal game-state types (engine integration ships in a later sub-project;
+// these stand-ins keep the board/prompt components compilable with no generated DTOs.)
+export interface CardSnapshot {
+  instanceId: string;
+  name: string;
+  manaCost: string;
+  types: string[];
+  power: number | null;
+  toughness: number | null;
+  tapped: boolean;
+  summoningSickness: boolean;
+}
+
+export interface ZoneSnapshot { cards: CardSnapshot[] }
+
+export interface ManaPool {
+  white: number; blue: number; black: number;
+  red: number; green: number; colorless: number; generic: number;
+}
+
+export interface GamePlayer {
+  id: string;
+  name: string;
+  life: number;
+  mana: ManaPool;
+  hand: ZoneSnapshot;
+  library: ZoneSnapshot;
+  graveyard: ZoneSnapshot;
+  exile: ZoneSnapshot;
+  battlefield: ZoneSnapshot;
+}
+
+export interface StackItem { id: string; kind: string; description: string }
+
+export interface GameState {
+  phase: string;
+  turnNumber: number;
+  activePlayerId: string;
+  players: GamePlayer[];
+  stack: StackItem[];
+}
+
 // SignalR event payloads
 export interface StateChangedPayload { matchId: string; state: MatchState; transitionedAt: string }
 export interface OpponentJoinedPayload { matchId: string; opponent: MatchPlayer }

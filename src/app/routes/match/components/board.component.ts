@@ -1,7 +1,5 @@
 import { Component, computed, input, output } from '@angular/core';
-import { GameStateDto } from '../../../core/api/models/game-state-dto';
-import { PlayerDto } from '../../../core/api/models/player-dto';
-import { CardSnapshotDto } from '../../../core/api/models/card-snapshot-dto';
+import { GameState, GamePlayer, CardSnapshot } from '../../../core/match/match.types';
 import { CardViewComponent } from '../../../ui/card-view.component';
 import { PlayerHudComponent } from '../../../ui/player-hud.component';
 import { PhaseBarComponent } from '../../../ui/phase-bar.component';
@@ -90,27 +88,27 @@ import { ActionBarComponent } from './action-bar.component';
   `
 })
 export class BoardComponent {
-  readonly state = input<GameStateDto | null>(null);
+  readonly state = input<GameState | null>(null);
   readonly selfPlayerIds = input<string[]>([]);
   readonly currentPrompt = input<{ expectedKinds?: string[]; description?: string } | null>(null);
   readonly passClicked = output<void>();
-  readonly handCardClicked = output<CardSnapshotDto>();
+  readonly handCardClicked = output<CardSnapshot>();
 
-  readonly self = computed<PlayerDto | null>(() => {
+  readonly self = computed<GamePlayer | null>(() => {
     const s = this.state();
     if (!s) return null;
     const owned = this.selfPlayerIds();
     return s.players.find(p => owned.includes(p.id)) ?? s.players[0] ?? null;
   });
 
-  readonly opponent = computed<PlayerDto | null>(() => {
+  readonly opponent = computed<GamePlayer | null>(() => {
     const s = this.state();
     if (!s) return null;
     const me = this.self();
     return s.players.find(p => p.id !== me?.id) ?? null;
   });
 
-  readonly opponentHidden = computed<CardSnapshotDto[]>(() => {
+  readonly opponentHidden = computed<CardSnapshot[]>(() => {
     const opp = this.opponent();
     return opp?.hand.cards ?? [];
   });
