@@ -52,8 +52,8 @@ test.describe('two-player smoke', () => {
     await bob.page.waitForURL(/\/match\/[0-9a-f-]+/, { timeout: 10_000 });
 
     // Both observe Rolling state
-    await expect(alice.page.getByText(/Roll for first player|Starting|Opponent joined/i)).toBeVisible({ timeout: 10_000 });
-    await expect(bob.page.getByText(/Roll for first player|Starting|Opponent joined/i)).toBeVisible({ timeout: 10_000 });
+    await expect(alice.page.getByText(/Rolling dice|Roll for first player|Starting|Opponent joined/i)).toBeVisible({ timeout: 10_000 });
+    await expect(bob.page.getByText(/Rolling dice|Roll for first player|Starting|Opponent joined/i)).toBeVisible({ timeout: 10_000 });
 
     await alice.context.close();
     await bob.context.close();
