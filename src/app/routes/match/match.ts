@@ -1,4 +1,4 @@
-import { Component, DestroyRef, OnDestroy, OnInit, inject, signal } from '@angular/core';
+import { Component, DestroyRef, OnDestroy, OnInit, computed, effect, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { MatchService } from '../../core/match/match.service';
@@ -69,6 +69,46 @@ export class MatchPage implements OnInit, OnDestroy {
   readonly loadError = signal<string | null>(null);
   readonly current = this.matchSvc.current;
 
+  private rollSubmitted = false;
+
+  readonly ownRoll = computed(() => {
+    const m = this.matchSvc.current();
+    const sub = this.auth.principal()?.sub;
+    if (!m || !sub) return null;
+    const isCreator = sub === m.creator.sub;
+    return (isCreator ? m.roll?.creatorRoll : m.roll?.opponentRoll) ?? null;
+  });
+
+  readonly opponentRoll = computed(() => {
+    const m = this.matchSvc.current();
+    const sub = this.auth.principal()?.sub;
+    if (!m || !sub) return null;
+    const isCreator = sub === m.creator.sub;
+    return (isCreator ? m.roll?.opponentRoll : m.roll?.creatorRoll) ?? null;
+  });
+
+  readonly winnerHandle = computed(() => {
+    const m = this.matchSvc.current();
+    if (!m?.roll?.winnerSub) return null;
+    return m.roll.winnerSub === m.creator.sub ? m.creator.handle : m.opponent?.handle ?? null;
+  });
+
+  constructor() {
+    effect(() => {
+      const m = this.matchSvc.current();
+      if (!m || m.state !== 'Rolling' || this.rollSubmitted) return;
+      const sub = this.auth.principal()?.sub;
+      if (!sub) return;
+      const isCreator = sub === m.creator.sub;
+      const slotFilled = isCreator ? m.roll?.creatorRoll != null : m.roll?.opponentRoll != null;
+      if (slotFilled) return;
+      this.rollSubmitted = true;
+      void this.matchSvc.submitRoll(m.id).then(r => {
+        if (!r.ok) this.rollSubmitted = false;
+      });
+    });
+  }
+
   ngOnInit(): void {
     void this.load();
   }
@@ -89,6 +129,7 @@ export class MatchPage implements OnInit, OnDestroy {
     this.signalr.opponentJoined$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => this.refresh());
     this.signalr.stateChanged$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => this.refresh());
     this.signalr.rolled$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => this.refresh());
+    this.signalr.playerRolled$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => this.refresh());
     this.signalr.playDrawChosen$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => this.refresh());
     this.signalr.clockUpdate$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => this.refresh());
     this.signalr.timedOut$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => this.refresh());

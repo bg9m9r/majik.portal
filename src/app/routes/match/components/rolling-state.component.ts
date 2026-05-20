@@ -1,5 +1,6 @@
-import { Component, input } from '@angular/core';
+import { Component, computed, inject, input } from '@angular/core';
 import { Match } from '../../../core/match/match.types';
+import { AuthService } from '../../../core/auth/auth.service';
 
 @Component({
   selector: 'app-rolling-state',
@@ -10,33 +11,35 @@ import { Match } from '../../../core/match/match.types';
 
       <div class="flex items-center gap-8">
         <div class="flex flex-col items-center gap-1">
-          <span class="text-xs opacity-60">{{ match().creator.handle }}</span>
+          <span class="text-xs opacity-60">You</span>
           <div class="flex h-16 w-16 items-center justify-center rounded border border-[color:var(--majik-line)] text-3xl majik-mono">
-            {{ creatorRoll() }}
+            {{ ownRollDisplay() }}
           </div>
         </div>
 
         <span class="majik-h3 opacity-40">vs</span>
 
         <div class="flex flex-col items-center gap-1">
-          <span class="text-xs opacity-60">{{ match().opponent?.handle ?? '???' }}</span>
+          <span class="text-xs opacity-60">Opponent</span>
           <div class="flex h-16 w-16 items-center justify-center rounded border border-[color:var(--majik-line)] text-3xl majik-mono">
-            {{ opponentRoll() }}
+            {{ opponentRollDisplay() }}
           </div>
         </div>
       </div>
 
-      @if (match().roll; as r) {
+      @if (winnerHandle(); as w) {
         <p class="text-sm opacity-70">
-          Winner: <span class="text-[color:var(--majik-accent)]">{{ winnerHandle() }}</span>
+          Winner: <span class="text-[color:var(--majik-accent)]">{{ w }}</span>
         </p>
       } @else {
-        <p class="text-sm opacity-50">Rolling dice…</p>
+        <p class="text-sm opacity-50">Waiting for both rolls…</p>
       }
     </div>
   `,
 })
 export class RollingStateComponent {
+  private readonly auth = inject(AuthService);
+
   readonly match = input.required<Match>();
 
   stateLabel(): string {
@@ -46,20 +49,31 @@ export class RollingStateComponent {
     return 'Roll for first player';
   }
 
-  creatorRoll(): string {
-    return this.match().roll ? String(this.match().roll!.creatorRoll) : '—';
+  private isCreator(): boolean {
+    const sub = this.auth.principal()?.sub;
+    return !!sub && sub === this.match().creator.sub;
   }
 
-  opponentRoll(): string {
-    return this.match().roll ? String(this.match().roll!.opponentRoll) : '—';
-  }
-
-  winnerHandle(): string {
+  ownRollDisplay(): string {
     const r = this.match().roll;
-    if (!r) return '';
+    if (!r) return '—';
+    const val = this.isCreator() ? r.creatorRoll : r.opponentRoll;
+    return val != null ? String(val) : '—';
+  }
+
+  opponentRollDisplay(): string {
+    const r = this.match().roll;
+    if (!r) return '—';
+    const val = this.isCreator() ? r.opponentRoll : r.creatorRoll;
+    return val != null ? String(val) : '—';
+  }
+
+  winnerHandle(): string | null {
+    const r = this.match().roll;
+    if (!r?.winnerSub) return null;
     const m = this.match();
     if (r.winnerSub === m.creator.sub) return m.creator.handle;
     if (m.opponent && r.winnerSub === m.opponent.sub) return m.opponent.handle;
-    return r.winnerSub ?? '';
+    return r.winnerSub;
   }
 }
