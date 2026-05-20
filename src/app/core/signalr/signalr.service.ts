@@ -7,6 +7,7 @@ import {
   ClockUpdatePayload,
   OpponentJoinedPayload,
   PlayDrawChosenPayload,
+  PlayerRolledPayload,
   RolledPayload,
   StateChangedPayload,
   TimedOutPayload
@@ -38,6 +39,7 @@ export class SignalrService {
   readonly playDrawChosen$ = new Subject<PlayDrawChosenPayload>();
   readonly clockUpdate$ = new Subject<ClockUpdatePayload>();
   readonly timedOut$ = new Subject<TimedOutPayload>();
+  readonly playerRolled$ = new Subject<PlayerRolledPayload>();
 
   async connect(matchId: string): Promise<void> {
     if (this.connection && this.currentMatchId === matchId) {
@@ -64,6 +66,7 @@ export class SignalrService {
     this.connection.on('match.play-draw-chosen', (p: PlayDrawChosenPayload) => this.playDrawChosen$.next(p));
     this.connection.on('match.clock-update', (p: ClockUpdatePayload) => this.clockUpdate$.next(p));
     this.connection.on('match.timed-out', (p: TimedOutPayload) => this.timedOut$.next(p));
+    this.connection.on('match.player-rolled', (p: PlayerRolledPayload) => this.playerRolled$.next(p));
 
     this.connection.onclose(err => {
       this._state.set(err ? 'error' : 'closed');

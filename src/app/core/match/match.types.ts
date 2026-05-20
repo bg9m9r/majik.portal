@@ -108,3 +108,4 @@ export interface RolledPayload { matchId: string; roll: MatchRoll }
 export interface PlayDrawChosenPayload { matchId: string; choice: 'play' | 'draw'; firstPlayerSub: string }
 export interface ClockUpdatePayload { matchId: string; creatorMs: number; opponentMs: number; holder: string; startedAt: string }
 export interface TimedOutPayload { matchId: string; loserSub: string; winnerSub: string }
+export interface PlayerRolledPayload { matchId: string; sub: string; roll: number }
