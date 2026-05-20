@@ -1,0 +1,62 @@
+# Render Blueprint — Majik portal (Angular static site)
+# Deploy: connect this repo (github.com/bg9m9r/majik.portal) as a Blueprint on Render.
+#
+# Secrets to set after first sync (Render dashboard → service → Environment):
+#   MAJIK_API_URL          https://majik-api.onrender.com  (or custom domain — no trailing slash)
+#   DESCOPE_PROJECT_ID     <project id>
+#   DESCOPE_FLOW_ID        sign-up-or-in   (or 'discord' etc.)
+#   DESCOPE_REDIRECT_URL   https://majik-portal.onrender.com/auth/callback
+#
+# Build step bakes these into src/environments/environment.production.ts before `ng build`,
+# since Angular envs are compile-time. SignalR hub URL derives from MAJIK_API_URL.
+
+services:
+  - type: web
+    name: majik-portal
+    runtime: static
+    region: oregon
+    autoDeploy: true
+    buildCommand: |
+      set -e
+      npm ci
+      cat > src/environments/environment.production.ts <<EOF
+      export const environment = {
+        production: true,
+        apiBaseUrl: '${MAJIK_API_URL}',
+        signalRHubUrl: '${MAJIK_API_URL}/hubs/match',
+        descope: {
+          projectId: '${DESCOPE_PROJECT_ID}',
+          flowId: '${DESCOPE_FLOW_ID}',
+          baseUrl: '',
+          redirectUrl: '${DESCOPE_REDIRECT_URL}'
+        }
+      };
+      EOF
+      npm run build
+    staticPublishPath: ./dist/majik-portal/browser
+    pullRequestPreviewsEnabled: false
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /assets/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: MAJIK_API_URL
+        sync: false
+      - key: DESCOPE_PROJECT_ID
+        sync: false
+      - key: DESCOPE_FLOW_ID
+        value: sign-up-or-in
+      - key: DESCOPE_REDIRECT_URL
+        sync: false
