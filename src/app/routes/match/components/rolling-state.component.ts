@@ -60,6 +60,6 @@ export class RollingStateComponent {
     const m = this.match();
     if (r.winnerSub === m.creator.sub) return m.creator.handle;
     if (m.opponent && r.winnerSub === m.opponent.sub) return m.opponent.handle;
-    return r.winnerSub;
+    return r.winnerSub ?? '';
   }
 }

@@ -13,9 +13,9 @@ export interface MatchPlayer {
 }
 
 export interface MatchRoll {
-  creatorRoll: number;
-  opponentRoll: number;
-  winnerSub: string;
+  creatorRoll: number | null;
+  opponentRoll: number | null;
+  winnerSub: string | null;
 }
 
 export interface Match {
@@ -45,7 +45,7 @@ export type MatchErrorCode =
   | 'invalid-choice' | 'not-roll-winner' | 'cannot-concede'
   | 'match-in-progress' | 'forbidden' | 'no-profile'
   | 'private-match' | 'game-not-started' | 'mongo-not-configured'
-  | 'network' | 'unknown';
+  | 'not-a-player' | 'network' | 'unknown';
 
 export interface MatchError { code: MatchErrorCode; detail?: string }
 

@@ -42,6 +42,11 @@ export class MatchService {
       this.http.post<Match>(`${this.base}/${id}/play-draw`, body)));
   }
 
+  async submitRoll(id: string): Promise<Result<Match>> {
+    return this.req(() => firstValueFrom(
+      this.http.post<Match>(`${this.base}/${id}/roll`, {})));
+  }
+
   async concede(id: string): Promise<Result<Match>> {
     return this.req(() => firstValueFrom(
       this.http.post<Match>(`${this.base}/${id}/concede`, {})));
