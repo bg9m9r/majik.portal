@@ -1,18 +1,34 @@
-import { Component, output, signal } from '@angular/core';
+import { Component, computed, inject, output, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
+import { DecksStore } from '../../../core/deck/deck.store';
 import { ClockMinutes, CreateMatchRequest, MatchVisibility } from '../../../core/match/match.types';
 
 @Component({
   selector: 'app-create-match-wizard',
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, RouterLink],
   template: `
     <form class="flex flex-col gap-4" (submit)="submit($event)">
-      <label class="flex flex-col gap-1 text-sm">
+      <div class="flex flex-col gap-1 text-sm">
         <span class="majik-micro">Deck</span>
-        <input class="rounded border border-[color:var(--majik-line)] bg-black/30 px-3 py-2"
-               [(ngModel)]="deckId" name="deckId" placeholder="e.g. starter-burn" required />
-      </label>
+        @if (decks.count() === 0) {
+          <p class="text-xs opacity-60">
+            No decks yet.
+            <a routerLink="/decks/new" class="text-[color:var(--majik-accent)] underline">Build a deck</a>
+          </p>
+        } @else {
+          <select class="rounded border border-[color:var(--majik-line)] bg-black/30 px-3 py-2"
+                  [ngModel]="deckId()" (ngModelChange)="deckId.set($event)"
+                  name="deckId" required>
+            <option value="" disabled>Pick a deck</option>
+            @for (d of decks.all(); track d.id) {
+              <option [value]="d.id">{{ d.name }}</option>
+            }
+          </select>
+        }
+      </div>
+
       <div class="flex flex-col gap-1 text-sm">
         <span class="majik-micro">Visibility</span>
         <div class="flex gap-2">
@@ -27,6 +43,7 @@ import { ClockMinutes, CreateMatchRequest, MatchVisibility } from '../../../core
           }
         </div>
       </div>
+
       <div class="flex flex-col gap-1 text-sm">
         <span class="majik-micro">Clock</span>
         <div class="flex gap-2">
@@ -41,30 +58,35 @@ import { ClockMinutes, CreateMatchRequest, MatchVisibility } from '../../../core
           }
         </div>
       </div>
+
       <button type="submit"
-              class="self-start rounded border border-[color:var(--majik-accent)] px-4 py-2 text-[color:var(--majik-accent)] hover:bg-[color:var(--majik-accent)]/10">
+              class="self-start rounded border border-[color:var(--majik-accent)] px-4 py-2 text-[color:var(--majik-accent)] hover:bg-[color:var(--majik-accent)]/10 disabled:opacity-40"
+              [disabled]="!canSubmit()">
         Create match
       </button>
     </form>
   `,
 })
 export class CreateMatchWizardComponent {
+  readonly decks = inject(DecksStore);
   readonly create = output<CreateMatchRequest>();
 
   readonly visibilities: MatchVisibility[] = ['Public', 'Invite'];
   readonly clockOptions: ClockMinutes[] = [15, 20, 25, 30];
 
-  deckId = '';
+  readonly deckId = signal<string>('');
   readonly visibility = signal<MatchVisibility>('Public');
   readonly clockMinutes = signal<ClockMinutes>(20);
 
+  readonly canSubmit = computed(() => this.deckId().trim().length > 0);
+
   submit(evt: Event): void {
     evt.preventDefault();
-    if (!this.deckId.trim()) return;
+    if (!this.canSubmit()) return;
     this.create.emit({
       format: 'constructed',
       visibility: this.visibility(),
-      deckId: this.deckId.trim(),
+      deckId: this.deckId(),
       clockMinutes: this.clockMinutes(),
     });
   }
