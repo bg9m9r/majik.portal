@@ -35,7 +35,7 @@ describe('CardSearchStore', () => {
     expect(searchSpy).not.toHaveBeenCalled();
     vi.advanceTimersByTime(1);
     expect(searchSpy).toHaveBeenCalledTimes(1);
-    expect(searchSpy).toHaveBeenCalledWith('Forest', 50, 0);
+    expect(searchSpy).toHaveBeenCalledWith('Forest', 50, 0, {});
   });
 
   it('search results populate results + byName cache', () => {
@@ -62,5 +62,21 @@ describe('CardSearchStore', () => {
     vi.advanceTimersByTime(250);
     search$.error(new Error('boom'));
     expect(store.error()).toBe('search-failed');
+  });
+
+  it('setFilters triggers search with current query + new filters', () => {
+    store.setFilters({ colors: ['R'] });
+    expect(searchSpy).toHaveBeenCalledWith('', 50, 0, { colors: ['R'] });
+  });
+
+  it('setQuery preserves filters set previously', () => {
+    store.setFilters({ colors: ['R'] });
+    // Resolve the setFilters search so the Subject is not errored
+    search$.next([]);
+    store.setQuery('bolt');
+    vi.advanceTimersByTime(250);
+    const lastCall = searchSpy.mock.calls[searchSpy.mock.calls.length - 1];
+    expect(lastCall[0]).toBe('bolt');
+    expect(lastCall[3]).toEqual({ colors: ['R'] });
   });
 });

@@ -4,10 +4,11 @@ import { rxMethod } from '@ngrx/signals/rxjs-interop';
 import { tapResponse } from '@ngrx/operators';
 import { pipe, switchMap, tap, debounceTime, distinctUntilChanged, take } from 'rxjs';
 import { CardApi } from './card.api';
-import { Card } from './card.types';
+import { Card, CardFilters } from './card.types';
 
 type CardSearchState = {
   query: string;
+  filters: CardFilters;
   results: Card[];
   cache: Record<string, Card>;
   nextOffset: number;
@@ -17,6 +18,7 @@ type CardSearchState = {
 
 const initial: CardSearchState = {
   query: '',
+  filters: {},
   results: [],
   cache: {},
   nextOffset: 0,
@@ -48,7 +50,17 @@ export const CardSearchStore = signalStore(
       debounceTime(250),
       distinctUntilChanged(),
       tap(query => patchState(store, { query, loading: true, error: null, results: [], nextOffset: 0 })),
-      switchMap(query => api.search(query, 50, 0).pipe(
+      switchMap(query => api.search(query, 50, 0, store.filters()).pipe(
+        take(1),
+        tapResponse({
+          next: cards => patchState(store, s => mergeResults(s, cards, 0)),
+          error: () => patchState(store, { loading: false, error: 'search-failed' as const }),
+        })
+      ))
+    )),
+    setFilters: rxMethod<CardFilters>(pipe(
+      tap(filters => patchState(store, { filters, loading: true, error: null, results: [], nextOffset: 0 })),
+      switchMap(filters => api.search(store.query(), 50, 0, filters).pipe(
         take(1),
         tapResponse({
           next: cards => patchState(store, s => mergeResults(s, cards, 0)),
@@ -59,7 +71,7 @@ export const CardSearchStore = signalStore(
     loadMore: rxMethod<void>(pipe(
       switchMap(() => {
         const offset = store.nextOffset();
-        return api.search(store.query(), 50, offset).pipe(
+        return api.search(store.query(), 50, offset, store.filters()).pipe(
           take(1),
           tapResponse({
             next: cards => patchState(store, s => mergeResults(s, cards, offset)),
