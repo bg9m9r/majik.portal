@@ -11,80 +11,93 @@ import { MAJIK_AUTH_CONFIG } from '../../core/auth/auth.config';
   styles: [`
     :host { display: block; }
 
-    /* Descope widget overrides. The widget renders into light DOM with
-       its own panel chrome; we strip that so our outer frame is the
-       only visible container. */
+    /* Strip Descope's internal panel chrome so the widget reads as
+       part of our page, not a popover stuck on top of it. Targets the
+       common surface patterns regardless of which screen variant the
+       flow renders. */
+    :host ::ng-deep descope,
+    :host ::ng-deep descope-wc,
     :host ::ng-deep descope-sign-in-flow,
+    :host ::ng-deep descope-container,
+    :host ::ng-deep [data-id="container"],
+    :host ::ng-deep [data-type="container"],
+    :host ::ng-deep [class*="container"],
+    :host ::ng-deep [class*="Container"],
+    :host ::ng-deep [class*="card"],
+    :host ::ng-deep [class*="Card"],
+    :host ::ng-deep [class*="panel"],
+    :host ::ng-deep [class*="Panel"] {
+      background: transparent !important;
+      background-color: transparent !important;
+      border: none !important;
+      box-shadow: none !important;
+      padding: 0 !important;
+    }
+    :host ::ng-deep descope,
     :host ::ng-deep descope-wc {
       display: block;
       width: 100%;
     }
-    :host ::ng-deep descope-container,
-    :host ::ng-deep [data-id="container"] {
-      background: transparent !important;
-      border: none !important;
-      box-shadow: none !important;
-      padding: 0 !important;
+
+    /* Subtle vignette so the composition has weight without a hard panel */
+    .vignette::before {
+      content: "";
+      position: absolute;
+      inset: -40px;
+      background: radial-gradient(closest-side at center,
+                                  rgba(202, 167, 90, 0.06),
+                                  transparent 70%);
+      pointer-events: none;
+      z-index: -1;
     }
   `],
   template: `
     <main class="grid min-h-screen place-items-center px-6 py-12"
           style="background: var(--majik-bg); color: var(--majik-fg);">
-      <div class="flex w-full max-w-sm flex-col items-center gap-6">
+      <div class="vignette relative flex w-full max-w-xs flex-col items-center gap-8">
 
-        <header class="flex flex-col items-center gap-3">
+        <header class="flex flex-col items-center gap-4">
           <img
             src="logo/logo-icon.svg"
             alt=""
-            class="h-20 w-20 select-none"
+            class="h-24 w-24 select-none drop-shadow-[0_8px_24px_rgba(0,0,0,0.5)]"
             draggable="false" />
           <img
             src="logo/logo-majik-wordmark.svg"
             alt="Majik"
-            class="h-10 select-none"
+            class="h-9 select-none"
             draggable="false" />
-          <p class="text-center text-sm"
-             style="color: var(--majik-fg-muted);">
-            Open-source Magic: The Gathering rules engine.
-            <br />
-            1v1, desktop, free.
-          </p>
         </header>
 
+        <p class="text-center text-sm leading-relaxed"
+           style="color: var(--majik-fg-muted);">
+          Open-source Magic: The Gathering rules engine.<br />
+          1v1, desktop, free.
+        </p>
+
         @if (auth.isStub) {
-          <section class="w-full rounded-lg border p-6 text-center"
-                   style="border-color: var(--majik-line);
-                          background: var(--majik-surface-1);">
-            <p class="majik-micro mb-3">Auth stub mode</p>
-            <p class="majik-mono mb-4" style="color: var(--majik-fg-muted);">
-              signed in as <code class="majik-code">{{ auth.principal()?.sub }}</code>
-            </p>
-            <button
-              class="w-full rounded px-6 py-2 transition-colors"
-              style="border: 1px solid var(--majik-accent);
-                     color: var(--majik-accent);
-                     background: transparent;"
-              (mouseenter)="hover = true" (mouseleave)="hover = false"
-              [style.background]="hover ? 'var(--majik-accent-soft)' : 'transparent'"
-              (click)="continue()">
-              Enter
-            </button>
-          </section>
+          <button
+            class="w-full rounded px-6 py-2.5 text-sm font-medium transition-colors"
+            style="border: 1px solid var(--majik-accent);
+                   color: var(--majik-accent);
+                   background: transparent;"
+            (mouseenter)="hover = true" (mouseleave)="hover = false"
+            [style.background]="hover ? 'var(--majik-accent-soft)' : 'transparent'"
+            (click)="continue()">
+            Enter — stub user
+            <span class="ml-1 opacity-50">{{ auth.principal()?.sub }}</span>
+          </button>
         } @else {
-          <section class="w-full rounded-lg border p-6"
-                   style="border-color: var(--majik-line);
-                          background: var(--majik-surface-1);">
-            <descope
-              [flowId]="cfg.flowId"
-              theme="dark"
-              (error)="onError($event)"></descope>
-          </section>
+          <descope
+            [flowId]="cfg.flowId"
+            theme="dark"
+            (error)="onError($event)"></descope>
         }
 
-        <footer class="majik-micro flex items-center gap-2"
+        <footer class="majik-micro flex items-center gap-2 pt-4"
                 style="color: var(--majik-fg-faint);">
-          <span>SERVER</span>
-          <span style="color: var(--majik-fg-muted);">·</span>
+          <span>v0.1</span>
+          <span aria-hidden="true">·</span>
           <a href="https://github.com/bg9m9r/majik"
              target="_blank" rel="noopener"
              class="underline-offset-2 hover:underline"
