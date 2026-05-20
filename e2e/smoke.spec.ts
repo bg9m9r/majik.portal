@@ -59,3 +59,53 @@ test.describe('two-player smoke', () => {
     await bob.context.close();
   });
 });
+
+test.describe('deck builder smoke', () => {
+  test('alice builds a deck and uses it in lobby wizard', async ({ browser }) => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.goto('/?stub=alice');
+
+    // Walk onboarding if first time
+    try {
+      await page.waitForURL(/\/onboarding/, { timeout: 2_000 });
+      await page.getByRole('textbox').fill('alice-' + Math.floor(Math.random() * 100000));
+      await page.getByRole('button', { name: 'Save' }).click();
+      await page.waitForURL(/\/lobby/, { timeout: 10_000 });
+    } catch { /* already onboarded */ }
+
+    // Navigate to /decks
+    await page.getByRole('link', { name: 'Decks' }).click();
+    await page.waitForURL(/\/decks$/, { timeout: 5_000 });
+
+    // Click "Build a new deck"
+    await page.getByRole('link', { name: 'Build a new deck' }).first().click();
+    await page.waitForURL(/\/decks\/new$/, { timeout: 5_000 });
+
+    // Enter deck name
+    const deckName = 'Smoke ' + Math.floor(Math.random() * 100000);
+    await page.getByPlaceholder('My deck').fill(deckName);
+
+    // Search "Forest", click tile until 60
+    await page.getByPlaceholder('Search by name').fill('Forest');
+    await page.waitForTimeout(400); // debounce
+    const forestBtn = page.getByRole('button', { name: /Add Forest/ }).first();
+    await forestBtn.waitFor({ state: 'visible', timeout: 5_000 });
+    for (let i = 0; i < 60; i++) await forestBtn.click();
+
+    // Save
+    await page.getByRole('button', { name: 'Save' }).click();
+    await page.waitForURL(/\/decks$/, { timeout: 10_000 });
+
+    // Deck visible in list
+    await expect(page.getByText(deckName)).toBeVisible();
+
+    // Lobby wizard now shows the deck
+    await page.goto('/lobby');
+    await page.locator('select[name="deckId"]').waitFor({ timeout: 5_000 });
+    const options = await page.locator('select[name="deckId"] option').allTextContents();
+    expect(options).toContain(deckName);
+
+    await context.close();
+  });
+});
