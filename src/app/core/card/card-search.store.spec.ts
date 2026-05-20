@@ -6,7 +6,7 @@ import { Card } from './card.types';
 import { CardSearchStore } from './card-search.store';
 
 function makeCard(name: string): Card {
-  return { name, manaCost: '', types: ['Creature'], power: null, toughness: null, isImplemented: true };
+  return { name, manaCost: '', types: ['Creature'], power: null, toughness: null, isImplemented: true, cmc: null, colors: [], oracleText: null };
 }
 
 describe('CardSearchStore', () => {

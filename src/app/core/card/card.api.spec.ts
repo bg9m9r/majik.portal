@@ -37,4 +37,22 @@ describe('CardApi', () => {
     expect(cards).toEqual([]);
     http.verify();
   });
+
+  it('search includes colors/types/cmc as repeated query params', async () => {
+    const p = firstValueFrom(api.search('bolt', 50, 0, { colors: ['R'], types: ['Instant'], cmc: [1, 7] }));
+    const req = http.expectOne(r =>
+      r.method === 'GET' && r.url.includes('/cards') &&
+      r.params.getAll('colors')!.includes('R') &&
+      r.params.getAll('types')!.includes('Instant') &&
+      r.params.getAll('cmc')!.includes('1') &&
+      r.params.getAll('cmc')!.includes('7'));
+    req.flush([]);
+    await p;
+  });
+
+  it('search fires with empty q when filters present', async () => {
+    const p = firstValueFrom(api.search('', 50, 0, { colors: ['R'] }));
+    http.expectOne(r => r.url.includes('/cards')).flush([]);
+    await p;
+  });
 });

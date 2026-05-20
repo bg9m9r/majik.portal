@@ -15,7 +15,7 @@ const fixt = (over: Partial<Deck> = {}): Deck => ({
   createdAt: 't', updatedAt: 't', ...over
 });
 
-const forest: Card = { name: 'Forest', manaCost: '', types: ['Basic', 'Land'], power: null, toughness: null, isImplemented: true };
+const forest: Card = { name: 'Forest', manaCost: '', types: ['Basic', 'Land'], power: null, toughness: null, isImplemented: true, cmc: null, colors: [], oracleText: null };
 
 function setup({ api, byName }: { api?: Partial<DeckApi>; byName?: Record<string, Card> } = {}) {
   const router = { navigate: vi.fn() };

@@ -4,7 +4,7 @@ import { DeckCardEntry } from './deck.types';
 import { validateDeck } from './deck-validator';
 
 function card(over: Partial<Card>): Card {
-  return { name: '?', manaCost: '', types: ['Creature'], power: null, toughness: null, isImplemented: true, ...over };
+  return { name: '?', manaCost: '', types: ['Creature'], power: null, toughness: null, isImplemented: true, cmc: null, colors: [], oracleText: null, ...over };
 }
 
 const forest = card({ name: 'Forest', types: ['Basic', 'Land'] });
