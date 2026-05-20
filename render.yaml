@@ -14,7 +14,6 @@ services:
   - type: web
     name: majik-portal
     runtime: static
-    region: oregon
     autoDeploy: true
     buildCommand: |
       set -e
