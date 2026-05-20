@@ -18,6 +18,9 @@ services:
     buildCommand: |
       set -e
       npm ci
+      # Regenerate the typed API client from the deployed API's OpenAPI doc.
+      # src/app/core/api/ is gitignored, so we must rebuild it on every deploy.
+      MAJIK_API="${MAJIK_API_URL}" npm run openapi
       cat > src/environments/environment.production.ts <<EOF
       export const environment = {
         production: true,
