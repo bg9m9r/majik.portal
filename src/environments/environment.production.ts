@@ -1,7 +1,7 @@
 export const environment = {
   production: true,
   apiBaseUrl: '',
-  signalRHubUrl: '/hubs/game',
+  signalRHubUrl: '/hubs/match',
   descope: {
     projectId: '',
     flowId: 'sign-up-or-in',
