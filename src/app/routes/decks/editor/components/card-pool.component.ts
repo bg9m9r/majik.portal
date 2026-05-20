@@ -4,11 +4,12 @@ import { FormsModule } from '@angular/forms';
 import { CardSearchStore } from '../../../../core/card/card-search.store';
 import { Card } from '../../../../core/card/card.types';
 import { CardTileComponent } from '../../../../ui/card-tile.component';
+import { CardFiltersComponent } from './card-filters.component';
 
 @Component({
   selector: 'app-card-pool',
   standalone: true,
-  imports: [CardTileComponent, CdkDrag, CdkDropList, FormsModule],
+  imports: [CardTileComponent, CdkDrag, CdkDropList, FormsModule, CardFiltersComponent],
   template: `
     <section class="flex flex-col gap-3">
       <h2 class="majik-h3 opacity-60">Card pool</h2>
@@ -18,6 +19,8 @@ import { CardTileComponent } from '../../../../ui/card-tile.component';
              placeholder="Search by name"
              [ngModel]="search.query()"
              (ngModelChange)="search.setQuery($event)" />
+
+      <app-card-filters />
 
       @if (search.loading()) {
         <p class="text-xs opacity-50">Searching…</p>
