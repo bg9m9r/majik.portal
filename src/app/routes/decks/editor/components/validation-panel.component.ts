@@ -1,4 +1,5 @@
 import { Component, computed, inject } from '@angular/core';
+import { CardSearchStore } from '../../../../core/card/card-search.store';
 import { DeckEditorStore } from '../../../../core/deck/deck-editor.store';
 
 @Component({
@@ -14,6 +15,8 @@ import { DeckEditorStore } from '../../../../core/deck/deck-editor.store';
             <li class="text-xs text-red-200">{{ msg }}</li>
           }
         </ul>
+      } @else if (loading()) {
+        <p class="text-xs opacity-50">Loading card data…</p>
       } @else if (clientErrors().length === 0) {
         <p class="text-xs text-emerald-300">All rules pass.</p>
       } @else {
@@ -28,10 +31,12 @@ import { DeckEditorStore } from '../../../../core/deck/deck-editor.store';
 })
 export class ValidationPanelComponent {
   readonly store = inject(DeckEditorStore);
+  private readonly cards = inject(CardSearchStore);
   readonly clientErrors = computed(() => this.store.validation().errors);
   readonly serverErrors = computed(() => {
     const err = this.store.error();
     if (err && err.code === 'invalid-deck' && err.validation) return err.validation;
     return [];
   });
+  readonly loading = computed(() => this.cards.prefetching() > 0);
 }

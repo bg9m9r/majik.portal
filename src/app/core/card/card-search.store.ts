@@ -13,6 +13,9 @@ type CardSearchState = {
   cache: Record<string, Card>;
   nextOffset: number;
   loading: boolean;
+  // Number of in-flight ensureCached calls. Validator suppresses
+  // "unknown card" errors while > 0.
+  prefetching: number;
   error: 'search-failed' | null;
 };
 
@@ -23,6 +26,7 @@ const initial: CardSearchState = {
   cache: {},
   nextOffset: 0,
   loading: false,
+  prefetching: 0,
   error: null,
 };
 
@@ -50,6 +54,7 @@ export const CardSearchStore = signalStore(
       const missing = Array.from(new Set(names)).filter(n => !store.cache()[n]);
       if (missing.length === 0) return;
 
+      patchState(store, s => ({ prefetching: s.prefetching + 1 }));
       try {
         const cards = await firstValueFrom(api.getByName(missing));
         if (cards.length === 0) return;
@@ -60,6 +65,8 @@ export const CardSearchStore = signalStore(
         });
       } catch {
         // swallow; validator shows "unknown card" until next attempt
+      } finally {
+        patchState(store, s => ({ prefetching: Math.max(0, s.prefetching - 1) }));
       }
     },
     setQuery: rxMethod<string>(pipe(
