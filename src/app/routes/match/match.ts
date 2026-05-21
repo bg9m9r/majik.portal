@@ -33,6 +33,12 @@ import { Match } from '../../core/match/match.types';
         </div>
       </header>
       <section class="flex flex-1 flex-col">
+        @if (botThinking()) {
+          <div class="flex items-center gap-2 border-b border-[color:var(--majik-line)] px-3 py-1 text-sm text-[color:var(--majik-accent)] animate-pulse">
+            <span class="inline-block h-2 w-2 rounded-full bg-[color:var(--majik-accent)]"></span>
+            Bot is thinking…
+          </div>
+        }
         @if (loadError()) {
           <p class="p-6 text-red-300/80">{{ loadError() }}</p>
         } @else if (current(); as m) {
@@ -68,6 +74,7 @@ export class MatchPage implements OnInit, OnDestroy {
   readonly id = this.route.snapshot.paramMap.get('id') ?? '';
   readonly loadError = signal<string | null>(null);
   readonly current = this.matchSvc.current;
+  readonly botThinking = signal(false);
 
   private rollSubmitted = false;
 
@@ -96,6 +103,12 @@ export class MatchPage implements OnInit, OnDestroy {
   constructor() {
     effect(() => {
       const m = this.matchSvc.current();
+      if (m && (m.state === 'Completed' || m.state === 'Abandoned')) {
+        this.botThinking.set(false);
+      }
+    });
+    effect(() => {
+      const m = this.matchSvc.current();
       if (!m || m.state !== 'Rolling' || this.rollSubmitted) return;
       const sub = this.auth.principal()?.sub;
       if (!sub) return;
@@ -114,6 +127,7 @@ export class MatchPage implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.botThinking.set(false);
     void this.signalr.disconnect();
   }
 
@@ -133,6 +147,9 @@ export class MatchPage implements OnInit, OnDestroy {
     this.signalr.playDrawChosen$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => this.refresh());
     this.signalr.clockUpdate$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => this.refresh());
     this.signalr.timedOut$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => this.refresh());
+    this.signalr.botThinking$
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(p => this.botThinking.set(p.thinking));
   }
 
   private async refresh(): Promise<void> {

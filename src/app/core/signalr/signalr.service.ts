@@ -4,6 +4,7 @@ import { Subject } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { AuthService } from '../auth/auth.service';
 import {
+  BotThinkingPayload,
   ClockUpdatePayload,
   OpponentJoinedPayload,
   PlayDrawChosenPayload,
@@ -40,6 +41,7 @@ export class SignalrService {
   readonly clockUpdate$ = new Subject<ClockUpdatePayload>();
   readonly timedOut$ = new Subject<TimedOutPayload>();
   readonly playerRolled$ = new Subject<PlayerRolledPayload>();
+  readonly botThinking$ = new Subject<BotThinkingPayload>();
 
   async connect(matchId: string): Promise<void> {
     if (this.connection && this.currentMatchId === matchId) {
@@ -67,6 +69,7 @@ export class SignalrService {
     this.connection.on('match.clock-update', (p: ClockUpdatePayload) => this.clockUpdate$.next(p));
     this.connection.on('match.timed-out', (p: TimedOutPayload) => this.timedOut$.next(p));
     this.connection.on('match.player-rolled', (p: PlayerRolledPayload) => this.playerRolled$.next(p));
+    this.connection.on('match.bot-thinking', (p: BotThinkingPayload) => this.botThinking$.next(p));
 
     this.connection.onclose(err => {
       this._state.set(err ? 'error' : 'closed');

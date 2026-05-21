@@ -110,3 +110,4 @@ export interface PlayDrawChosenPayload { matchId: string; choice: 'play' | 'draw
 export interface ClockUpdatePayload { matchId: string; creatorMs: number; opponentMs: number; holder: string; startedAt: string }
 export interface TimedOutPayload { matchId: string; loserSub: string; winnerSub: string }
 export interface PlayerRolledPayload { matchId: string; sub: string; roll: number }
+export interface BotThinkingPayload { matchId: string; thinking: boolean }
