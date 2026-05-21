@@ -31,10 +31,11 @@ describe('CreateMatchWizardComponent (deck dropdown)', () => {
     expect(link).not.toBeNull();
   });
 
-  it('disables submit when no deck selected', () => {
-    const fx = render([d('a', 'Alpha')]);
+  it('auto-selects first deck so submit is enabled immediately', () => {
+    const fx = render([d('a', 'Alpha'), d('b', 'Beta')]);
+    expect(fx.componentInstance.deckId()).toBe('a');
     const btn = fx.nativeElement.querySelector('button[type="submit"]') as HTMLButtonElement;
-    expect(btn.disabled).toBe(true);
+    expect(btn.disabled).toBe(false);
   });
 
   it('emits create event with selected deckId', () => {
