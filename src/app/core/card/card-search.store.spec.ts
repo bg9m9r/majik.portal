@@ -31,11 +31,11 @@ describe('CardSearchStore', () => {
     vi.useFakeTimers();
   });
 
-  it('setQuery debounces 250ms then queries', () => {
+  it('setQuery debounces 400ms then queries', () => {
     store.setQuery('For');
     store.setQuery('Fore');
     store.setQuery('Forest');
-    vi.advanceTimersByTime(249);
+    vi.advanceTimersByTime(399);
     expect(searchSpy).not.toHaveBeenCalled();
     vi.advanceTimersByTime(1);
     expect(searchSpy).toHaveBeenCalledTimes(1);
@@ -44,7 +44,7 @@ describe('CardSearchStore', () => {
 
   it('search results populate results + byName cache', () => {
     store.setQuery('Forest');
-    vi.advanceTimersByTime(250);
+    vi.advanceTimersByTime(400);
     search$.next([makeCard('Forest'), makeCard('Mountain')]);
     expect(store.results()).toHaveLength(2);
     expect(store.byName()['Forest']?.name).toBe('Forest');
@@ -53,7 +53,7 @@ describe('CardSearchStore', () => {
 
   it('loadMore appends', () => {
     store.setQuery('a');
-    vi.advanceTimersByTime(250);
+    vi.advanceTimersByTime(400);
     search$.next([makeCard('A1'), makeCard('A2')]);
     store.loadMore();
     search$.next([makeCard('A3')]);
@@ -63,7 +63,7 @@ describe('CardSearchStore', () => {
 
   it('error sets error flag', () => {
     store.setQuery('x');
-    vi.advanceTimersByTime(250);
+    vi.advanceTimersByTime(400);
     search$.error(new Error('boom'));
     expect(store.error()).toBe('search-failed');
   });
@@ -78,7 +78,7 @@ describe('CardSearchStore', () => {
     // Resolve the setFilters search so the Subject is not errored
     search$.next([]);
     store.setQuery('bolt');
-    vi.advanceTimersByTime(250);
+    vi.advanceTimersByTime(400);
     const lastCall = searchSpy.mock.calls[searchSpy.mock.calls.length - 1];
     expect(lastCall[0]).toBe('bolt');
     expect(lastCall[3]).toEqual({ colors: ['R'] });
@@ -117,7 +117,7 @@ describe('CardSearchStore', () => {
     it('skips names already in cache — does not call getByName', async () => {
       // Populate cache via a search first
       store.setQuery('Forest');
-      vi.advanceTimersByTime(250);
+      vi.advanceTimersByTime(400);
       search$.next([makeCard('Forest')]);
 
       const callsBefore = getByNameSpy.mock.calls.length;
@@ -127,7 +127,7 @@ describe('CardSearchStore', () => {
 
     it('does nothing when all names are already cached', async () => {
       store.setQuery('Mountain');
-      vi.advanceTimersByTime(250);
+      vi.advanceTimersByTime(400);
       search$.next([makeCard('Mountain')]);
 
       const callsBefore = getByNameSpy.mock.calls.length;

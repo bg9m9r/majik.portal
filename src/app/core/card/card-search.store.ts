@@ -63,7 +63,9 @@ export const CardSearchStore = signalStore(
       }
     },
     setQuery: rxMethod<string>(pipe(
-      debounceTime(250),
+      // 400ms debounce — typical typing rate is ~150ms/char, so a user
+      // pausing at the end of a word triggers exactly one search request.
+      debounceTime(400),
       distinctUntilChanged(),
       tap(query => patchState(store, { query, loading: true, error: null, results: [], nextOffset: 0 })),
       switchMap(query => api.search(query, 50, 0, store.filters()).pipe(
