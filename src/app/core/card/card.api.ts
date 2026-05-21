@@ -26,6 +26,11 @@ export class CardApi {
     return this.http.get<Card[]>(`${this.base}/cards`, { params });
   }
 
+  getByName(names: string[]): Observable<Card[]> {
+    if (!names.length) return of([]);
+    return this.http.post<Card[]>(`${this.base}/cards/by-name`, { names });
+  }
+
   private hasAnyFilter(f?: CardFilters): boolean {
     return !!(f?.colors?.length || f?.types?.length || f?.cmc?.length);
   }

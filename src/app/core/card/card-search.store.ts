@@ -2,7 +2,7 @@ import { computed, inject } from '@angular/core';
 import { patchState, signalStore, withComputed, withMethods, withState } from '@ngrx/signals';
 import { rxMethod } from '@ngrx/signals/rxjs-interop';
 import { tapResponse } from '@ngrx/operators';
-import { pipe, switchMap, tap, debounceTime, distinctUntilChanged, take } from 'rxjs';
+import { firstValueFrom, pipe, switchMap, tap, debounceTime, distinctUntilChanged, take } from 'rxjs';
 import { CardApi } from './card.api';
 import { Card, CardFilters } from './card.types';
 
@@ -50,34 +50,17 @@ export const CardSearchStore = signalStore(
       const missing = Array.from(new Set(names)).filter(n => !store.cache()[n]);
       if (missing.length === 0) return;
 
-      const found: Card[] = [];
-      // Process in batches of 4 concurrent requests to avoid hammering the server.
-      // /cards uses LIKE %q% so a search for "Forest" matches many cards.
-      // Pull a wide page + filter for exact-name match client-side.
-      for (let i = 0; i < missing.length; i += 4) {
-        const batch = missing.slice(i, i + 4);
-        const results = await Promise.all(
-          batch.map(name =>
-            new Promise<Card[]>(resolve => {
-              api.search(name, 50, 0, {}, false).pipe(take(1)).subscribe({
-                next: cards => {
-                  const exact = cards.filter(c => c.name === name);
-                  resolve(exact);
-                },
-                error: () => resolve([]),
-              });
-            })
-          )
-        );
-        for (const cards of results) for (const c of cards) found.push(c);
+      try {
+        const cards = await firstValueFrom(api.getByName(missing));
+        if (cards.length === 0) return;
+        patchState(store, s => {
+          const newCache = { ...s.cache };
+          for (const c of cards) newCache[c.name] = c;
+          return { cache: newCache };
+        });
+      } catch {
+        // swallow; validator shows "unknown card" until next attempt
       }
-
-      if (found.length === 0) return;
-      patchState(store, s => {
-        const newCache = { ...s.cache };
-        for (const c of found) newCache[c.name] = c;
-        return { cache: newCache };
-      });
     },
     setQuery: rxMethod<string>(pipe(
       debounceTime(250),

@@ -55,4 +55,27 @@ describe('CardApi', () => {
     http.expectOne(r => r.url.includes('/cards')).flush([]);
     await p;
   });
+
+  describe('getByName', () => {
+    it('POSTs to /cards/by-name with names array', async () => {
+      const p = firstValueFrom(api.getByName(['Forest', 'Mountain']));
+      const req = http.expectOne(r =>
+        r.method === 'POST' &&
+        r.url.endsWith('/cards/by-name'));
+      expect(req.request.body).toEqual({ names: ['Forest', 'Mountain'] });
+      req.flush([
+        { name: 'Forest', manaCost: '', types: ['Basic', 'Land'], power: null, toughness: null, isImplemented: true },
+        { name: 'Mountain', manaCost: '{R}', types: ['Basic', 'Land'], power: null, toughness: null, isImplemented: true },
+      ]);
+      const cards = await p;
+      expect(cards).toHaveLength(2);
+      expect(cards.map(c => c.name)).toEqual(['Forest', 'Mountain']);
+    });
+
+    it('returns empty observable without HTTP call when names array is empty', async () => {
+      const cards = await firstValueFrom(api.getByName([]));
+      expect(cards).toEqual([]);
+      http.verify();
+    });
+  });
 });

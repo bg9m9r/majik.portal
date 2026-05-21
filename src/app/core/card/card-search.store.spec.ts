@@ -12,15 +12,19 @@ function makeCard(name: string): Card {
 describe('CardSearchStore', () => {
   let store: InstanceType<typeof CardSearchStore>;
   let search$: Subject<Card[]>;
+  let getByName$: Subject<Card[]>;
   let searchSpy: ReturnType<typeof vi.fn>;
+  let getByNameSpy: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     search$ = new Subject<Card[]>();
+    getByName$ = new Subject<Card[]>();
     searchSpy = vi.fn(() => search$);
+    getByNameSpy = vi.fn(() => getByName$);
     TestBed.configureTestingModule({
       providers: [
         CardSearchStore,
-        { provide: CardApi, useValue: { search: searchSpy } },
+        { provide: CardApi, useValue: { search: searchSpy, getByName: getByNameSpy } },
       ],
     });
     store = TestBed.inject(CardSearchStore);
@@ -81,29 +85,44 @@ describe('CardSearchStore', () => {
   });
 
   describe('ensureCached', () => {
-    it('fetches missing names and populates byName cache', async () => {
+    it('calls getByName with missing names and populates byName cache', async () => {
       const forest = makeCard('Forest');
-      search$.next([]);  // drain any pending subjects
-      const localSearch$ = new Subject<Card[]>();
-      searchSpy.mockImplementation(() => localSearch$);
+      const localGetByName$ = new Subject<Card[]>();
+      getByNameSpy.mockImplementation(() => localGetByName$);
 
       const promise = store.ensureCached(['Forest']);
-      localSearch$.next([forest]);
-      localSearch$.complete();
+      localGetByName$.next([forest]);
+      localGetByName$.complete();
       await promise;
 
+      expect(getByNameSpy).toHaveBeenCalledWith(['Forest']);
       expect(store.byName()['Forest']?.name).toBe('Forest');
     });
 
-    it('skips names already in cache', async () => {
+    it('single round-trip for multiple names', async () => {
+      const localGetByName$ = new Subject<Card[]>();
+      getByNameSpy.mockImplementation(() => localGetByName$);
+
+      const promise = store.ensureCached(['Forest', 'Mountain', 'Island']);
+      localGetByName$.next([makeCard('Forest'), makeCard('Mountain'), makeCard('Island')]);
+      localGetByName$.complete();
+      await promise;
+
+      // Only one call — not three separate search calls
+      expect(getByNameSpy).toHaveBeenCalledTimes(1);
+      expect(getByNameSpy).toHaveBeenCalledWith(['Forest', 'Mountain', 'Island']);
+      expect(store.byName()['Island']?.name).toBe('Island');
+    });
+
+    it('skips names already in cache — does not call getByName', async () => {
       // Populate cache via a search first
       store.setQuery('Forest');
       vi.advanceTimersByTime(250);
       search$.next([makeCard('Forest')]);
 
-      const callsBefore = searchSpy.mock.calls.length;
+      const callsBefore = getByNameSpy.mock.calls.length;
       await store.ensureCached(['Forest']);
-      expect(searchSpy.mock.calls.length).toBe(callsBefore);
+      expect(getByNameSpy.mock.calls.length).toBe(callsBefore);
     });
 
     it('does nothing when all names are already cached', async () => {
@@ -111,31 +130,42 @@ describe('CardSearchStore', () => {
       vi.advanceTimersByTime(250);
       search$.next([makeCard('Mountain')]);
 
-      const callsBefore = searchSpy.mock.calls.length;
+      const callsBefore = getByNameSpy.mock.calls.length;
       await store.ensureCached(['Mountain']);
-      expect(searchSpy.mock.calls.length).toBe(callsBefore);
+      expect(getByNameSpy.mock.calls.length).toBe(callsBefore);
     });
 
-    it('uses implementedOnly=false when fetching by name', async () => {
-      const localSearch$ = new Subject<Card[]>();
-      searchSpy.mockImplementation(() => localSearch$);
+    it('deduplicates repeated names before calling getByName', async () => {
+      const localGetByName$ = new Subject<Card[]>();
+      getByNameSpy.mockImplementation(() => localGetByName$);
 
-      const promise = store.ensureCached(['Grizzly Bears']);
-      localSearch$.next([makeCard('Grizzly Bears')]);
-      localSearch$.complete();
+      const promise = store.ensureCached(['Forest', 'Forest', 'Forest']);
+      localGetByName$.next([makeCard('Forest')]);
+      localGetByName$.complete();
       await promise;
 
-      const lastCall = searchSpy.mock.calls[searchSpy.mock.calls.length - 1];
-      expect(lastCall[4]).toBe(false);
+      expect(getByNameSpy).toHaveBeenCalledTimes(1);
+      const [namesArg] = getByNameSpy.mock.calls[0];
+      expect(namesArg).toEqual(['Forest']);
     });
 
     it('handles fetch errors gracefully without crashing', async () => {
       const { Subject: Subj } = await import('rxjs');
-      const errSearch$ = new Subj<Card[]>();
-      searchSpy.mockImplementation(() => errSearch$);
+      const errGetByName$ = new Subj<Card[]>();
+      getByNameSpy.mockImplementation(() => errGetByName$);
 
       const promise = store.ensureCached(['BadCard']);
-      errSearch$.error(new Error('network error'));
+      errGetByName$.error(new Error('network error'));
+      await expect(promise).resolves.toBeUndefined();
+    });
+
+    it('does not crash when getByName returns empty array', async () => {
+      const localGetByName$ = new Subject<Card[]>();
+      getByNameSpy.mockImplementation(() => localGetByName$);
+
+      const promise = store.ensureCached(['Nonexistent']);
+      localGetByName$.next([]);
+      localGetByName$.complete();
       await expect(promise).resolves.toBeUndefined();
     });
   });
