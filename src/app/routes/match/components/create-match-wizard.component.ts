@@ -28,20 +28,39 @@ import { ClockMinutes, CreateMatchRequest, MatchVisibility } from '../../../core
         }
       </div>
 
-      <div class="flex flex-col gap-1 text-sm">
-        <span class="majik-micro">Visibility</span>
-        <div class="flex gap-2">
-          @for (v of visibilities; track v) {
-            <button type="button"
-                    class="rounded border px-3 py-1"
-                    [class.border-amber-400]="visibility() === v"
-                    [class.text-amber-300]="visibility() === v"
-                    [class.border-white]="visibility() !== v"
-                    [class.text-white]="visibility() !== v"
-                    (click)="visibility.set(v)">{{ v }}</button>
-          }
+      <label class="flex items-center gap-2 text-sm">
+        <input type="checkbox" name="vsBot"
+               [checked]="vsBot()" (change)="vsBot.set($any($event.target).checked)" />
+        <span>Play vs Bot</span>
+      </label>
+      @if (vsBot()) {
+        <div class="flex flex-col gap-1 text-sm">
+          <span class="majik-micro">Bot archetype</span>
+          <select name="botArchetype" class="rounded border border-[color:var(--majik-line)] bg-black/30 px-3 py-2"
+                  [ngModel]="botArchetype()" (ngModelChange)="botArchetype.set($event)">
+            @for (a of botArchetypes; track a) {
+              <option [value]="a">{{ a }}</option>
+            }
+          </select>
         </div>
-      </div>
+      }
+
+      @if (!vsBot()) {
+        <div class="flex flex-col gap-1 text-sm">
+          <span class="majik-micro">Visibility</span>
+          <div class="flex gap-2">
+            @for (v of visibilities; track v) {
+              <button type="button"
+                      class="rounded border px-3 py-1"
+                      [class.border-amber-400]="visibility() === v"
+                      [class.text-amber-300]="visibility() === v"
+                      [class.border-white]="visibility() !== v"
+                      [class.text-white]="visibility() !== v"
+                      (click)="visibility.set(v)">{{ v }}</button>
+            }
+          </div>
+        </div>
+      }
 
       <div class="flex flex-col gap-1 text-sm">
         <span class="majik-micro">Clock</span>
@@ -61,7 +80,7 @@ import { ClockMinutes, CreateMatchRequest, MatchVisibility } from '../../../core
       <button type="submit"
               class="self-start rounded border border-[color:var(--majik-accent)] px-4 py-2 text-[color:var(--majik-accent)] hover:bg-[color:var(--majik-accent)]/10 disabled:opacity-40"
               [disabled]="!canSubmit()">
-        Create match
+        {{ vsBot() ? 'Play vs Bot' : 'Create match' }}
       </button>
     </form>
   `,
@@ -76,6 +95,9 @@ export class CreateMatchWizardComponent {
   readonly deckId = signal<string>('');
   readonly visibility = signal<MatchVisibility>('Public');
   readonly clockMinutes = signal<ClockMinutes>(20);
+  readonly vsBot = signal(false);
+  readonly botArchetype = signal<string>('Burn');
+  readonly botArchetypes: readonly string[] = ['Burn', 'Prowess', 'BorosEnergy'];
 
   readonly canSubmit = computed(() => this.deckId().trim().length > 0);
 
@@ -94,11 +116,13 @@ export class CreateMatchWizardComponent {
   submit(evt: Event): void {
     evt.preventDefault();
     if (!this.canSubmit()) return;
+    const bot = this.vsBot();
     this.create.emit({
       format: 'constructed',
-      visibility: this.visibility(),
+      visibility: bot ? 'Invite' : this.visibility(),
       deckId: this.deckId(),
       clockMinutes: this.clockMinutes(),
+      ...(bot ? { botOpponent: { archetype: this.botArchetype() } } : {}),
     });
   }
 }

@@ -54,6 +54,7 @@ export interface CreateMatchRequest {
   visibility: MatchVisibility;
   deckId: string;
   clockMinutes?: ClockMinutes;
+  botOpponent?: { archetype: string };
 }
 
 export interface JoinMatchRequest { deckId: string }

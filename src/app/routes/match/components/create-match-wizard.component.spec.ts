@@ -49,4 +49,26 @@ describe('CreateMatchWizardComponent (deck dropdown)', () => {
     btn.click();
     expect(captured?.deckId).toBe('b');
   });
+
+  it('shows bot archetype dropdown when vsBot toggled on', () => {
+    const fx = render([d('a', 'Alpha')]);
+    fx.componentInstance.vsBot.set(true);
+    fx.detectChanges();
+    const sel = fx.nativeElement.querySelector('select[name="botArchetype"]') as HTMLSelectElement;
+    expect(sel).not.toBeNull();
+    expect(sel.options.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('emits create event with botOpponent set when vsBot is on', () => {
+    const fx = render([d('a', 'Alpha')]);
+    let captured: CreateMatchRequest | undefined;
+    fx.componentInstance.create.subscribe((e: CreateMatchRequest) => { captured = e; });
+    fx.componentInstance.vsBot.set(true);
+    fx.componentInstance.botArchetype.set('Burn');
+    fx.detectChanges();
+    const btn = fx.nativeElement.querySelector('button[type="submit"]') as HTMLButtonElement;
+    btn.click();
+    expect(captured?.botOpponent?.archetype).toBe('Burn');
+    expect(captured?.visibility).toBe('Invite');
+  });
 });
