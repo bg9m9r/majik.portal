@@ -21,7 +21,7 @@ function setup({ api, byName }: { api?: Partial<DeckApi>; byName?: Record<string
   const router = { navigate: vi.fn() };
   const decks = { upsert: vi.fn() };
   const toast = { error: vi.fn(), info: vi.fn() };
-  const search = { byName: () => byName ?? {} };
+  const search = { byName: () => byName ?? {}, ensureCached: vi.fn() };
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
     providers: [
@@ -154,5 +154,32 @@ describe('DeckEditorStore', () => {
     expect(store.mainboard()).toEqual([{ name: 'Forest', count: 60 }]);
     expect(store.sideboard()).toEqual([{ name: 'Grizzly Bears', count: 3 }]);
     expect(store.dirty()).toBe(true);
+  });
+
+  it('replaceContents triggers ensureCached with all card names', () => {
+    const { store } = setup();
+    const cardSearchStore = TestBed.inject(CardSearchStore);
+    store.loadFor(null);
+
+    store.replaceContents(
+      [{ name: 'Forest', count: 60 }],
+      [{ name: 'Grizzly Bears', count: 3 }]
+    );
+
+    expect((cardSearchStore as any).ensureCached).toHaveBeenCalledWith(
+      expect.arrayContaining(['Forest', 'Grizzly Bears'])
+    );
+  });
+
+  it('loadFor with deck triggers ensureCached with deck card names', () => {
+    const api = { get: vi.fn(() => of(fixt({ mainboard: [{ name: 'Forest', count: 4 }], sideboard: [{ name: 'Island', count: 2 }] }))) };
+    const { store } = setup({ api });
+    const cardSearchStore = TestBed.inject(CardSearchStore);
+
+    store.loadFor('d1');
+
+    expect((cardSearchStore as any).ensureCached).toHaveBeenCalledWith(
+      expect.arrayContaining(['Forest', 'Island'])
+    );
   });
 });

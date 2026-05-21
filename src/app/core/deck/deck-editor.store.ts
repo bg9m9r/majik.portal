@@ -125,10 +125,20 @@ export const DeckEditorStore = signalStore(
     const decks = inject(DecksStore);
     const router = inject(Router);
     const toast = inject(ToastService);
+    const cardSearch = inject(CardSearchStore);
+
+    function prefetchCards(mainboard: DeckCardEntry[], sideboard: DeckCardEntry[]): void {
+      const names = [...mainboard, ...sideboard].map(e => e.name);
+      void cardSearch.ensureCached(names);
+    }
+
     return {
       loadFor: rxMethod<string | null>(pipe(
         switchMap(id => id ? api.get(id) : of(null as Deck | null)),
-        tap(deck => patchState(store, hydrateFrom(deck))),
+        tap(deck => {
+          patchState(store, hydrateFrom(deck));
+          if (deck) prefetchCards(deck.mainboard, deck.sideboard);
+        }),
       )),
       add: (name: string) => patchState(store, s => addCard(s, name)),
       inc: (name: string) => patchState(store, s => adjust(s, name, +1)),
@@ -140,8 +150,10 @@ export const DeckEditorStore = signalStore(
       move: (name: string, to: Zone) => patchState(store, s => moveTo(s, name, to)),
       rename: (name: string) => patchState(store, { name }),
       setActiveZone: (z: Zone) => patchState(store, { activeZone: z }),
-      replaceContents: (mainboard: DeckCardEntry[], sideboard: DeckCardEntry[]) =>
-        patchState(store, { mainboard, sideboard, activeZone: 'main' as Zone }),
+      replaceContents: (mainboard: DeckCardEntry[], sideboard: DeckCardEntry[]) => {
+        patchState(store, { mainboard, sideboard, activeZone: 'main' as Zone });
+        prefetchCards(mainboard, sideboard);
+      },
       save: rxMethod<void>(pipe(
         tap(() => patchState(store, { saving: true, error: null })),
         switchMap(() => {

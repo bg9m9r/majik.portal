@@ -79,4 +79,64 @@ describe('CardSearchStore', () => {
     expect(lastCall[0]).toBe('bolt');
     expect(lastCall[3]).toEqual({ colors: ['R'] });
   });
+
+  describe('ensureCached', () => {
+    it('fetches missing names and populates byName cache', async () => {
+      const forest = makeCard('Forest');
+      search$.next([]);  // drain any pending subjects
+      const localSearch$ = new Subject<Card[]>();
+      searchSpy.mockImplementation(() => localSearch$);
+
+      const promise = store.ensureCached(['Forest']);
+      localSearch$.next([forest]);
+      localSearch$.complete();
+      await promise;
+
+      expect(store.byName()['Forest']?.name).toBe('Forest');
+    });
+
+    it('skips names already in cache', async () => {
+      // Populate cache via a search first
+      store.setQuery('Forest');
+      vi.advanceTimersByTime(250);
+      search$.next([makeCard('Forest')]);
+
+      const callsBefore = searchSpy.mock.calls.length;
+      await store.ensureCached(['Forest']);
+      expect(searchSpy.mock.calls.length).toBe(callsBefore);
+    });
+
+    it('does nothing when all names are already cached', async () => {
+      store.setQuery('Mountain');
+      vi.advanceTimersByTime(250);
+      search$.next([makeCard('Mountain')]);
+
+      const callsBefore = searchSpy.mock.calls.length;
+      await store.ensureCached(['Mountain']);
+      expect(searchSpy.mock.calls.length).toBe(callsBefore);
+    });
+
+    it('uses implementedOnly=false when fetching by name', async () => {
+      const localSearch$ = new Subject<Card[]>();
+      searchSpy.mockImplementation(() => localSearch$);
+
+      const promise = store.ensureCached(['Grizzly Bears']);
+      localSearch$.next([makeCard('Grizzly Bears')]);
+      localSearch$.complete();
+      await promise;
+
+      const lastCall = searchSpy.mock.calls[searchSpy.mock.calls.length - 1];
+      expect(lastCall[4]).toBe(false);
+    });
+
+    it('handles fetch errors gracefully without crashing', async () => {
+      const { Subject: Subj } = await import('rxjs');
+      const errSearch$ = new Subj<Card[]>();
+      searchSpy.mockImplementation(() => errSearch$);
+
+      const promise = store.ensureCached(['BadCard']);
+      errSearch$.error(new Error('network error'));
+      await expect(promise).resolves.toBeUndefined();
+    });
+  });
 });

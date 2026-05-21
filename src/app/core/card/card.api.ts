@@ -9,7 +9,7 @@ export class CardApi {
   private readonly http = inject(HttpClient);
   private readonly base = environment.apiBaseUrl;
 
-  search(q: string, limit: number, offset: number, filters?: CardFilters): Observable<Card[]> {
+  search(q: string, limit: number, offset: number, filters?: CardFilters, implementedOnly = true): Observable<Card[]> {
     const trimmed = q.trim();
     if (!trimmed && !this.hasAnyFilter(filters)) return of([]);
 
@@ -17,7 +17,7 @@ export class CardApi {
       .set('q', trimmed)
       .set('limit', String(limit))
       .set('offset', String(offset))
-      .set('implementedOnly', 'true');
+      .set('implementedOnly', String(implementedOnly));
 
     for (const c of filters?.colors ?? []) params = params.append('colors', c);
     for (const t of filters?.types ?? []) params = params.append('types', t);

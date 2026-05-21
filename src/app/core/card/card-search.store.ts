@@ -46,6 +46,34 @@ export const CardSearchStore = signalStore(
     byName: computed(() => cache()),
   })),
   withMethods((store, api = inject(CardApi)) => ({
+    async ensureCached(names: string[]): Promise<void> {
+      const missing = Array.from(new Set(names)).filter(n => !store.cache()[n]);
+      if (missing.length === 0) return;
+
+      const found: Card[] = [];
+      // Process in batches of 4 concurrent requests to avoid hammering the server.
+      for (let i = 0; i < missing.length; i += 4) {
+        const batch = missing.slice(i, i + 4);
+        const results = await Promise.all(
+          batch.map(name =>
+            new Promise<Card[]>(resolve => {
+              api.search(name, 1, 0, {}, false).pipe(take(1)).subscribe({
+                next: cards => resolve(cards),
+                error: () => resolve([]),
+              });
+            })
+          )
+        );
+        for (const cards of results) for (const c of cards) found.push(c);
+      }
+
+      if (found.length === 0) return;
+      patchState(store, s => {
+        const newCache = { ...s.cache };
+        for (const c of found) newCache[c.name] = c;
+        return { cache: newCache };
+      });
+    },
     setQuery: rxMethod<string>(pipe(
       debounceTime(250),
       distinctUntilChanged(),
