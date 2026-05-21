@@ -52,13 +52,18 @@ export const CardSearchStore = signalStore(
 
       const found: Card[] = [];
       // Process in batches of 4 concurrent requests to avoid hammering the server.
+      // /cards uses LIKE %q% so a search for "Forest" matches many cards.
+      // Pull a wide page + filter for exact-name match client-side.
       for (let i = 0; i < missing.length; i += 4) {
         const batch = missing.slice(i, i + 4);
         const results = await Promise.all(
           batch.map(name =>
             new Promise<Card[]>(resolve => {
-              api.search(name, 1, 0, {}, false).pipe(take(1)).subscribe({
-                next: cards => resolve(cards),
+              api.search(name, 50, 0, {}, false).pipe(take(1)).subscribe({
+                next: cards => {
+                  const exact = cards.filter(c => c.name === name);
+                  resolve(exact);
+                },
                 error: () => resolve([]),
               });
             })
