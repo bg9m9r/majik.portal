@@ -48,6 +48,21 @@ services:
       - path: /*
         name: X-Content-Type-Options
         value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+      - path: /*
+        name: Strict-Transport-Security
+        value: max-age=63072000; includeSubDomains; preload
+      - path: /*
+        name: Permissions-Policy
+        value: camera=(), microphone=(), geolocation=()
+      # TODO: confirm prod API origin — render.yaml comment says https://majik-api.onrender.com.
+      # Using a conservative *.onrender.com placeholder for connect-src so SignalR + REST work
+      # if MAJIK_API_URL is a Render service or custom domain on the same project.
+      - path: /*
+        name: Content-Security-Policy
+        value: "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net; img-src 'self' data: https://*.scryfall.io https://cards.scryfall.io https://api.scryfall.com; connect-src 'self' https://api.scryfall.com https://api.descope.com https://*.onrender.com wss://*.onrender.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
       - path: /assets/*
         name: Cache-Control
         value: public, max-age=31536000, immutable
