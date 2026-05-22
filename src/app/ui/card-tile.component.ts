@@ -39,7 +39,7 @@ export class CardTileComponent {
   private hoverTimer: ReturnType<typeof setTimeout> | null = null;
 
   readonly imageUrl = computed(() =>
-    `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(this.name()).replace(/%20/g, '+')}&format=image&version=small`);
+    `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(this.name()).replace(/%20/g, '+')}&format=image&version=normal`);
 
   onHover(): void {
     if (this.hoverTimer) clearTimeout(this.hoverTimer);
