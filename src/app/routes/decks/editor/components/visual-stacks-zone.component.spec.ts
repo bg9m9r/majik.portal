@@ -49,7 +49,7 @@ function setup(s: Setup) {
 }
 
 describe('VisualStacksZoneComponent', () => {
-  it('groups cards into columns by primary type in priority order', () => {
+  it('groups cards into columns by CMC bucket, lands last (before Other)', () => {
     const { fx } = setup({
       mainboard: [
         { name: 'Bolt', count: 4 },
@@ -67,13 +67,13 @@ describe('VisualStacksZoneComponent', () => {
       },
     });
     const cols = fx.componentInstance.columns();
-    const labels = cols.map((c) => c.label);
-    expect(labels).toEqual(['Planeswalkers', 'Creatures', 'Sorceries', 'Instants', 'Lands']);
+    expect(cols.map((c) => c.label)).toEqual(['1', '2', '4', 'Lands']);
     expect(cols.find((c) => c.type === 'Land')!.total).toBe(24);
-    expect(cols.find((c) => c.type === 'Creature')!.total).toBe(4);
+    expect(cols.find((c) => c.type === '4')!.total).toBe(3);
+    expect(cols.find((c) => c.type === '1')!.total).toBe(4);
   });
 
-  it('multi-type Artifact+Creature slots into Creature column (higher priority)', () => {
+  it('buckets cmc 0 in the 0 column, including artifacts with 0 cost', () => {
     const { fx } = setup({
       mainboard: [{ name: 'Walking Ballista', count: 2 }],
       byName: {
@@ -82,7 +82,41 @@ describe('VisualStacksZoneComponent', () => {
     });
     const cols = fx.componentInstance.columns();
     expect(cols).toHaveLength(1);
-    expect(cols[0].type).toBe('Creature');
+    expect(cols[0].type).toBe('0');
+  });
+
+  it('buckets cmc >= 7 into the 7+ column', () => {
+    const { fx } = setup({
+      mainboard: [
+        { name: 'Emrakul', count: 1 },
+        { name: 'Big Spell', count: 1 },
+      ],
+      byName: {
+        Emrakul: card('Emrakul', 15, ['Creature']),
+        'Big Spell': card('Big Spell', 7, ['Sorcery']),
+      },
+    });
+    const cols = fx.componentInstance.columns();
+    expect(cols).toHaveLength(1);
+    expect(cols[0].type).toBe('7+');
+    expect(cols[0].total).toBe(2);
+  });
+
+  it('routes any Land-type card to the Lands column regardless of cmc', () => {
+    const { fx } = setup({
+      mainboard: [
+        { name: 'Forest', count: 4 },
+        { name: "Mishra's Workshop", count: 1 },
+      ],
+      byName: {
+        Forest: card('Forest', null, ['Basic', 'Land']),
+        "Mishra's Workshop": card("Mishra's Workshop", 0, ['Land']),
+      },
+    });
+    const cols = fx.componentInstance.columns();
+    expect(cols).toHaveLength(1);
+    expect(cols[0].type).toBe('Land');
+    expect(cols[0].total).toBe(5);
   });
 
   it('places entries without cached card metadata into the Other column', () => {
@@ -99,28 +133,19 @@ describe('VisualStacksZoneComponent', () => {
     expect(other!.entries[0].name).toBe('UnknownCard');
   });
 
-  it('sorts entries within a column by cmc ascending, then by name', () => {
+  it('sorts entries within a column by name when cmc ties', () => {
     const { fx } = setup({
       mainboard: [
-        { name: 'Bigger Bear', count: 1 },
-        { name: 'Big Bear', count: 1 },
-        { name: 'Small Bear', count: 1 },
-        { name: 'Another Small Bear', count: 1 },
+        { name: 'B Bear', count: 1 },
+        { name: 'A Bear', count: 1 },
       ],
       byName: {
-        'Bigger Bear': card('Bigger Bear', 4, ['Creature']),
-        'Big Bear': card('Big Bear', 3, ['Creature']),
-        'Small Bear': card('Small Bear', 1, ['Creature']),
-        'Another Small Bear': card('Another Small Bear', 1, ['Creature']),
+        'B Bear': card('B Bear', 3, ['Creature']),
+        'A Bear': card('A Bear', 3, ['Creature']),
       },
     });
-    const creatures = fx.componentInstance.columns().find((c) => c.type === 'Creature')!;
-    expect(creatures.entries.map((e) => e.name)).toEqual([
-      'Another Small Bear',
-      'Small Bear',
-      'Big Bear',
-      'Bigger Bear',
-    ]);
+    const col = fx.componentInstance.columns().find((c) => c.type === '3')!;
+    expect(col.entries.map((e) => e.name)).toEqual(['A Bear', 'B Bear']);
   });
 
   it('renders the empty placeholder when active zone has no entries', () => {
@@ -186,7 +211,7 @@ describe('VisualStacksZoneComponent', () => {
       },
     });
     const cols = fx.componentInstance.columns();
-    expect(cols.map((c) => c.label)).toEqual(['Creatures']);
+    expect(cols.map((c) => c.label)).toEqual(['2']);
     expect(cols[0].entries[0].name).toBe('Bears');
   });
 });
