@@ -35,6 +35,17 @@ services:
       };
       EOF
       npm run build
+      # Inject Content-Security-Policy as a <meta> tag, parameterized by the
+      # deployed API origin so SignalR + REST work against the real prod URL
+      # (custom domain or *.onrender.com) without baking it into render.yaml.
+      # NOTE: meta CSP cannot enforce frame-ancestors — covered by the
+      # X-Frame-Options: DENY header below. Inline-script hash matches the
+      # bootstrap script the Descope web component injects at runtime; if
+      # Descope SDK updates that script, this hash needs regenerating from
+      # the browser console's CSP violation report.
+      API_WSS="$(printf '%s' "${MAJIK_API_URL}" | sed 's|^https://|wss://|; s|^http://|ws://|')"
+      CSP="default-src 'self'; script-src 'self' 'sha256-esZRzsFyTen/O5P2L7hWUdF4JqZn+/qPwDXg6kfxpIE='; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net; img-src 'self' data: https://*.scryfall.io https://cards.scryfall.io https://api.scryfall.com; connect-src 'self' https://api.scryfall.com https://*.descope.com ${MAJIK_API_URL} ${API_WSS}; frame-src https://*.descope.com; base-uri 'self'; form-action 'self'"
+      sed -i "s|<head>|<head><meta http-equiv=\"Content-Security-Policy\" content=\"${CSP}\">|" dist/majik-portal/browser/index.html
     staticPublishPath: ./dist/majik-portal/browser
     pullRequestPreviewsEnabled: false
     routes:
@@ -57,12 +68,11 @@ services:
       - path: /*
         name: Permissions-Policy
         value: camera=(), microphone=(), geolocation=()
-      # TODO: confirm prod API origin — render.yaml comment says https://majik-api.onrender.com.
-      # Using a conservative *.onrender.com placeholder for connect-src so SignalR + REST work
-      # if MAJIK_API_URL is a Render service or custom domain on the same project.
-      - path: /*
-        name: Content-Security-Policy
-        value: "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net; img-src 'self' data: https://*.scryfall.io https://cards.scryfall.io https://api.scryfall.com; connect-src 'self' https://api.scryfall.com https://api.descope.com https://*.onrender.com wss://*.onrender.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+      # Content-Security-Policy is emitted as a <meta> tag in the build step
+      # (see buildCommand above) so connect-src can include the deployed
+      # ${MAJIK_API_URL} origin without hard-coding it here. frame-ancestors
+      # is enforced by the X-Frame-Options: DENY header above (meta CSP
+      # cannot enforce frame-ancestors).
       - path: /assets/*
         name: Cache-Control
         value: public, max-age=31536000, immutable
