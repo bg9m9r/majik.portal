@@ -20,6 +20,10 @@ import { ProfileService } from '../core/profile/profile.service';
            routerLinkActive="text-[color:var(--majik-accent)]"
            class="text-sm opacity-80 hover:text-[color:var(--majik-accent)]">Decks</a>
         <span class="ml-auto text-sm opacity-60">{{ handle() }}</span>
+        <button type="button"
+                class="rounded border border-[color:var(--majik-line)] px-3 py-1 text-xs uppercase tracking-wider opacity-80 hover:border-[color:var(--majik-accent)] hover:opacity-100"
+                aria-label="Log out"
+                (click)="onLogout()">Log out</button>
       </nav>
     }
   `,
@@ -28,6 +32,11 @@ export class NavShellComponent {
   private readonly router = inject(Router);
   private readonly auth = inject(AuthService);
   private readonly profile = inject(ProfileService);
+
+  onLogout(): void {
+    this.auth.logout();
+    this.router.navigateByUrl('/login');
+  }
 
   private readonly url = toSignal(
     this.router.events.pipe(

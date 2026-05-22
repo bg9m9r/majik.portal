@@ -12,9 +12,9 @@ const VIEW_MODE_KEY = 'majik:deck-editor:view-mode';
 function readStoredViewMode(): ViewMode {
   try {
     const raw = globalThis.localStorage?.getItem(VIEW_MODE_KEY);
-    return raw === 'visual' ? 'visual' : 'list';
+    return raw === 'list' ? 'list' : 'visual';
   } catch {
-    return 'list';
+    return 'visual';
   }
 }
 

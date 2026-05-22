@@ -6,25 +6,19 @@ import { DeckEditorStore } from '../../../../core/deck/deck-editor.store';
 import { DeckCardEntry } from '../../../../core/deck/deck.types';
 import { CardTileComponent } from '../../../../ui/card-tile.component';
 
-// Priority order; a multi-type card slots into the first match.
-const TYPE_PRIORITY = [
-  'Planeswalker',
-  'Creature',
-  'Sorcery',
-  'Instant',
-  'Artifact',
-  'Enchantment',
-  'Land',
-] as const;
-type ColumnType = (typeof TYPE_PRIORITY)[number] | 'Other';
+type CmcBucket = '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7+' | 'Land' | 'Other';
 
-const COLUMN_LABELS: Record<ColumnType, string> = {
-  Planeswalker: 'Planeswalkers',
-  Creature: 'Creatures',
-  Sorcery: 'Sorceries',
-  Instant: 'Instants',
-  Artifact: 'Artifacts',
-  Enchantment: 'Enchantments',
+const CMC_ORDER: CmcBucket[] = ['0', '1', '2', '3', '4', '5', '6', '7+', 'Land', 'Other'];
+
+const COLUMN_LABELS: Record<CmcBucket, string> = {
+  '0': '0',
+  '1': '1',
+  '2': '2',
+  '3': '3',
+  '4': '4',
+  '5': '5',
+  '6': '6',
+  '7+': '7+',
   Land: 'Lands',
   Other: 'Other',
 };
@@ -37,18 +31,19 @@ interface StackEntry {
 }
 
 interface Column {
-  type: ColumnType;
+  type: CmcBucket;
   label: string;
   total: number;
   entries: StackEntry[];
 }
 
-function primaryType(card: Card | null | undefined): ColumnType {
+function bucketFor(card: Card | null | undefined): CmcBucket {
   if (!card) return 'Other';
-  for (const t of TYPE_PRIORITY) {
-    if (card.types.includes(t)) return t;
-  }
-  return 'Other';
+  if (card.types.includes('Land')) return 'Land';
+  const cmc = card.cmc ?? 0;
+  if (cmc <= 0) return '0';
+  if (cmc >= 7) return '7+';
+  return String(Math.floor(cmc)) as CmcBucket;
 }
 
 @Component({
@@ -60,25 +55,25 @@ function primaryType(card: Card | null | undefined): ColumnType {
          cdkDropList
          [cdkDropListData]="rawEntries()"
          (cdkDropListDropped)="onDropped($event)"
-         class="flex min-h-[420px] gap-4 overflow-x-auto rounded border border-dashed border-[color:var(--majik-line)] p-3">
+         class="flex min-h-[420px] gap-2 overflow-x-auto rounded border border-dashed border-[color:var(--majik-line)] p-3">
       @if (rawEntries().length === 0) {
         <span class="self-center text-xs opacity-50">— drop cards here —</span>
       }
       @for (col of columns(); track col.type) {
-        <section class="flex w-[120px] shrink-0 flex-col gap-2"
+        <section class="flex w-[108px] shrink-0 flex-col gap-2"
                  [attr.data-column]="col.type">
           <header class="flex items-center justify-between border-b border-[color:var(--majik-line-faint)] pb-1">
             <span class="text-[11px] uppercase tracking-wider opacity-70">{{ col.label }}</span>
             <span class="font-mono text-[11px] text-amber-300/80">{{ col.total }}</span>
           </header>
-          <ul class="flex flex-col gap-3">
+          <ul class="flex flex-col gap-2">
             @for (entry of col.entries; track entry.name) {
               <li class="group relative"
                   [attr.data-entry]="entry.name"
                   [style.height.px]="entryHeight(entry.count)">
                 @for (i of stackIndexes(entry.count); track i) {
                   <div class="absolute left-0 w-[100px]"
-                       [style.top.px]="i * 32"
+                       [style.top.px]="i * STACK_OFFSET"
                        [style.z-index]="i + 1">
                     <app-card-tile [name]="entry.name"
                                    [count]="i === entry.count - 1 ? entry.count : 0"
@@ -86,7 +81,7 @@ function primaryType(card: Card | null | undefined): ColumnType {
                   </div>
                 }
                 <span class="pointer-events-none absolute right-1 hidden gap-1 group-hover:flex"
-                      [style.top.px]="(entry.count - 1) * 32 + 4"
+                      [style.top.px]="(entry.count - 1) * STACK_OFFSET + 4"
                       [style.z-index]="entry.count + 10">
                   <button type="button"
                           class="pointer-events-auto rounded border border-[color:var(--majik-line)] bg-black/80 px-1.5 text-xs hover:border-[color:var(--majik-accent)]"
@@ -114,9 +109,11 @@ export class VisualStacksZoneComponent {
   private readonly cards = inject(CardSearchStore);
 
   // Vertical offset between stacked cards (Moxfield-style title peek).
-  private static readonly STACK_OFFSET = 32;
+  static readonly STACK_OFFSET = 22;
   // Card tile height.
   private static readonly TILE_HEIGHT = 140;
+
+  readonly STACK_OFFSET = VisualStacksZoneComponent.STACK_OFFSET;
 
   readonly rawEntries = computed<DeckCardEntry[]>(() =>
     this.store.activeZone() === 'main' ? this.store.mainboard() : this.store.sideboard()
@@ -124,24 +121,23 @@ export class VisualStacksZoneComponent {
 
   readonly columns = computed<Column[]>(() => {
     const byName = this.cards.byName();
-    const groups = new Map<ColumnType, StackEntry[]>();
+    const groups = new Map<CmcBucket, StackEntry[]>();
 
     for (const entry of this.rawEntries()) {
       const card = byName[entry.name] ?? null;
-      const type = primaryType(card);
-      const list = groups.get(type) ?? [];
+      const bucket = bucketFor(card);
+      const list = groups.get(bucket) ?? [];
       list.push({
         name: entry.name,
         count: entry.count,
         card,
         cmc: card?.cmc ?? 0,
       });
-      groups.set(type, list);
+      groups.set(bucket, list);
     }
 
-    const order: ColumnType[] = [...TYPE_PRIORITY, 'Other'];
     const out: Column[] = [];
-    for (const type of order) {
+    for (const type of CMC_ORDER) {
       const list = groups.get(type);
       if (!list || list.length === 0) continue;
       list.sort((a, b) => (a.cmc - b.cmc) || a.name.localeCompare(b.name));

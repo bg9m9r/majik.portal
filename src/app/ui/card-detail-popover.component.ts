@@ -8,7 +8,7 @@ import { CardPopoverService } from './card-popover.service';
     @if (popover.current(); as p) {
       <div
         role="tooltip"
-        class="pointer-events-none fixed z-50 w-[280px] rounded border border-[color:var(--majik-line)] bg-[color:var(--majik-bg)] p-3 shadow-[var(--shadow-modal)]"
+        class="pointer-events-none fixed z-50 w-[280px] max-h-[calc(100vh-16px)] overflow-y-auto rounded border border-[color:var(--majik-line)] bg-[color:var(--majik-bg)] p-3 shadow-[var(--shadow-modal)]"
         [style.left.px]="position().left"
         [style.top.px]="position().top">
         <img class="mb-2 w-full rounded"
@@ -40,12 +40,23 @@ export class CardDetailPopoverComponent {
     if (!cur) return { left: 0, top: 0 };
     const r = cur.rect;
     const popoverWidth = 280;
+    // Approximate height — covers card image + meta. Used only to clamp the
+    // popover inside the viewport; the actual element auto-sizes to content.
+    const popoverHeight = 460;
     const margin = 8;
+    const vw = typeof window !== 'undefined' ? window.innerWidth : 1920;
+    const vh = typeof window !== 'undefined' ? window.innerHeight : 1080;
     let left = r.right + margin;
-    if (typeof window !== 'undefined' && left + popoverWidth > window.innerWidth) {
+    if (left + popoverWidth > vw) {
       left = r.left - popoverWidth - margin;
     }
-    return { left, top: r.top };
+    if (left < margin) left = margin;
+    let top = r.top;
+    if (top + popoverHeight > vh - margin) {
+      top = vh - margin - popoverHeight;
+    }
+    if (top < margin) top = margin;
+    return { left, top };
   });
 
   imageUrl(name: string): string {
