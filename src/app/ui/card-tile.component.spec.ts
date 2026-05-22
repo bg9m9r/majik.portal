@@ -17,7 +17,7 @@ describe('CardTileComponent', () => {
   it('renders Scryfall image URL with exact name', () => {
     const fx = render({ name: 'Grizzly Bears' });
     const img = fx.nativeElement.querySelector('img');
-    expect(img.getAttribute('src')).toBe('https://api.scryfall.com/cards/named?exact=Grizzly+Bears&format=image&version=small');
+    expect(img.getAttribute('src')).toBe('https://api.scryfall.com/cards/named?exact=Grizzly+Bears&format=image&version=normal');
     expect(img.getAttribute('alt')).toBe('Grizzly Bears');
   });
 
