@@ -83,6 +83,33 @@ export class AuthService {
     }
   }
 
+  /**
+   * Force-refresh the Descope session (network round-trip) and return the resulting access token.
+   * Used by SignalR's accessTokenFactory so reconnects don't reuse an expired token.
+   * Falls back to the cached token on failure.
+   */
+  async refresh(): Promise<string> {
+    if (this.stubMode || !this.descope) {
+      return this._token() ?? '';
+    }
+    try {
+      // refreshSession(true) attempts a refresh round-trip using the stored refresh token.
+      await new Promise<void>((resolve, reject) => {
+        this.descope!.refreshSession(true).subscribe({
+          next: () => resolve(),
+          error: (err) => reject(err)
+        });
+      });
+    } catch {
+      // Refresh failed — fall through and return whatever token we still have cached.
+    }
+    const fresh = this.descope.getSessionToken();
+    if (fresh && fresh !== this._token()) {
+      this._token.set(fresh);
+    }
+    return fresh ?? this._token() ?? '';
+  }
+
   logout(): void {
     if (this.stubMode) {
       this._authed.set(false);

@@ -145,10 +145,14 @@ export class ScryfallImageCache {
 
   private pickImageUrl(card: ScryfallCard): string | null {
     const direct = card.image_uris?.normal;
-    if (direct) return direct;
+    if (this.isSafeImageUrl(direct)) return direct!;
     const face = card.card_faces?.[0]?.image_uris?.normal;
-    if (face) return face;
+    if (this.isSafeImageUrl(face)) return face!;
     return null;
+  }
+
+  private isSafeImageUrl(url: string | undefined | null): boolean {
+    return typeof url === 'string' && url.startsWith('https://');
   }
 
   private load(): void {
@@ -158,9 +162,17 @@ export class ScryfallImageCache {
       if (!raw) return;
       const parsed = JSON.parse(raw) as Record<string, string>;
       if (parsed && typeof parsed === 'object') {
+        let dropped = false;
         for (const [k, v] of Object.entries(parsed)) {
-          if (typeof v === 'string') this.cache.set(k, v);
+          if (this.isSafeImageUrl(v)) {
+            this.cache.set(k, v);
+          } else {
+            dropped = true;
+            console.warn(`ScryfallImageCache: dropping non-https cached entry for "${k}"`);
+          }
         }
+        // Rewrite storage so we never re-load the bad entries again.
+        if (dropped) this.persist();
       }
     } catch (err) {
       console.warn('ScryfallImageCache: failed to load cache', err);

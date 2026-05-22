@@ -23,6 +23,18 @@ function urlForcesStub(): boolean {
   }
 }
 
+/**
+ * Pure decision function — separated for testability. `production` is passed in so tests can
+ * exercise both code paths without needing to mock the environment module.
+ */
+export function computeAuthStubbed(cfg: MajikAuthConfig, production: boolean, stubInUrl: boolean): boolean {
+  if (!cfg.projectId) return true;
+  // `?stub=` URL override is dev-only — prod builds always require real auth when a projectId
+  // is configured, regardless of query string.
+  if (!production && stubInUrl) return true;
+  return false;
+}
+
 export function isAuthStubbed(cfg: MajikAuthConfig): boolean {
-  return !cfg.projectId || urlForcesStub();
+  return computeAuthStubbed(cfg, environment.production, urlForcesStub());
 }

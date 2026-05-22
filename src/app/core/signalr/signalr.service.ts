@@ -54,7 +54,9 @@ export class SignalrService {
 
     this.connection = new HubConnectionBuilder()
       .withUrl(environment.signalRHubUrl, {
-        accessTokenFactory: () => this.auth.token() ?? ''
+        // SignalR invokes this on initial connect AND on every reconnect attempt. Force-refresh
+        // the Descope session so reconnects after a long disconnect don't reuse an expired JWT.
+        accessTokenFactory: () => this.auth.refresh()
       })
       .withAutomaticReconnect()
       .configureLogging(LogLevel.Warning)
