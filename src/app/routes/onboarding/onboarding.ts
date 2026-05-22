@@ -43,7 +43,7 @@ export class OnboardingPage {
   private readonly profile = inject(ProfileService);
   private readonly router = inject(Router);
 
-  handle = '';
+  handle = this.profile.handle() ?? '';
   readonly submitting = signal(false);
   readonly localError = signal<string | null>(null);
   readonly serverError = signal<string | null>(null);
