@@ -35,17 +35,29 @@ services:
       };
       EOF
       npm run build
-      # Inject Content-Security-Policy as a <meta> tag, parameterized by the
-      # deployed API origin so SignalR + REST work against the real prod URL
-      # (custom domain or *.onrender.com) without baking it into render.yaml.
-      # NOTE: meta CSP cannot enforce frame-ancestors — covered by the
-      # X-Frame-Options: DENY header below. Inline-script hash matches the
-      # bootstrap script the Descope web component injects at runtime; if
-      # Descope SDK updates that script, this hash needs regenerating from
-      # the browser console's CSP violation report.
+      # Trust-root CSP on the Angular entry bundle's SRI hash, then let
+      # 'strict-dynamic' propagate trust to any scripts that bundle loads
+      # or injects at runtime (chunks, Descope SDK bootstrap, etc.). The
+      # hash rotates with the bundle, so no manual rotation when Descope
+      # updates — unlike pinning a hash on Descope's injected <script>.
+      # script-src 'self' / host allow-lists are intentionally absent —
+      # 'strict-dynamic' ignores them per CSP Level 3, which is the point:
+      # forces every script through the trust-rooted bundle.
+      DIST=dist/majik-portal/browser
+      INDEX="${DIST}/index.html"
+      MAIN_JS="$(grep -oE 'main-[A-Za-z0-9]+\.js' "${INDEX}" | head -1)"
+      if [ -z "${MAIN_JS}" ]; then echo "could not locate main-*.js in built index.html" >&2; exit 1; fi
+      MAIN_SRI="sha384-$(openssl dgst -sha384 -binary "${DIST}/${MAIN_JS}" | openssl base64 -A)"
+      # Add integrity + crossorigin to the entry <script> so the browser
+      # both verifies and uses the same hash for CSP matching.
+      sed -i "s|<script src=\"${MAIN_JS}\" type=\"module\"></script>|<script src=\"${MAIN_JS}\" type=\"module\" integrity=\"${MAIN_SRI}\" crossorigin=\"anonymous\"></script>|" "${INDEX}"
+      # Inject Content-Security-Policy as a <meta> tag, parameterized by
+      # the deployed API origin so connect-src can target the real prod
+      # URL without hard-coding it. NOTE: meta CSP cannot enforce
+      # frame-ancestors — covered by X-Frame-Options: DENY below.
       API_WSS="$(printf '%s' "${MAJIK_API_URL}" | sed 's|^https://|wss://|; s|^http://|ws://|')"
-      CSP="default-src 'self'; script-src 'self' 'sha256-esZRzsFyTen/O5P2L7hWUdF4JqZn+/qPwDXg6kfxpIE='; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net; img-src 'self' data: https://*.scryfall.io https://cards.scryfall.io https://api.scryfall.com; connect-src 'self' https://api.scryfall.com https://*.descope.com ${MAJIK_API_URL} ${API_WSS}; frame-src https://*.descope.com; base-uri 'self'; form-action 'self'"
-      sed -i "s|<head>|<head><meta http-equiv=\"Content-Security-Policy\" content=\"${CSP}\">|" dist/majik-portal/browser/index.html
+      CSP="default-src 'self'; script-src 'strict-dynamic' '${MAIN_SRI}'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net; img-src 'self' data: https://*.scryfall.io https://cards.scryfall.io https://api.scryfall.com; connect-src 'self' https://api.scryfall.com https://*.descope.com ${MAJIK_API_URL} ${API_WSS}; frame-src https://*.descope.com; base-uri 'self'; form-action 'self'"
+      sed -i "s|<head>|<head><meta http-equiv=\"Content-Security-Policy\" content=\"${CSP}\">|" "${INDEX}"
     staticPublishPath: ./dist/majik-portal/browser
     pullRequestPreviewsEnabled: false
     routes:
