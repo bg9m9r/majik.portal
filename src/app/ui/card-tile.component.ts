@@ -7,7 +7,9 @@ import { CardPopoverService } from './card-popover.service';
   standalone: true,
   template: `
     <div #host
-         class="relative h-[140px] w-[100px] overflow-hidden rounded-[6px] border border-[color:var(--majik-line)] bg-[color:var(--majik-card)] transition-shadow hover:shadow-[var(--shadow-card-hover)] hover:border-[color:var(--majik-accent)]"
+         class="relative overflow-hidden rounded-[6px] border border-[color:var(--majik-line)] bg-[color:var(--majik-card)] transition-shadow hover:shadow-[var(--shadow-card-hover)] hover:border-[color:var(--majik-accent)]"
+         [style.width.px]="width()"
+         [style.height.px]="height()"
          [attr.aria-label]="name()"
          (mouseenter)="onHover()"
          (mouseleave)="onLeave()">
@@ -29,6 +31,8 @@ export class CardTileComponent {
   readonly name = input.required<string>();
   readonly count = input<number>(0);
   readonly card = input<Card | null>(null);
+  readonly width = input<number>(100);
+  readonly height = input<number>(140);
 
   private readonly popover = inject(CardPopoverService);
   private readonly host = inject(ElementRef<HTMLElement>);
