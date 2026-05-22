@@ -40,20 +40,17 @@ services:
       # NOTE: meta CSP cannot enforce frame-ancestors — covered by the
       # X-Frame-Options: DENY header below.
       #
-      # script-src uses 'self' + a pinned sha256 of the inline <script>
-      # the Descope web component injects at runtime. We previously tried
-      # 'strict-dynamic' rooted on the Angular bundle's SRI hash to avoid
-      # the brittle Descope hash; that broke Firefox 151 (and likely other
-      # browsers) on dynamically `import()`-loaded lazy route chunks —
-      # static module imports inherited trust correctly, dynamic ones did
-      # not, blanking every lazy route. Pinned hash is brittle on Descope
-      # SDK updates but works across browsers. If Descope updates the
-      # inline script, regenerate the hash from the browser console's CSP
-      # violation report.
+      # script-src is just `'self'` — we drive Descope OAuth via the
+      # plain JS SDK (descopeSdk.oauth.start/exchange) + a redirect to
+      # Discord, so there's no <descope-sign-in-flow> web component
+      # injecting inline <script> tags at runtime. If we ever re-add
+      # the web component, this needs to grow either a sha256 hash for
+      # the injected script (brittle on SDK updates) or 'unsafe-inline'
+      # (defeats XSS protection).
       DIST=dist/majik-portal/browser
       INDEX="${DIST}/index.html"
       API_WSS="$(printf '%s' "${MAJIK_API_URL}" | sed 's|^https://|wss://|; s|^http://|ws://|')"
-      CSP="default-src 'self'; script-src 'self' 'sha256-esZRzsFyTen/O5P2L7hWUdF4JqZn+/qPwDXg6kfxpIE='; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net; img-src 'self' data: https://*.scryfall.io https://cards.scryfall.io https://api.scryfall.com; connect-src 'self' https://api.scryfall.com https://*.descope.com ${MAJIK_API_URL} ${API_WSS}; frame-src https://*.descope.com; base-uri 'self'; form-action 'self'"
+      CSP="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net; img-src 'self' data: https://*.scryfall.io https://cards.scryfall.io https://api.scryfall.com; connect-src 'self' https://api.scryfall.com https://*.descope.com ${MAJIK_API_URL} ${API_WSS}; base-uri 'self'; form-action 'self'"
       sed -i "s|<head>|<head><meta http-equiv=\"Content-Security-Policy\" content=\"${CSP}\">|" "${INDEX}"
     staticPublishPath: ./dist/majik-portal/browser
     pullRequestPreviewsEnabled: false
