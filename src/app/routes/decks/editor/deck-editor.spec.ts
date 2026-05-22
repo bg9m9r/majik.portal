@@ -25,12 +25,37 @@ function setup(routeId: string | null) {
 }
 
 describe('DeckEditorComponent', () => {
-  it('renders 3 columns', () => {
+  it('renders editor + info panel by default (no card-pool drawer)', () => {
     const fx = setup(null);
     fx.detectChanges();
-    expect(fx.nativeElement.querySelector('app-card-pool')).not.toBeNull();
     expect(fx.nativeElement.querySelector('app-zone-editor')).not.toBeNull();
     expect(fx.nativeElement.querySelector('app-deck-info-panel')).not.toBeNull();
+    expect(fx.nativeElement.querySelector('[data-testid="card-pool-drawer"]')).toBeNull();
+    expect(fx.nativeElement.querySelector('app-card-pool')).toBeNull();
+  });
+
+  it('clicking the "Add cards" toggle opens the card-pool drawer', () => {
+    const fx = setup(null);
+    fx.detectChanges();
+    const toggle = fx.nativeElement.querySelector('[data-testid="toggle-card-pool"]') as HTMLButtonElement;
+    expect(toggle.textContent?.trim()).toBe('Add cards');
+    toggle.click();
+    fx.detectChanges();
+    expect(fx.nativeElement.querySelector('[data-testid="card-pool-drawer"]')).not.toBeNull();
+    expect(fx.nativeElement.querySelector('app-card-pool')).not.toBeNull();
+    expect(toggle.textContent?.trim()).toBe('Close cards');
+    expect(toggle.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('drawer close button hides the drawer', () => {
+    const fx = setup(null);
+    fx.detectChanges();
+    fx.componentInstance.poolOpen.set(true);
+    fx.detectChanges();
+    const closeBtn = fx.nativeElement.querySelector('[aria-label="Close card pool"]') as HTMLButtonElement;
+    closeBtn.click();
+    fx.detectChanges();
+    expect(fx.nativeElement.querySelector('[data-testid="card-pool-drawer"]')).toBeNull();
   });
 
   it('canDeactivate returns true when not dirty', () => {
