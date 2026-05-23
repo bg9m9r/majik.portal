@@ -203,13 +203,19 @@ export class MatchPage implements OnInit, OnDestroy {
     this.signalr.botThinking$
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(p => this.botThinking.set(p.thinking));
-    // Engine "event" channel — every game event prompts a re-fetch of
-    // the snapshot. Patch-on-event is intentionally not attempted: the
-    // server's EventDto wire format carries opaque payloads per event
-    // type, and re-fetching is cheap (single GET, in-memory facade).
+    // Engine "event" channel — first try to apply the event as an
+    // in-place delta on the existing snapshot (LifeChanged, PhaseStarted,
+    // TurnStarted, etc.). Only fall back to a full /state refetch when
+    // the patch reducer can't handle the event type or the payload
+    // doesn't match the local snapshot. See event.reducer.ts for the
+    // patched-vs-deferred event taxonomy.
     this.signalr.event$
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe(() => void this.fetchState());
+      .subscribe(evt => {
+        if (!this.game.applyEvent(evt)) {
+          void this.fetchState();
+        }
+      });
     // Per-viewer prompt envelope. The MatchFacadeBridge fans prompts
     // only to the recipient, but we still set into the store regardless
     // and let the page gate the overlay on isMyTurnPrompt for defence

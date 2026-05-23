@@ -1,0 +1,53 @@
+// Wire shape of EventDto as broadcast over the SignalR "event" channel.
+// Mirrors Majik.Core.Api.Dtos.EventDto on the server. The Payload is
+// type-specific (see EventPayloadBuilder.cs); each event type below
+// declares the camelCase shape of its payload.
+//
+// SignalR's default JSON protocol serialises records with the runtime
+// PropertyNamingPolicy; the inner Payload is hand-rolled with explicit
+// camelCase keys, so we read camelCase here. The OUTER envelope can
+// arrive as PascalCase or camelCase depending on server JSON config, so
+// the normaliser below tolerates both — matching the existing pattern
+// used by the prompt$ subscriber in match.ts.
+
+export interface RawEventDto {
+  eventId?: string; EventId?: string;
+  type?: string; Type?: string;
+  at?: string; At?: string;
+  payload?: unknown; Payload?: unknown;
+}
+
+export interface NormalisedEventDto {
+  eventId: string;
+  type: string;
+  payload: Record<string, unknown>;
+}
+
+export function normaliseEvent(raw: unknown): NormalisedEventDto | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as RawEventDto;
+  const type = r.type ?? r.Type;
+  if (!type || typeof type !== 'string') return null;
+  const payload = (r.payload ?? r.Payload ?? {}) as Record<string, unknown>;
+  const eventId = String(r.eventId ?? r.EventId ?? '');
+  return { eventId, type, payload };
+}
+
+// Convenience helpers for payload reads — payload keys are camelCase on
+// the wire but we accept the PascalCase variant defensively so a future
+// server JSON config flip doesn't silently break patch routing.
+export function pickString(payload: Record<string, unknown>, ...keys: string[]): string | null {
+  for (const k of keys) {
+    const v = payload[k] ?? payload[k.charAt(0).toUpperCase() + k.slice(1)];
+    if (typeof v === 'string') return v;
+  }
+  return null;
+}
+
+export function pickNumber(payload: Record<string, unknown>, ...keys: string[]): number | null {
+  for (const k of keys) {
+    const v = payload[k] ?? payload[k.charAt(0).toUpperCase() + k.slice(1)];
+    if (typeof v === 'number' && Number.isFinite(v)) return v;
+  }
+  return null;
+}
