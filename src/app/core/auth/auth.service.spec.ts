@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { describe, expect, it, beforeEach } from 'vitest';
-import { BehaviorSubject, NEVER, Subject } from 'rxjs';
+import { BehaviorSubject, NEVER, ReplaySubject, Subject } from 'rxjs';
 import { AuthService as Auth0Service } from '@auth0/auth0-angular';
 import { AUTH_BOOTSTRAP_TIMEOUT_MS, AuthService } from './auth.service';
 import { MAJIK_AUTH_CONFIG, MajikAuthConfig } from './auth.config';
@@ -93,6 +93,34 @@ describe('AuthService.bootstrap()', () => {
     await svc.bootstrap();
     expect(svc.isAuthenticated()).toBe(false);
     expect(svc.principal()).toBeNull();
+  });
+
+  it('sets _authed synchronously with the isAuthenticated$ emission even if idTokenClaims$ lags', async () => {
+    // Regression for the onboarding-redirect-on-refresh bug: the SDK's
+    // real-world emission order is `isAuthenticated$` first, then
+    // `idTokenClaims$` one concatMap hop later. Previously the
+    // signal-updating subscription was on combineLatest of both, so the
+    // await on isAuthenticated$ would resolve before the signal was
+    // touched, leaving `auth.isAuthenticated()` returning `false` to
+    // ProfileService.bootstrap. We model that ordering here with a
+    // ReplaySubject for authed that emits true synchronously on the
+    // SDK settle, and a claims$ that does NOT emit yet.
+    const authed$ = new ReplaySubject<boolean>(1);
+    const claims$ = new Subject<unknown>(); // intentionally NOT emitting
+    authed$.next(true);
+    TestBed.configureTestingModule({
+      providers: [
+        AuthService,
+        { provide: MAJIK_AUTH_CONFIG, useValue: REAL_CFG },
+        { provide: Auth0Service, useValue: makeFakeAuth0({ authed$, claims$ }) },
+      ],
+    });
+    const svc = TestBed.inject(AuthService);
+    await svc.bootstrap();
+    // Critical assertion: by the time bootstrap resolves, the auth
+    // signal MUST reflect the latest isAuthenticated$ value — even
+    // though claims have not arrived yet.
+    expect(svc.isAuthenticated()).toBe(true);
   });
 
   it('falls back via timeout if Auth0 never emits', async () => {

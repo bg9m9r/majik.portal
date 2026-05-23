@@ -1,7 +1,7 @@
 import { DestroyRef, Injectable, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { AuthService as Auth0Service } from '@auth0/auth0-angular';
-import { combineLatest, filter, firstValueFrom, race, take, timer } from 'rxjs';
+import { filter, firstValueFrom, race, take, timer } from 'rxjs';
 import { MAJIK_AUTH_CONFIG, isAuthStubbed } from './auth.config';
 
 /**
@@ -81,22 +81,40 @@ export class AuthService {
       return;
     }
 
-    // Auth0 SDK exposes auth state across two streams (isAuthenticated$,
-    // idTokenClaims$). Combine so we update signals atomically and don't
-    // briefly emit `authed=true` with `principal=null`.
-    combineLatest([this.auth0.isAuthenticated$, this.auth0.idTokenClaims$])
+    // Drive `_authed` directly from `isAuthenticated$` — the SDK gates
+    // that stream on its own `isLoading$` so by the time it fires we
+    // know auth0 has settled. We subscribe BEFORE the await below so
+    // that when the stream emits, the subscribe callback runs (setting
+    // the signal) before the firstValueFrom promise resolves and hands
+    // control back to the app initializer. Previously we used
+    // combineLatest([isAuthenticated$, idTokenClaims$]) and awaited
+    // isAuthenticated$ alone — `idTokenClaims$` lags by one async hop
+    // (concatMap → getIdTokenClaims), so combineLatest hadn't fired
+    // by the time the await resolved, leaving `_authed` stuck at
+    // false and bouncing every refresh to /onboarding.
+    this.auth0.isAuthenticated$
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe(([authed, claims]) => {
+      .subscribe(authed => {
         this._authed.set(authed);
-        if (authed && claims) {
+        if (!authed) {
+          this._principal.set(null);
+          this._token.set(null);
+        }
+      });
+
+    // Principal is populated from idTokenClaims$ once the SDK resolves
+    // them. This subscription is independent of the one above so a
+    // claim-fetch delay can't gate `_authed` (and therefore can't
+    // block ProfileService.bootstrap from firing GET /me).
+    this.auth0.idTokenClaims$
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(claims => {
+        if (claims) {
           this._principal.set({
             sub: (claims['sub'] as string | undefined) ?? '',
             name: (claims['name'] as string | undefined) ?? (claims['nickname'] as string | undefined),
             discordUserId: claims[NAMESPACED_DISCORD_CLAIM] as string | undefined
           });
-        } else if (!authed) {
-          this._principal.set(null);
-          this._token.set(null);
         }
       });
 
