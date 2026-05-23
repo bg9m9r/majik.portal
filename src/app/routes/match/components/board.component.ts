@@ -1,4 +1,16 @@
-import { Component, computed, inject, input, output, signal } from '@angular/core';
+import {
+  AfterViewInit,
+  Component,
+  ElementRef,
+  OnDestroy,
+  ViewChild,
+  computed,
+  effect,
+  inject,
+  input,
+  output,
+  signal,
+} from '@angular/core';
 import {
   CdkDrag,
   CdkDragDrop,
@@ -7,7 +19,7 @@ import {
   moveItemInArray,
 } from '@angular/cdk/drag-drop';
 import { GameState, GamePlayer, CardSnapshot } from '../../../core/match/match.types';
-import { PhaseStops } from '../../../core/match/game.store';
+import { GameStore, PhaseStops } from '../../../core/match/game.store';
 import { CardViewComponent, snapshotToCard } from '../../../ui/card-view.component';
 import { PlayerHudComponent } from '../../../ui/player-hud.component';
 import { ManaPoolRowComponent } from '../../../ui/mana-pool-row.component';
@@ -73,7 +85,18 @@ import { CardPopoverService } from '../../../ui/card-popover.service';
           [stops]="phaseStops()"
           (stopToggled)="phaseStopToggled.emit($event)" />
 
-        <div class="board-grid grid grid-cols-[1fr_200px_1fr] gap-2 p-3 flex-1">
+        <!--
+          Screen-reader announcer. Single polite region driven by
+          GameStore.lastAnnouncement, bumped on every patch via the
+          announcementFor() composer. zero-width space prefix forces
+          re-announcements even when text repeats — screen readers
+          dedupe identical strings within the same region.
+        -->
+        <div class="sr-only" aria-live="polite" aria-atomic="true">
+          {{ liveAnnouncement() }}
+        </div>
+
+        <div #boardGrid class="board-grid relative grid grid-cols-[1fr_200px_1fr] gap-2 p-3 flex-1">
           <!-- Opponent frame: HUD on top, hand below, battlefield at the bottom. -->
           <section
             class="player-frame player-frame--foe"
@@ -114,6 +137,7 @@ import { CardPopoverService } from '../../../ui/card-popover.service';
               @for (c of opponent()?.battlefield?.cards ?? []; track c.instanceId) {
                 <app-card-view
                   [snapshot]="c"
+                  [attr.data-card-id]="c.instanceId"
                   zone="battlefield"
                   animate.enter="zone-enter-from-top"
                   animate.leave="zone-leave-down"
@@ -160,6 +184,7 @@ import { CardPopoverService } from '../../../ui/card-popover.service';
               @for (c of self()?.battlefield?.cards ?? []; track c.instanceId) {
                 <app-card-view
                   [snapshot]="c"
+                  [attr.data-card-id]="c.instanceId"
                   zone="battlefield"
                   animate.enter="zone-enter-from-bottom"
                   animate.leave="zone-leave-up"
@@ -209,6 +234,35 @@ import { CardPopoverService } from '../../../ui/card-popover.service';
               side="self"
               label="you" />
           </section>
+
+          <!--
+            SVG combat-assignment overlay. Layered above the board cells
+            (pointer-events: none so card interactions still work). The
+            modal-driven attackers/blockers prompt remains the source of
+            truth for keyboard a11y — this is purely a visual augment.
+            V1: lines render once the user has at least one in-progress
+            assignment (dashed = uncommitted) or after the prompt has
+            been confirmed (solid). Coordinates are measured off the
+            DOM card nodes via getBoundingClientRect — see
+            recomputeCombatLines() below.
+          -->
+          @if (combatLines().length > 0) {
+            <svg
+              class="combat-overlay"
+              [attr.width]="overlaySize().w"
+              [attr.height]="overlaySize().h"
+              aria-hidden="true">
+              @for (line of combatLines(); track line.id) {
+                <path
+                  [attr.d]="line.d"
+                  [attr.stroke]="line.color"
+                  [attr.stroke-dasharray]="line.dashed ? '6 4' : null"
+                  stroke-width="2"
+                  fill="none"
+                  stroke-linecap="round" />
+              }
+            </svg>
+          }
         </div>
 
         <app-action-bar
@@ -230,11 +284,20 @@ import { CardPopoverService } from '../../../ui/card-popover.service';
     }
   `
 })
-export class BoardComponent {
+export class BoardComponent implements AfterViewInit, OnDestroy {
   readonly state = input<GameState | null>(null);
   readonly selfPlayerIds = input<string[]>([]);
   readonly currentPrompt = input<{ expectedKinds?: string[]; description?: string } | null>(null);
   readonly phaseStops = input<PhaseStops>({});
+  // In-progress combat-assignment state forwarded from the prompt
+  // overlay. When the user toggles an attacker/blocker the overlay
+  // emits assignmentsChanged; match.ts forwards it down here so the
+  // SVG layer can render arrows while the modal is still open.
+  readonly liveAssignments = input<{
+    kind: 'attackers' | 'blockers' | null;
+    attackers?: { attackerInstanceId: string; defenderId: string }[];
+    blockers?: { attackerInstanceId: string; blockerInstanceId: string }[];
+  } | null>(null);
   readonly passClicked = output<void>();
   readonly handCardClicked = output<CardSnapshot>();
   readonly phaseStopToggled = output<string>();
@@ -307,6 +370,144 @@ export class BoardComponent {
         }
         break;
     }
+  }
+
+  private readonly gameStore = inject(GameStore);
+
+  // Aria-live announcement string — we prefix with a zero-width space
+  // tied to a sequence number so identical-text re-emits force a fresh
+  // SR read (screen readers de-dupe by literal text per region).
+  readonly liveAnnouncement = computed<string>(() => {
+    const text = this.gameStore.lastAnnouncement();
+    const seq = this.gameStore.lastAnnouncementSeq();
+    if (!text) return '';
+    // Alternate a trailing space every other seq so the polite region
+    // sees a fresh string even on repeat content.
+    return seq % 2 === 0 ? text : text + ' ';
+  });
+
+  @ViewChild('boardGrid') private boardGridEl?: ElementRef<HTMLElement>;
+
+  // Recomputation trigger for SVG line coords. Bumped on resize +
+  // whenever liveAssignments changes — the actual measurement happens
+  // off this signal via afterNextRender / effect.
+  private readonly measureTick = signal(0);
+
+  // Backing store for the computed line list. We can't read DOM rects
+  // inside a pure computed (no element refs guaranteed in change-detection
+  // order), so the path strings + colors are derived in
+  // recomputeCombatLines() and stashed here.
+  readonly combatLines = signal<{
+    id: string;
+    d: string;
+    color: string;
+    dashed: boolean;
+  }[]>([]);
+
+  readonly overlaySize = signal<{ w: number; h: number }>({ w: 0, h: 0 });
+
+  private resizeHandler = (): void => {
+    this.measureTick.update(n => n + 1);
+  };
+
+  constructor() {
+    // Recompute combat lines whenever the assignment input or measure
+    // tick changes. rAF defer so the underlying card DOM nodes have
+    // been painted before we sample their rects.
+    effect(() => {
+      this.liveAssignments();
+      this.measureTick();
+      this.state();
+      if (typeof requestAnimationFrame !== 'undefined') {
+        requestAnimationFrame(() => this.recomputeCombatLines());
+      } else {
+        this.recomputeCombatLines();
+      }
+    });
+  }
+
+  ngAfterViewInit(): void {
+    if (typeof window !== 'undefined') {
+      window.addEventListener('resize', this.resizeHandler);
+    }
+  }
+
+  ngOnDestroy(): void {
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('resize', this.resizeHandler);
+    }
+  }
+
+  private recomputeCombatLines(): void {
+    const grid = this.boardGridEl?.nativeElement;
+    const assignments = this.liveAssignments();
+    if (!grid || !assignments || !assignments.kind) {
+      if (this.combatLines().length > 0) this.combatLines.set([]);
+      return;
+    }
+    const hostRect = grid.getBoundingClientRect();
+    this.overlaySize.set({ w: hostRect.width, h: hostRect.height });
+
+    const lines: { id: string; d: string; color: string; dashed: boolean }[] = [];
+
+    if (assignments.kind === 'attackers') {
+      // Attacker arrows: from each declared attacker card center down
+      // to the opponent HUD anchor. We pull the .player-hud anchor on
+      // the foe frame as the target since the prompt currently only
+      // supports defender = opponent (no planeswalkers yet).
+      const foeAnchor = grid.querySelector('.player-frame--foe .player-hud') as HTMLElement | null;
+      const foeRect = foeAnchor?.getBoundingClientRect();
+      if (!foeRect) return;
+      const target = {
+        x: foeRect.left + foeRect.width / 2 - hostRect.left,
+        y: foeRect.top + foeRect.height / 2 - hostRect.top,
+      };
+      for (const a of assignments.attackers ?? []) {
+        const card = grid.querySelector(
+          `.player-frame--self .battlefield-row [data-card-id="${a.attackerInstanceId}"]`
+        ) as HTMLElement | null;
+        if (!card) continue;
+        const r = card.getBoundingClientRect();
+        const from = {
+          x: r.left + r.width / 2 - hostRect.left,
+          y: r.top + r.height / 2 - hostRect.top,
+        };
+        lines.push({
+          id: `atk-${a.attackerInstanceId}`,
+          d: curvedPath(from, target),
+          color: 'var(--text-err)',
+          dashed: true,
+        });
+      }
+    } else if (assignments.kind === 'blockers') {
+      for (const b of assignments.blockers ?? []) {
+        const blockerEl = grid.querySelector(
+          `.player-frame--self .battlefield-row [data-card-id="${b.blockerInstanceId}"]`
+        ) as HTMLElement | null;
+        const attackerEl = grid.querySelector(
+          `.player-frame--foe .battlefield-row [data-card-id="${b.attackerInstanceId}"]`
+        ) as HTMLElement | null;
+        if (!blockerEl || !attackerEl) continue;
+        const bRect = blockerEl.getBoundingClientRect();
+        const aRect = attackerEl.getBoundingClientRect();
+        const from = {
+          x: bRect.left + bRect.width / 2 - hostRect.left,
+          y: bRect.top + bRect.height / 2 - hostRect.top,
+        };
+        const to = {
+          x: aRect.left + aRect.width / 2 - hostRect.left,
+          y: aRect.top + aRect.height / 2 - hostRect.top,
+        };
+        lines.push({
+          id: `blk-${b.blockerInstanceId}-${b.attackerInstanceId}`,
+          d: curvedPath(from, to),
+          color: 'var(--mana-u)',
+          dashed: true,
+        });
+      }
+    }
+
+    this.combatLines.set(lines);
   }
 
   readonly self = computed<GamePlayer | null>(() => {
@@ -441,4 +642,21 @@ export function cmcOf(cost: string | null | undefined): number {
 function totalMana(m: { white: number; blue: number; black: number; red: number; green: number; colorless: number; generic: number }): number {
   const n = (v: number | string) => (typeof v === 'number' ? v : Number(v) || 0);
   return n(m.white) + n(m.blue) + n(m.black) + n(m.red) + n(m.green) + n(m.colorless) + n(m.generic);
+}
+
+// SVG cubic-bezier between two points with the control points pulled
+// vertically so the arc bulges away from the straight line. dx-derived
+// curvature is bounded so very-close cards don't produce wild loops.
+function curvedPath(from: { x: number; y: number }, to: { x: number; y: number }): string {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const dist = Math.hypot(dx, dy);
+  const curve = Math.min(80, dist * 0.25);
+  // Bias the control points perpendicular to the line so the arc has
+  // a consistent visual lift regardless of direction.
+  const cx1 = from.x + dx * 0.25;
+  const cy1 = from.y + dy * 0.25 - curve;
+  const cx2 = from.x + dx * 0.75;
+  const cy2 = from.y + dy * 0.75 - curve;
+  return `M ${from.x},${from.y} C ${cx1},${cy1} ${cx2},${cy2} ${to.x},${to.y}`;
 }

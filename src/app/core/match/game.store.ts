@@ -1,6 +1,6 @@
 import { computed } from '@angular/core';
 import { patchState, signalStore, withComputed, withMethods, withState } from '@ngrx/signals';
-import { NormalisedEventDto, normaliseEvent } from './event.types';
+import { NormalisedEventDto, normaliseEvent, pickNumber, pickString } from './event.types';
 import { patchGameState } from './event.reducer';
 import { BotDecision, GameState, PromptEnvelope } from './match.types';
 
@@ -54,6 +54,14 @@ type GameStoreState = {
   recentDecisions: BotDecision[];
   // Phase-stop map. See PhaseStops above.
   phaseStops: PhaseStops;
+  // Latest aria-live announcement — driven by patchGameState side
+  // effects (turn / phase / stack / life events). Consumers bind this
+  // to a sr-only `aria-live="polite"` region. The seq counter forces
+  // re-announcement even when the text repeats (screen readers
+  // de-dupe identical text, so we string a zero-width space + seq to
+  // keep transitions audible).
+  lastAnnouncement: string;
+  lastAnnouncementSeq: number;
 };
 
 const initial: GameStoreState = {
@@ -63,6 +71,8 @@ const initial: GameStoreState = {
   selfPlayerIds: [],
   recentDecisions: [],
   phaseStops: {},
+  lastAnnouncement: '',
+  lastAnnouncementSeq: 0,
 };
 
 export const GameStore = signalStore(
@@ -111,8 +121,27 @@ export const GameStore = signalStore(
       if (!current) return false;
       const next = patchGameState(current, evt);
       if (!next) return false;
-      patchState(store, s => ({ state: next, stateVersion: s.stateVersion + 1 }));
+      const announcement = announcementFor(evt, current, next, store.selfPlayerIds());
+      patchState(store, s => {
+        const base = { state: next, stateVersion: s.stateVersion + 1 };
+        if (announcement) {
+          return {
+            ...base,
+            lastAnnouncement: announcement,
+            lastAnnouncementSeq: s.lastAnnouncementSeq + 1,
+          };
+        }
+        return base;
+      });
       return true;
+    },
+    /** Publish a free-form aria-live announcement. */
+    announce(text: string): void {
+      if (!text) return;
+      patchState(store, s => ({
+        lastAnnouncement: text,
+        lastAnnouncementSeq: s.lastAnnouncementSeq + 1,
+      }));
     },
     // Append a bot decision to the recent-decisions ring. Newest goes to
     // the front; the ring is truncated to MAX_RECENT_DECISIONS so the
@@ -146,3 +175,64 @@ export const GameStore = signalStore(
     },
   }))
 );
+
+// -----------------------------------------------------------------
+// Compose an aria-live string from a freshly-applied engine event.
+// Returns null when the event doesn't warrant an announcement (most
+// CardMoved variants, hidden-zone deltas, etc.). Keep this terse —
+// screen readers cut off on long polite-region updates.
+// -----------------------------------------------------------------
+function announcementFor(
+  evt: NormalisedEventDto,
+  prev: GameState,
+  next: GameState,
+  selfIds: readonly string[],
+): string | null {
+  switch (evt.type) {
+    case 'TurnStartedEvent': {
+      const turn = pickNumber(evt.payload, 'turn');
+      const playerId = pickString(evt.payload, 'playerId');
+      const isMine = playerId != null && selfIds.includes(playerId);
+      return `Turn ${turn ?? next.turnNumber} — ${isMine ? 'your turn' : "opponent's turn"}`;
+    }
+    case 'PhaseStartedEvent':
+    case 'StepStartedEvent':
+    case 'PhaseChangedEvent': {
+      const phase = pickString(evt.payload, 'phase', 'step', 'to') ?? next.phase;
+      const active = next.activePlayerId;
+      const isMine = selfIds.includes(active);
+      return `Now: ${phase} — ${isMine ? 'your turn' : "opponent's turn"}`;
+    }
+    case 'StackObjectAddedEvent':
+    case 'SpellCastEvent': {
+      const desc = pickString(evt.payload, 'description');
+      const kind = pickString(evt.payload, 'kind');
+      const name = desc ?? kind ?? 'an object';
+      return `${name} added to stack`;
+    }
+    case 'StackObjectResolvedEvent': {
+      const id = pickString(evt.payload, 'stackId', 'id');
+      const item = id ? prev.stack.find(s => s.id === id) : null;
+      const name = item?.description ?? item?.kind ?? 'stack object';
+      return `${name} resolved`;
+    }
+    case 'LifeChangedEvent': {
+      const playerId = pickString(evt.payload, 'playerId');
+      const before = playerId ? prev.players.find(p => p.id === playerId)?.life ?? null : null;
+      const after = playerId ? next.players.find(p => p.id === playerId)?.life ?? null : null;
+      const name = playerId ? next.players.find(p => p.id === playerId)?.name ?? 'player' : 'player';
+      if (after == null || before == null) return null;
+      const delta = after - before;
+      if (delta === 0) return null;
+      const verb = delta > 0 ? `gained ${delta}` : `lost ${-delta}`;
+      return `${name} — ${after} life, ${verb}`;
+    }
+    case 'PlayerLostEvent': {
+      const playerId = pickString(evt.payload, 'playerId');
+      const name = playerId ? next.players.find(p => p.id === playerId)?.name ?? 'player' : 'player';
+      return `${name} lost the game`;
+    }
+    default:
+      return null;
+  }
+}
