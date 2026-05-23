@@ -1,12 +1,14 @@
-import { Component, computed, effect, inject, input } from '@angular/core';
+import { Component, ElementRef, computed, effect, inject, input } from '@angular/core';
 import { CardSnapshot } from '../core/match/match.types';
+import { Card } from '../core/card/card.types';
 import { ScryfallImageCache } from '../core/card/scryfall-image-cache.service';
+import { CardPopoverService } from './card-popover.service';
 import { ManaCostComponent } from './mana-cost.component';
 
 // Where this card view is rendered. Summoning-sickness only applies to
 // permanents on the battlefield (CR 302.1 / 716.1 — sickness is a
 // property of being a creature that's been under its controller's
-// control since the start of its turn), so the dot is suppressed in
+// control since the start of its turn), so the ring is suppressed in
 // hand / stack / library views even if the engine snapshot still
 // carries `summoningSickness: true`.
 export type CardViewZone = 'battlefield' | 'hand' | 'stack' | 'other';
@@ -16,13 +18,20 @@ export type CardViewZone = 'battlefield' | 'hand' | 'stack' | 'other';
   standalone: true,
   imports: [ManaCostComponent],
   template: `
-    <div
+    <div #host
       class="card relative overflow-hidden flex flex-col justify-between p-1 text-[10px] text-stone-900"
       [class.is-tapped]="snapshot()?.tapped"
       [class.is-hidden]="hidden()"
+      [class.is-sick]="showSummoningSickness()"
+      [class.card--castable]="castable()"
       [title]="ariaLabel()"
       [attr.aria-label]="ariaLabel()"
-      role="img">
+      role="img"
+      (mouseenter)="onHover()"
+      (mouseleave)="onLeave()">
+      @if (snapshot()?.tapped && !hidden()) {
+        <span class="card__tap-pin" aria-hidden="true">TAP</span>
+      }
       @if (hidden()) {
         <span class="m-auto text-stone-300/70">?</span>
       } @else if (snapshot(); as c) {
@@ -36,9 +45,6 @@ export type CardViewZone = 'battlefield' | 'hand' | 'stack' | 'other';
           @if (c.power !== null && c.toughness !== null) {
             <span class="absolute bottom-1 right-1 rounded bg-black/70 px-1 font-mono text-[10px] text-stone-100">{{ c.power }}/{{ c.toughness }}</span>
           }
-          @if (showSummoningSickness()) {
-            <span class="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-amber-400" title="Summoning sickness"></span>
-          }
         } @else {
           <div class="flex items-start justify-between gap-1">
             <span class="line-clamp-2 font-semibold leading-tight">{{ c.name }}</span>
@@ -50,9 +56,6 @@ export type CardViewZone = 'battlefield' | 'hand' | 'stack' | 'other';
               <span class="rounded bg-black/40 px-1 font-mono text-stone-100">{{ c.power }}/{{ c.toughness }}</span>
             }
           </div>
-          @if (showSummoningSickness()) {
-            <span class="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-amber-400" title="Summoning sickness"></span>
-          }
         }
       }
     </div>
@@ -61,9 +64,13 @@ export type CardViewZone = 'battlefield' | 'hand' | 'stack' | 'other';
 export class CardViewComponent {
   readonly snapshot = input<CardSnapshot | null>(null);
   readonly hidden = input<boolean>(false);
-  // Defaults to 'other' so the summoning-sickness dot stays suppressed
+  // Defaults to 'other' so the summoning-sickness ring stays suppressed
   // unless the caller opts in by setting zone="battlefield".
   readonly zone = input<CardViewZone>('other');
+  // Castable hint — board.component computes this for the viewer's own
+  // hand based on priority + mana availability. Defaults to false so
+  // non-hand renderings stay neutral.
+  readonly castable = input<boolean>(false);
 
   readonly showSummoningSickness = computed<boolean>(() => {
     if (this.zone() !== 'battlefield') return false;
@@ -77,6 +84,9 @@ export class CardViewComponent {
   });
 
   private readonly cache = inject(ScryfallImageCache);
+  private readonly popover = inject(CardPopoverService);
+  private readonly host = inject(ElementRef<HTMLElement>);
+  private hoverTimer: ReturnType<typeof setTimeout> | null = null;
 
   readonly typeLine = computed(() => (this.snapshot()?.types ?? []).join(' '));
 
@@ -113,4 +123,54 @@ export class CardViewComponent {
       if (!this.cache.get(name)) this.cache.request([name]);
     });
   }
+
+  /**
+   * Open the detail popover on hover with a 250ms delay so accidental
+   * mouse passes don't spam show/hide.
+   *
+   * Eligible zones: battlefield, hand, other. The face-down opponent
+   * hand (`hidden=true`) is suppressed — we don't reveal opaque cards.
+   * Stack-zone renderings are also suppressed; the stack panel has its
+   * own dedicated readout.
+   */
+  onHover(): void {
+    if (this.hoverTimer) clearTimeout(this.hoverTimer);
+    if (this.hidden()) return;
+    const snap = this.snapshot();
+    if (!snap) return;
+    const z = this.zone();
+    if (z !== 'battlefield' && z !== 'hand' && z !== 'other') return;
+    this.hoverTimer = setTimeout(() => {
+      const rect = this.host.nativeElement.getBoundingClientRect();
+      this.popover.show(snapshotToCard(snap), rect);
+    }, 250);
+  }
+
+  onLeave(): void {
+    if (this.hoverTimer) {
+      clearTimeout(this.hoverTimer);
+      this.hoverTimer = null;
+    }
+    this.popover.hide();
+  }
+}
+
+/**
+ * Adapter from the in-game CardSnapshot wire shape to the static Card
+ * shape the popover renders. The snapshot doesn't carry oracle text or
+ * a derived CMC — the popover falls back to displaying just the
+ * mana-cost string + types + P/T when oracleText is missing.
+ */
+function snapshotToCard(snap: CardSnapshot): Card {
+  return {
+    name: snap.name,
+    manaCost: snap.manaCost,
+    types: snap.types,
+    power: snap.power,
+    toughness: snap.toughness,
+    isImplemented: true,
+    cmc: null,
+    colors: [],
+    oracleText: null,
+  };
 }

@@ -2,6 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { describe, expect, it, vi } from 'vitest';
 import { CardViewComponent } from './card-view.component';
+import { CardPopoverService } from './card-popover.service';
 import { ScryfallImageCache } from '../core/card/scryfall-image-cache.service';
 import { CardSnapshot } from '../core/match/match.types';
 
@@ -34,22 +35,36 @@ function makeSnapshot(overrides: Partial<CardSnapshot> = {}): CardSnapshot {
   };
 }
 
+function makePopoverStub() {
+  return {
+    show: vi.fn(),
+    hide: vi.fn(),
+    current: () => null,
+  };
+}
+
 function render(
   snapshot: CardSnapshot | null,
   hidden: boolean,
   cache: ReturnType<typeof makeCacheStub> = makeCacheStub(),
   zone?: 'battlefield' | 'hand' | 'stack' | 'other',
+  options: { castable?: boolean; popover?: ReturnType<typeof makePopoverStub> } = {},
 ) {
+  const popover = options.popover ?? makePopoverStub();
   TestBed.configureTestingModule({
     imports: [CardViewComponent],
-    providers: [{ provide: ScryfallImageCache, useValue: cache }],
+    providers: [
+      { provide: ScryfallImageCache, useValue: cache },
+      { provide: CardPopoverService, useValue: popover },
+    ],
   });
   const fixture = TestBed.createComponent(CardViewComponent);
   fixture.componentRef.setInput('snapshot', snapshot);
   fixture.componentRef.setInput('hidden', hidden);
   if (zone !== undefined) fixture.componentRef.setInput('zone', zone);
+  if (options.castable !== undefined) fixture.componentRef.setInput('castable', options.castable);
   fixture.detectChanges();
-  return { fixture, cache };
+  return { fixture, cache, popover };
 }
 
 describe('CardViewComponent', () => {
@@ -96,26 +111,27 @@ describe('CardViewComponent', () => {
     expect(img.getAttribute('src')).toBe('https://img.example/elves.png');
   });
 
-  describe('summoning sickness dot', () => {
-    function sickness(title = 'Summoning sickness') {
-      return `[title="${title}"]`;
-    }
+  describe('summoning sickness ring', () => {
+    // Sickness is signalled via the `.is-sick` class on the root .card
+    // element (drives an inset box-shadow ring). The dot variant was
+    // removed because dense battlefield rows obscured the corner.
+    const SICK = '.card.is-sick';
 
-    it('renders the dot on a sick creature on the battlefield', () => {
+    it('rings a sick creature on the battlefield', () => {
       const { fixture } = render(
         makeSnapshot({ summoningSickness: true, types: ['Creature'] }),
         false, makeCacheStub(), 'battlefield');
-      expect(fixture.nativeElement.querySelector(sickness())).not.toBeNull();
+      expect(fixture.nativeElement.querySelector(SICK)).not.toBeNull();
     });
 
-    it('suppresses the dot in hand even when the snapshot flag is true', () => {
+    it('suppresses the ring in hand even when the snapshot flag is true', () => {
       const { fixture } = render(
         makeSnapshot({ summoningSickness: true, types: ['Creature'] }),
         false, makeCacheStub(), 'hand');
-      expect(fixture.nativeElement.querySelector(sickness())).toBeNull();
+      expect(fixture.nativeElement.querySelector(SICK)).toBeNull();
     });
 
-    it('suppresses the dot for non-creature permanents (e.g. lands, artifacts)', () => {
+    it('suppresses the ring for non-creature permanents (e.g. lands, artifacts)', () => {
       const { fixture } = render(
         makeSnapshot({
           summoningSickness: true,
@@ -124,10 +140,10 @@ describe('CardViewComponent', () => {
           toughness: null,
         }),
         false, makeCacheStub(), 'battlefield');
-      expect(fixture.nativeElement.querySelector(sickness())).toBeNull();
+      expect(fixture.nativeElement.querySelector(SICK)).toBeNull();
     });
 
-    it('renders the dot for an animated land that is currently a creature', () => {
+    it('rings an animated land that is currently a creature', () => {
       // Animated land mid-turn — the engine flips the type bit on
       // activation, so types includes both 'Land' and 'Creature'. Per
       // CR 302.1 it now has summoning sickness for the rest of the
@@ -140,14 +156,56 @@ describe('CardViewComponent', () => {
           power: 2, toughness: 2,
         }),
         false, makeCacheStub(), 'battlefield');
-      expect(fixture.nativeElement.querySelector(sickness())).not.toBeNull();
+      expect(fixture.nativeElement.querySelector(SICK)).not.toBeNull();
     });
 
-    it('defaults zone to non-battlefield so the dot is opt-in', () => {
+    it('defaults zone to non-battlefield so the ring is opt-in', () => {
       const { fixture } = render(
         makeSnapshot({ summoningSickness: true, types: ['Creature'] }),
         false, makeCacheStub() /* no zone */);
-      expect(fixture.nativeElement.querySelector(sickness())).toBeNull();
+      expect(fixture.nativeElement.querySelector(SICK)).toBeNull();
+    });
+  });
+
+  describe('castable input', () => {
+    it('applies .card--castable when castable=true on a hand card', () => {
+      const { fixture } = render(
+        makeSnapshot({ types: ['Creature'] }),
+        false, makeCacheStub(), 'hand',
+        { castable: true });
+      expect(fixture.nativeElement.querySelector('.card.card--castable')).not.toBeNull();
+    });
+
+    it('omits .card--castable when castable=false (default)', () => {
+      const { fixture } = render(
+        makeSnapshot({ types: ['Creature'] }),
+        false, makeCacheStub(), 'hand');
+      expect(fixture.nativeElement.querySelector('.card.card--castable')).toBeNull();
+    });
+  });
+
+  describe('tap pin', () => {
+    it('renders the TAP pin when the card is tapped on the battlefield', () => {
+      const { fixture } = render(
+        makeSnapshot({ tapped: true, types: ['Creature'] }),
+        false, makeCacheStub(), 'battlefield');
+      const pin = fixture.nativeElement.querySelector('.card__tap-pin');
+      expect(pin).not.toBeNull();
+      expect(pin?.textContent).toContain('TAP');
+    });
+
+    it('omits the TAP pin when the card is untapped', () => {
+      const { fixture } = render(
+        makeSnapshot({ tapped: false, types: ['Creature'] }),
+        false, makeCacheStub(), 'battlefield');
+      expect(fixture.nativeElement.querySelector('.card__tap-pin')).toBeNull();
+    });
+
+    it('omits the TAP pin on a face-down (hidden) card', () => {
+      const { fixture } = render(
+        makeSnapshot({ tapped: true }),
+        true, makeCacheStub(), 'battlefield');
+      expect(fixture.nativeElement.querySelector('.card__tap-pin')).toBeNull();
     });
   });
 });

@@ -96,7 +96,9 @@
 
   &.is-tapped {
     transform: rotate(90deg);
-    opacity: 0.85;
+    // Drop opacity harder so the rotated card reads as inert even when
+    // a dense battlefield row keeps the bounding box visually upright.
+    opacity: 0.65;
   }
 
   &.is-hidden {
@@ -110,6 +112,55 @@
   &.is-target-ineligible {
     filter: grayscale(1);
   }
+
+  // Summoning-sickness ring. Inset 2px so the rim hugs the rounded
+  // corner without bleeding into neighbouring cards in a dense row.
+  // Pulled lighter than the target-eligible outline so the two cues
+  // don't visually collide when both classes land on the same card.
+  &.is-sick {
+    box-shadow: inset 0 0 0 2px var(--majik-accent);
+  }
+
+  // "Can I cast this?" hand-card hint. Faint gold glow at ~40% alpha
+  // so it reads as suggestion, not selection. Light enough that the
+  // target-eligible outline still wins on conflict.
+  &.card--castable {
+    box-shadow: 0 0 0 2px rgba(202, 167, 90, 0.40);
+  }
+
+  // Both at once (an animated land in your hand can never happen but
+  // the .is-sick class is on battlefield only — left as a stack-safe
+  // declaration in case the data model widens).
+  &.is-sick.card--castable {
+    box-shadow:
+      inset 0 0 0 2px var(--majik-accent),
+      0 0 0 2px rgba(202, 167, 90, 0.40);
+  }
+}
+
+// Tap-state pin. Anchored top-left of the card. Mono, amber on a
+// dark plate so it survives any underlying art. Counter-rotated when
+// the card is tapped so the pin stays upright as the card lies on
+// its side.
+.card__tap-pin {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  z-index: 2;
+  padding: 1px 3px;
+  background: rgba(15, 23, 34, 0.85);
+  color: var(--majik-accent-strong);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.05em;
+  border-radius: 2px;
+  pointer-events: none;
+}
+.card.is-tapped .card__tap-pin {
+  transform: rotate(-90deg);
+  transform-origin: 50% 50%;
 }
 
 // =============================================================
@@ -304,6 +355,26 @@
   0%   { color: var(--majik-fg); transform: scale(1); }
   20%  { color: #6ee7b7; transform: scale(1.15); }
   100% { color: var(--majik-fg); transform: scale(1); }
+}
+
+// Floating damage / heal numeral that drifts up off the player's life
+// total. Per-creature damage events aren't on the SignalR wire yet —
+// see event.reducer.ts — so this only renders on LifeChangedEvent
+// against the HUD. 280ms total — rise + fade.
+.life-numeral {
+  position: absolute;
+  pointer-events: none;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 14px;
+  animation: life-numeral-float 280ms ease-out forwards;
+}
+.life-numeral--loss { color: #fca5a5; }
+.life-numeral--gain { color: #6ee7b7; }
+
+@keyframes life-numeral-float {
+  0%   { opacity: 1; transform: translate(-50%, 0); }
+  100% { opacity: 0; transform: translate(-50%, -30px); }
 }
 
 // =============================================================
