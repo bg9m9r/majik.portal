@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { dispatchMatchKey, MatchKeyDeps } from './match';
-import { CardSnapshot } from '../../core/match/match.types';
+import { AutoPassDeps, dispatchMatchKey, MatchKeyDeps, shouldAutoPass } from './match';
+import { CardSnapshot, GameState, PromptEnvelope } from '../../core/match/match.types';
 
 function card(id: string): CardSnapshot {
   return {
@@ -123,5 +123,154 @@ describe('dispatchMatchKey — match-page keyboard shortcuts', () => {
     const e = ev('Enter');
     dispatchMatchKey(e, makeDeps({ confirmPrimary, isMyTurnPrompt: () => false }));
     expect(confirmPrimary).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------
+// shouldAutoPass — auto-pass guard (pure decision logic)
+// ---------------------------------------------------------------------
+
+const ME = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+const OPP = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+
+function land(id = 'forest'): CardSnapshot {
+  return {
+    instanceId: id,
+    name: 'Forest',
+    manaCost: '',
+    types: ['Land', 'Basic'],
+    power: null,
+    toughness: null,
+    tapped: false,
+    summoningSickness: false,
+  };
+}
+
+function spell(id = 'bolt'): CardSnapshot {
+  return {
+    instanceId: id,
+    name: 'Lightning Bolt',
+    manaCost: '{R}',
+    types: ['Instant'],
+    power: null,
+    toughness: null,
+    tapped: false,
+    summoningSickness: false,
+  };
+}
+
+function state(over: Partial<GameState> & {
+  hand?: CardSnapshot[];
+  activePlayer?: 'me' | 'opp';
+} = {}): GameState {
+  const { hand = [], activePlayer = 'me', ...rest } = over;
+  const empty = { cards: [] };
+  return {
+    gameId: 'g-1',
+    phase: 'PreCombatMain',
+    turnNumber: 1,
+    activePlayerId: activePlayer === 'me' ? ME : OPP,
+    players: [
+      {
+        id: ME, name: 'Me', life: 20,
+        mana: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0, generic: 0 },
+        hand: { cards: hand },
+        library: empty, graveyard: empty, exile: empty, battlefield: empty,
+      },
+      {
+        id: OPP, name: 'Opp', life: 20,
+        mana: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0, generic: 0 },
+        hand: empty, library: empty, graveyard: empty, exile: empty, battlefield: empty,
+      },
+    ],
+    stack: [],
+    ...rest,
+  };
+}
+
+function deps(over: Partial<AutoPassDeps> = {}): AutoPassDeps {
+  return {
+    state: state(),
+    selfPlayerIds: [ME],
+    phaseStops: {},
+    landsPlayedThisTurn: 0,
+    ...over,
+  };
+}
+
+const PASS_PROMPT: PromptEnvelope = { gameId: 'g-1', playerId: ME, expectedKinds: [] };
+
+describe('shouldAutoPass — auto-pass guard', () => {
+  it('non-priority prompts (targets/mulligan/etc.) never auto-pass', () => {
+    const targetsPrompt: PromptEnvelope = { ...PASS_PROMPT, expectedKinds: ['targets'] };
+    expect(shouldAutoPass(targetsPrompt, deps())).toBe(false);
+  });
+
+  it('no GameState yet → never auto-pass', () => {
+    expect(shouldAutoPass(PASS_PROMPT, deps({ state: null }))).toBe(false);
+  });
+
+  it('empty selfPlayerIds (race: prompt before /state) → never auto-pass', () => {
+    // Regression: previously activeSide always resolved to "theirs" when
+    // selfPlayerIds was empty, which bypassed the main-phase guard and
+    // silently passed through the viewer's own main phases.
+    const s = state({ activePlayer: 'me', phase: 'PreCombatMain', hand: [spell()] });
+    expect(shouldAutoPass(PASS_PROMPT, deps({ state: s, selfPlayerIds: [] }))).toBe(false);
+  });
+
+  it('stack non-empty → never auto-pass (CR 117.3b response window)', () => {
+    const s = state();
+    s.stack = [{ id: 's1', kind: 'Spell', description: 'Lightning Bolt' }];
+    expect(shouldAutoPass(PASS_PROMPT, deps({ state: s }))).toBe(false);
+  });
+
+  it('viewer main phase + land in hand + 0 lands played → never auto-pass', () => {
+    const s = state({ activePlayer: 'me', phase: 'PreCombatMain', hand: [land()] });
+    expect(shouldAutoPass(PASS_PROMPT, deps({ state: s, landsPlayedThisTurn: 0 }))).toBe(false);
+  });
+
+  it('viewer main phase + no lands in hand → auto-pass', () => {
+    const s = state({ activePlayer: 'me', phase: 'PreCombatMain', hand: [] });
+    expect(shouldAutoPass(PASS_PROMPT, deps({ state: s }))).toBe(true);
+  });
+
+  it('viewer main phase + spell-only hand → auto-pass (no playable land)', () => {
+    const s = state({ activePlayer: 'me', phase: 'PreCombatMain', hand: [spell()] });
+    expect(shouldAutoPass(PASS_PROMPT, deps({ state: s }))).toBe(true);
+  });
+
+  it('viewer main phase + land in hand + already played a land → auto-pass', () => {
+    const s = state({ activePlayer: 'me', phase: 'PreCombatMain', hand: [land()] });
+    expect(shouldAutoPass(PASS_PROMPT, deps({ state: s, landsPlayedThisTurn: 1 }))).toBe(true);
+  });
+
+  it('viewer PostCombatMain + land in hand + 0 lands played → never auto-pass', () => {
+    const s = state({ activePlayer: 'me', phase: 'PostCombatMain', hand: [land()] });
+    expect(shouldAutoPass(PASS_PROMPT, deps({ state: s }))).toBe(false);
+  });
+
+  it('phase-stop for the active side wins → never auto-pass', () => {
+    const s = state({ activePlayer: 'me', phase: 'Untap', hand: [] });
+    expect(shouldAutoPass(PASS_PROMPT, deps({ state: s, phaseStops: { Untap: 'mine' } }))).toBe(false);
+  });
+
+  it('phase-stop for the other side does NOT block auto-pass', () => {
+    const s = state({ activePlayer: 'me', phase: 'Untap', hand: [] });
+    expect(shouldAutoPass(PASS_PROMPT, deps({ state: s, phaseStops: { Untap: 'theirs' } }))).toBe(true);
+  });
+
+  it('opponent combat + non-land in viewer hand → never auto-pass', () => {
+    const s = state({ activePlayer: 'opp', phase: 'DeclareAttackers', hand: [spell()] });
+    expect(shouldAutoPass(PASS_PROMPT, deps({ state: s }))).toBe(false);
+  });
+
+  it('opponent combat + land-only viewer hand → auto-pass', () => {
+    const s = state({ activePlayer: 'opp', phase: 'DeclareAttackers', hand: [land()] });
+    expect(shouldAutoPass(PASS_PROMPT, deps({ state: s }))).toBe(true);
+  });
+
+  it('opponent non-combat phase + non-land in hand → auto-pass (no instant window guarded here)', () => {
+    const s = state({ activePlayer: 'opp', phase: 'Draw', hand: [spell()] });
+    expect(shouldAutoPass(PASS_PROMPT, deps({ state: s }))).toBe(true);
   });
 });

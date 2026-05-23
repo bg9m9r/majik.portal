@@ -1,6 +1,6 @@
 import { computed } from '@angular/core';
 import { patchState, signalStore, withComputed, withMethods, withState } from '@ngrx/signals';
-import { NormalisedEventDto, normaliseEvent, pickNumber, pickString } from './event.types';
+import { NormalisedEventDto, normaliseEvent, pickBoolean, pickNumber, pickString, pickStringArray } from './event.types';
 import { patchGameState } from './event.reducer';
 import { BotDecision, GameState, PromptEnvelope } from './match.types';
 
@@ -54,6 +54,16 @@ type GameStoreState = {
   recentDecisions: BotDecision[];
   // Phase-stop map. See PhaseStops above.
   phaseStops: PhaseStops;
+  // Client-derived counter of lands the viewer has played this turn.
+  // CR 305.2 — default cap is 1/turn. The server's
+  // LandDropTracker is the canonical source but `PlayerDto` doesn't
+  // surface it today, so the auto-pass guard derives the count from
+  // CardMovedEvent (Hand → Battlefield, type Land, owned by the viewer)
+  // and resets on TurnStartedEvent. Worst-case under-counts when the
+  // viewer has an Azusa-style multi-land effect — conservative bias
+  // means we'd just stop auto-passing on the main phase, which is the
+  // safer side of the guard.
+  landsPlayedThisTurn: number;
   // Latest aria-live announcement — driven by patchGameState side
   // effects (turn / phase / stack / life events). Consumers bind this
   // to a sr-only `aria-live="polite"` region. The seq counter forces
@@ -71,6 +81,7 @@ const initial: GameStoreState = {
   selfPlayerIds: [],
   recentDecisions: [],
   phaseStops: {},
+  landsPlayedThisTurn: 0,
   lastAnnouncement: '',
   lastAnnouncementSeq: 0,
 };
@@ -119,17 +130,30 @@ export const GameStore = signalStore(
       if (!evt) return false;
       const current = store.state();
       if (!current) return false;
+      // Lands-played-this-turn bookkeeping runs regardless of whether the
+      // structural patch below succeeds — TurnStartedEvent and viewer
+      // land drops are both observable from the event payload alone, and
+      // we want the counter to stay live even when the reducer signals a
+      // /state refetch (e.g. Hand → Battlefield is not patchable).
+      const landsDelta = computeLandsPlayedDelta(evt, store.selfPlayerIds());
       const next = patchGameState(current, evt);
-      if (!next) return false;
+      if (!next) {
+        if (landsDelta !== null) {
+          patchState(store, s => ({
+            landsPlayedThisTurn: applyLandsDelta(s.landsPlayedThisTurn, landsDelta),
+          }));
+        }
+        return false;
+      }
       const announcement = announcementFor(evt, current, next, store.selfPlayerIds());
       patchState(store, s => {
-        const base = { state: next, stateVersion: s.stateVersion + 1 };
+        const base: Partial<GameStoreState> = { state: next, stateVersion: s.stateVersion + 1 };
+        if (landsDelta !== null) {
+          base.landsPlayedThisTurn = applyLandsDelta(s.landsPlayedThisTurn, landsDelta);
+        }
         if (announcement) {
-          return {
-            ...base,
-            lastAnnouncement: announcement,
-            lastAnnouncementSeq: s.lastAnnouncementSeq + 1,
-          };
+          base.lastAnnouncement = announcement;
+          base.lastAnnouncementSeq = s.lastAnnouncementSeq + 1;
         }
         return base;
       });
@@ -175,6 +199,45 @@ export const GameStore = signalStore(
     },
   }))
 );
+
+// -----------------------------------------------------------------
+// Track the viewer's lands played this turn.
+//   * TurnStartedEvent — reset to 0 (the engine clears LandDropTracker
+//     at the same moment, see TurnDriver/LandDropTracker.ResetForTurn).
+//   * CardMovedEvent (Hand → Battlefield, types includes "land",
+//     ownerId ∈ selfPlayerIds) — increment by 1.
+// Anything else returns null (no change). The numeric returned by an
+// increment is "+1" / by a reset is the literal 0 sentinel — see
+// applyLandsDelta below.
+// -----------------------------------------------------------------
+type LandsDelta = { kind: 'reset' } | { kind: 'inc' };
+
+export function computeLandsPlayedDelta(
+  evt: NormalisedEventDto,
+  selfIds: readonly string[],
+): LandsDelta | null {
+  if (evt.type === 'TurnStartedEvent') {
+    return { kind: 'reset' };
+  }
+  if (evt.type !== 'CardMovedEvent') return null;
+  const from = pickString(evt.payload, 'from');
+  const to = pickString(evt.payload, 'to');
+  if (from !== 'Hand' || to !== 'Battlefield') return null;
+  // Masked Hand → Battlefield never happens in the engine (Battlefield
+  // is public CR 400.2), but guard anyway: a hidden=true move carries
+  // no type metadata so we can't classify it.
+  if (pickBoolean(evt.payload, 'hidden') === true) return null;
+  const ownerId = pickString(evt.payload, 'ownerId');
+  if (!ownerId || !selfIds.includes(ownerId)) return null;
+  const types = pickStringArray(evt.payload, 'types') ?? [];
+  const isLand = types.some(t => t.toLowerCase() === 'land');
+  if (!isLand) return null;
+  return { kind: 'inc' };
+}
+
+function applyLandsDelta(current: number, delta: LandsDelta): number {
+  return delta.kind === 'reset' ? 0 : current + 1;
+}
 
 // -----------------------------------------------------------------
 // Compose an aria-live string from a freshly-applied engine event.
