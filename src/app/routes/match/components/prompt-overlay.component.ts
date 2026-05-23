@@ -179,27 +179,43 @@ function detectKind(kinds: string[] | undefined): PromptKind {
 
           @case ('blockers') {
             <div class="flex flex-col gap-2 text-xs">
-              <span class="opacity-70">For each attacker, optionally pick one of your creatures to block.</span>
-              <div class="flex flex-col gap-2">
-                @for (atk of attackerList(); track atk.instanceId) {
-                  <div class="flex items-center gap-2 rounded border border-white/10 px-2 py-1">
-                    <span class="w-32 truncate font-medium">{{ atk.name }}</span>
-                    <select
-                      class="flex-1 rounded border border-white/15 bg-black/30 px-2 py-1"
-                      [value]="blockerMap()[atk.instanceId] || ''"
-                      (change)="setBlocker(atk.instanceId, $event)">
-                      <option value="">(no block)</option>
-                      @for (b of selfCreatures(); track b.instanceId) {
-                        @if (!b.tapped) {
-                          <option [value]="b.instanceId">{{ b.name }}</option>
+              <span class="opacity-70">
+                Assign blockers to attackers. Each blocker can block at most one attacker; an attacker may be blocked by multiple blockers (CR 509.1).
+              </span>
+              @if (attackerList().length > 0 && eligibleBlockers().length > 0) {
+                <div class="overflow-x-auto">
+                  <table class="min-w-full border-collapse text-xs">
+                    <thead>
+                      <tr>
+                        <th class="border-b border-white/10 px-2 py-1 text-left font-medium opacity-70">Attacker \\ Blocker</th>
+                        @for (b of eligibleBlockers(); track b.instanceId) {
+                          <th class="border-b border-white/10 px-2 py-1 text-center font-medium">{{ b.name }}</th>
                         }
+                      </tr>
+                    </thead>
+                    <tbody>
+                      @for (atk of attackerList(); track atk.instanceId) {
+                        <tr>
+                          <td class="border-b border-white/5 px-2 py-1 font-medium">{{ atk.name }}</td>
+                          @for (b of eligibleBlockers(); track b.instanceId) {
+                            <td class="border-b border-white/5 px-2 py-1 text-center">
+                              <input
+                                type="checkbox"
+                                [attr.aria-label]="'Assign ' + b.name + ' to block ' + atk.name"
+                                [checked]="isAssigned(b.instanceId, atk.instanceId)"
+                                (change)="toggleBlockerAssignment(b.instanceId, atk.instanceId)" />
+                            </td>
+                          }
+                        </tr>
                       }
-                    </select>
-                  </div>
-                } @empty {
-                  <span class="opacity-50">No attackers.</span>
-                }
-              </div>
+                    </tbody>
+                  </table>
+                </div>
+              } @else if (attackerList().length === 0) {
+                <span class="opacity-50">No attackers.</span>
+              } @else {
+                <span class="opacity-50">No eligible blockers.</span>
+              }
               <button
                 type="button"
                 class="self-start rounded border border-amber-400 px-3 py-1 text-amber-300 hover:bg-amber-400/10"
@@ -250,7 +266,10 @@ export class PromptOverlayComponent {
 
   readonly selected = signal<string[]>([]);
   readonly modeOptions = [0, 1, 2, 3] as const;
-  readonly blockerMap = signal<Record<string, string>>({});
+  // Maps blockerInstanceId -> attackerInstanceId. Each blocker can be
+  // assigned to at most one attacker (UI enforces). Multiple blockers
+  // may share an attacker — that's what CR 509.1 allows.
+  readonly blockerAssignments = signal<Record<string, string>>({});
   xValue = 0;
 
   readonly kind = computed<PromptKind>(() => detectKind(this.prompt()?.expectedKinds));
@@ -275,6 +294,12 @@ export class PromptOverlayComponent {
     (this.self()?.battlefield.cards ?? []).filter(c =>
       (c.types ?? []).some(t => t.toLowerCase().includes('creature'))
     )
+  );
+
+  // Subset of selfCreatures that can legally block (untapped). Used as
+  // columns in the blockers grid.
+  readonly eligibleBlockers = computed<CardSnapshot[]>(() =>
+    this.selfCreatures().filter(c => !c.tapped)
   );
 
   readonly attackerList = computed<CardSnapshot[]>(() =>
@@ -340,20 +365,33 @@ export class PromptOverlayComponent {
     this.selected.set([]);
   }
 
-  setBlocker(attackerId: string, evt: Event): void {
-    const value = (evt.target as HTMLSelectElement).value;
-    const map = { ...this.blockerMap() };
-    if (value) map[attackerId] = value;
-    else delete map[attackerId];
-    this.blockerMap.set(map);
+  isAssigned(blockerId: string, attackerId: string): boolean {
+    return this.blockerAssignments()[blockerId] === attackerId;
+  }
+
+  // Toggle a blocker -> attacker assignment. Selecting a blocker for a
+  // new attacker implicitly clears any prior assignment for that
+  // blocker (a creature can only block one attacker per CR 509.1).
+  // Clicking the same cell again clears the assignment ("no block").
+  toggleBlockerAssignment(blockerId: string, attackerId: string): void {
+    const map = { ...this.blockerAssignments() };
+    if (map[blockerId] === attackerId) {
+      delete map[blockerId];
+    } else {
+      map[blockerId] = attackerId;
+    }
+    this.blockerAssignments.set(map);
   }
 
   confirmBlockers(): void {
-    const blockers = Object.entries(this.blockerMap()).map(
-      ([attackerInstanceId, blockerInstanceId]) => ({ attackerInstanceId, blockerInstanceId })
+    // Multiple blockers can map to the same attacker — that's the whole
+    // point of this UI. Server accepts the resulting list as-is; CR 509.2
+    // ordering will be a follow-up.
+    const blockers = Object.entries(this.blockerAssignments()).map(
+      ([blockerInstanceId, attackerInstanceId]) => ({ attackerInstanceId, blockerInstanceId })
     );
     this.decision.emit({ kind: 'blockers', blockers });
-    this.blockerMap.set({});
+    this.blockerAssignments.set({});
   }
 
   onCancel(): void {

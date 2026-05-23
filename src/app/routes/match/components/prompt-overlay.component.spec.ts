@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { ComponentRef } from '@angular/core';
 import { PromptOverlayComponent, PromptDecision } from './prompt-overlay.component';
@@ -120,7 +120,7 @@ describe('PromptOverlayComponent — combat prompts', () => {
     expect(captured[0]).toEqual({ kind: 'attackers', attackers: [] });
   });
 
-  it('confirmBlockers emits decision shaped for the wire DeclareBlockersCommand', () => {
+  it('confirmBlockers emits decision shaped for the wire DeclareBlockersCommand (single assignment)', () => {
     const oppAtk = card({ instanceId: 'atk-1', name: 'Bear', tapped: true });
     const myBlocker = card({ instanceId: 'block-1', name: 'Goblin' });
     const me = player({ id: 'me', name: 'Alice', battlefield: { cards: [myBlocker] } });
@@ -131,9 +131,7 @@ describe('PromptOverlayComponent — combat prompts', () => {
     const captured: PromptDecision[] = [];
     component.decision.subscribe(d => captured.push(d));
 
-    // Simulate the select-change event the template wires up.
-    const evt = { target: { value: 'block-1' } } as unknown as Event;
-    component.setBlocker('atk-1', evt);
+    component.toggleBlockerAssignment('block-1', 'atk-1');
     component.confirmBlockers();
 
     expect(captured).toHaveLength(1);
@@ -141,6 +139,84 @@ describe('PromptOverlayComponent — combat prompts', () => {
       kind: 'blockers',
       blockers: [{ attackerInstanceId: 'atk-1', blockerInstanceId: 'block-1' }],
     });
+  });
+
+  it('confirmBlockers supports multiple blockers on a single attacker (CR 509.1)', () => {
+    // Defender ganging two creatures onto one attacker is the canonical
+    // case the old single-<select> UI couldn't express. The wire DTO
+    // takes a flat list of {attacker, blocker} pairs, so two entries
+    // sharing the same attackerInstanceId is the correct encoding.
+    const oppAtk = card({ instanceId: 'atk-big', name: 'Serra Angel', tapped: true });
+    const b1 = card({ instanceId: 'block-1', name: 'Goblin' });
+    const b2 = card({ instanceId: 'block-2', name: 'Scout' });
+    const me = player({ id: 'me', name: 'Alice', battlefield: { cards: [b1, b2] } });
+    const opp = player({ id: 'opp', name: 'Bob', battlefield: { cards: [oppAtk] } });
+    const state: GameState = { phase: 'DeclareBlockers', turnNumber: 1, activePlayerId: 'opp', players: [me, opp], stack: [] };
+
+    const { component } = mountOverlay(state, ['DeclareBlockersCommand'], ['me']);
+    const captured: PromptDecision[] = [];
+    component.decision.subscribe(d => captured.push(d));
+
+    component.toggleBlockerAssignment('block-1', 'atk-big');
+    component.toggleBlockerAssignment('block-2', 'atk-big');
+    component.confirmBlockers();
+
+    expect(captured).toHaveLength(1);
+    const blockers = captured[0].blockers ?? [];
+    expect(blockers).toHaveLength(2);
+    expect(blockers).toEqual(expect.arrayContaining([
+      { attackerInstanceId: 'atk-big', blockerInstanceId: 'block-1' },
+      { attackerInstanceId: 'atk-big', blockerInstanceId: 'block-2' },
+    ]));
+  });
+
+  it('reassigning a blocker to a different attacker removes the prior assignment', () => {
+    // A creature can block at most one attacker (CR 509.1: the defending
+    // player declares which attacker each chosen blocker blocks — singular).
+    // The UI's mutual-exclusion guarantees the wire command never carries
+    // duplicate blockerInstanceIds.
+    const atkA = card({ instanceId: 'atk-a', name: 'Bear', tapped: true });
+    const atkB = card({ instanceId: 'atk-b', name: 'Wolf', tapped: true });
+    const b1 = card({ instanceId: 'block-1', name: 'Goblin' });
+    const me = player({ id: 'me', name: 'Alice', battlefield: { cards: [b1] } });
+    const opp = player({ id: 'opp', name: 'Bob', battlefield: { cards: [atkA, atkB] } });
+    const state: GameState = { phase: 'DeclareBlockers', turnNumber: 1, activePlayerId: 'opp', players: [me, opp], stack: [] };
+
+    const { component } = mountOverlay(state, ['DeclareBlockersCommand'], ['me']);
+    const captured: PromptDecision[] = [];
+    component.decision.subscribe(d => captured.push(d));
+
+    // First assign block-1 to atk-a, then reassign to atk-b. The grid's
+    // toggle handler removes the prior pairing when the same blocker is
+    // checked against a new attacker.
+    component.toggleBlockerAssignment('block-1', 'atk-a');
+    expect(component.isAssigned('block-1', 'atk-a')).toBe(true);
+    component.toggleBlockerAssignment('block-1', 'atk-b');
+    expect(component.isAssigned('block-1', 'atk-a')).toBe(false);
+    expect(component.isAssigned('block-1', 'atk-b')).toBe(true);
+
+    component.confirmBlockers();
+
+    expect(captured).toHaveLength(1);
+    expect(captured[0]).toEqual({
+      kind: 'blockers',
+      blockers: [{ attackerInstanceId: 'atk-b', blockerInstanceId: 'block-1' }],
+    });
+  });
+
+  it('toggling the same cell twice clears the assignment ("no block" for that pairing)', () => {
+    const atk = card({ instanceId: 'atk-1', name: 'Bear', tapped: true });
+    const b1 = card({ instanceId: 'block-1', name: 'Goblin' });
+    const me = player({ id: 'me', name: 'Alice', battlefield: { cards: [b1] } });
+    const opp = player({ id: 'opp', name: 'Bob', battlefield: { cards: [atk] } });
+    const state: GameState = { phase: 'DeclareBlockers', turnNumber: 1, activePlayerId: 'opp', players: [me, opp], stack: [] };
+
+    const { component } = mountOverlay(state, ['DeclareBlockersCommand'], ['me']);
+
+    component.toggleBlockerAssignment('block-1', 'atk-1');
+    expect(component.isAssigned('block-1', 'atk-1')).toBe(true);
+    component.toggleBlockerAssignment('block-1', 'atk-1');
+    expect(component.isAssigned('block-1', 'atk-1')).toBe(false);
   });
 
   it('confirmBlockers with no assignments emits empty list ("everything through")', () => {
@@ -157,6 +233,20 @@ describe('PromptOverlayComponent — combat prompts', () => {
 
     expect(captured).toHaveLength(1);
     expect(captured[0]).toEqual({ kind: 'blockers', blockers: [] });
+  });
+
+  it('eligibleBlockers excludes tapped creatures (a tapped creature cannot block, CR 509.1b)', () => {
+    const atk = card({ instanceId: 'atk-1', name: 'Bear', tapped: true });
+    const ready = card({ instanceId: 'block-ready', name: 'Goblin', tapped: false });
+    const exhausted = card({ instanceId: 'block-tapped', name: 'Tired Goblin', tapped: true });
+    const me = player({ id: 'me', name: 'Alice', battlefield: { cards: [ready, exhausted] } });
+    const opp = player({ id: 'opp', name: 'Bob', battlefield: { cards: [atk] } });
+    const state: GameState = { phase: 'DeclareBlockers', turnNumber: 1, activePlayerId: 'opp', players: [me, opp], stack: [] };
+
+    const { component } = mountOverlay(state, ['DeclareBlockersCommand'], ['me']);
+
+    const ids = component.eligibleBlockers().map(c => c.instanceId);
+    expect(ids).toEqual(['block-ready']);
   });
 
   it('attackerList only includes tapped opponent creatures (post-attack-declared timing)', () => {
