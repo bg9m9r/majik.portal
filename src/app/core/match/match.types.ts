@@ -168,6 +168,30 @@ export interface ChooseCardsToBottomCommand extends CmdBase {
   cardInstanceIds: string[];
 }
 
+// Bot decision envelope — mirrors server-side
+// Majik.Bot.Diagnostics.BotDecision. Arrives on the SignalR
+// "bot-decision" channel (group broadcast — there's no per-viewer
+// masking on this surface; bot decisions describe the bot's own seat
+// and carry no opponent-hidden info beyond names already on the
+// battlefield/stack via existing engine events).
+//
+// Shape is deliberately small: a short DecisionType tag, the chosen
+// action label + score, up to ~3 losing candidates with their scores
+// (descending), and a free-form context flag bag for diagnostics
+// (mana-available, manaScrew, phase, turn, etc.).
+export interface BotDecisionAlternative { name: string; score: number }
+export interface BotDecision {
+  decisionType: string;
+  chosen: string;
+  chosenScore: number;
+  alternatives: BotDecisionAlternative[];
+  context: Record<string, string>;
+  // Client-only field: timestamp the panel uses for relative ordering
+  // when the recent-decisions ring is rendered. Stamped on receive so
+  // server-clock skew doesn't matter for the UI.
+  receivedAt: number;
+}
+
 // SignalR event payloads
 export interface StateChangedPayload { matchId: string; state: MatchState; transitionedAt: string }
 export interface OpponentJoinedPayload { matchId: string; opponent: MatchPlayer }

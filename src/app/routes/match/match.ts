@@ -11,6 +11,7 @@ import { RollingStateComponent } from './components/rolling-state.component';
 import { PlayDrawPromptComponent } from './components/play-draw-prompt.component';
 import { CompletedStateComponent } from './components/completed-state.component';
 import { BoardComponent } from './components/board.component';
+import { BotDecisionsPanelComponent } from './components/bot-decisions-panel.component';
 import { PromptOverlayComponent, PromptDecision } from './components/prompt-overlay.component';
 import {
   CardSnapshot, GameCommand, Match, PromptEnvelope
@@ -26,6 +27,7 @@ import {
     PlayDrawPromptComponent,
     CompletedStateComponent,
     BoardComponent,
+    BotDecisionsPanelComponent,
     PromptOverlayComponent,
   ],
   template: `
@@ -74,6 +76,7 @@ import {
                     (cancel)="onPromptCancel()" />
                 }
               }
+              <app-bot-decisions-panel [decisions]="game.recentDecisions()" />
             }
             @case ('Completed') { <app-completed-state [match]="m" /> }
             @case ('Abandoned') { <app-completed-state [match]="m" /> }
@@ -203,6 +206,13 @@ export class MatchPage implements OnInit, OnDestroy {
     this.signalr.botThinking$
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(p => this.botThinking.set(p.thinking));
+    // Bot decision diagnostics — feeds the bottom-right panel. Each
+    // BotDecision lands on the ring buffer in GameStore (capped at 10);
+    // the panel itself is collapsed by default so the channel is free
+    // to be chatty without hurting the board view.
+    this.signalr.botDecisions$
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(d => this.game.pushBotDecision(d));
     // Engine "event" channel — first try to apply the event as an
     // in-place delta on the existing snapshot (LifeChanged, PhaseStarted,
     // TurnStarted, etc.). Only fall back to a full /state refetch when
