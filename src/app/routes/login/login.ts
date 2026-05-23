@@ -1,7 +1,6 @@
 import { Component, effect, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
-import { DescopeAuthService } from '@descope/angular-sdk';
-import { firstValueFrom } from 'rxjs';
+import { AuthService as Auth0Service } from '@auth0/auth0-angular';
 import { AuthService } from '../../core/auth/auth.service';
 
 @Component({
@@ -95,7 +94,7 @@ import { AuthService } from '../../core/auth/auth.service';
 })
 export class LoginPage {
   readonly auth = inject(AuthService);
-  private readonly descope = inject(DescopeAuthService, { optional: true });
+  private readonly auth0 = inject(Auth0Service, { optional: true });
   private readonly router = inject(Router);
 
   hover: 'stub' | 'discord' | null = null;
@@ -114,29 +113,24 @@ export class LoginPage {
     this.router.navigate(['/lobby']);
   }
 
-  async signInWithDiscord(): Promise<void> {
-    if (!this.descope) {
+  signInWithDiscord(): void {
+    if (!this.auth0) {
       this.error.set('Auth is not configured.');
       return;
     }
     this.busy.set(true);
     this.error.set(null);
-    try {
-      const redirectUrl = `${window.location.origin}/auth/callback`;
-      const res = await firstValueFrom(
-        this.descope.descopeSdk.oauth.start('discord', redirectUrl)
-      );
-      const url = (res?.data as { url?: string } | undefined)?.url;
-      if (!url) {
-        throw new Error('Descope did not return an OAuth URL.');
+    // `connection: 'discord'` skips Auth0's chooser page and goes
+    // straight to Discord OAuth. `appState.target` is what AuthCallbackPage
+    // navigates to once the SDK exchanges the code on return.
+    this.auth0.loginWithRedirect({
+      authorizationParams: { connection: 'discord' },
+      appState: { target: '/lobby' }
+    }).subscribe({
+      error: err => {
+        this.busy.set(false);
+        this.error.set(err instanceof Error ? err.message : 'Sign-in failed. Try again.');
       }
-      // Full navigation to Discord — Descope handles the callback, then
-      // bounces back to /auth/callback?code=... where CallbackPage
-      // exchanges the code for a session JWT.
-      window.location.assign(url);
-    } catch (err) {
-      this.busy.set(false);
-      this.error.set(err instanceof Error ? err.message : 'Sign-in failed. Try again.');
-    }
+    });
   }
 }
