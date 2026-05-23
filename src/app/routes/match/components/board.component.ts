@@ -20,6 +20,22 @@ import { ActionBarComponent } from './action-bar.component';
             [active]="opponent()?.id === s.activePlayerId"
             label="opponent" />
 
+          <!--
+            Opponent hand (face-down). Server emits the opponent's hand
+            as N "(hidden)" placeholder cards via the per-viewer mask in
+            StateSnapshotter (CR 706) — we render one face-down card per
+            placeholder so the count is visually obvious without leaking
+            names. Cards are non-interactive — they're opponent property.
+          -->
+          <div class="hand-row hand-row--opponent" role="list"
+               [attr.aria-label]="'opponent hand, ' + opponentHandCount() + ' cards'">
+            @for (c of opponent()?.hand?.cards ?? []; track $index) {
+              <app-card-view role="listitem" [snapshot]="c" [hidden]="true" />
+            } @empty {
+              <span class="opacity-30">— opponent hand empty —</span>
+            }
+          </div>
+
           <section class="battlefield flex-1">
             <div class="battlefield-row border border-white/5 bg-black/20">
               @for (c of opponent()?.battlefield?.cards ?? []; track c.instanceId) {
@@ -66,11 +82,6 @@ import { ActionBarComponent } from './action-bar.component';
             </aside>
           </section>
 
-          <div class="text-[10px] opacity-50">
-            Opp hand: {{ opponent()?.hand?.cards?.length ?? 0 }}
-            (placeholder rendering — opp hand returns hidden cards via per-viewer mask)
-          </div>
-
           <app-player-hud
             [player]="self()"
             [active]="self()?.id === s.activePlayerId"
@@ -112,4 +123,9 @@ export class BoardComponent {
     const opp = this.opponent();
     return opp?.hand.cards ?? [];
   });
+
+  // Card count of the opponent's hand for the aria label. Reads the
+  // same mask-emitted placeholder list — length equals the engine's
+  // real hand size (StateSnapshotter.HiddenZone preserves count).
+  readonly opponentHandCount = computed<number>(() => this.opponentHidden().length);
 }
