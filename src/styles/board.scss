@@ -21,15 +21,30 @@
   gap: var(--majik-space-2);
   padding: var(--majik-space-2);
   border-radius: var(--majik-radius-panel);
+  // Card-height locking from PR #26 — battlefield content can't reflow
+  // the vertical board layout as the game state grows.
   height: calc(var(--majik-card-h) + (var(--majik-space-2) * 2));
   border: 1px solid var(--majik-line-faint);
   background: rgba(0, 0, 0, 0.20);
   transition: border-color 220ms ease-out, background-color 220ms ease-out, box-shadow 220ms ease-out;
+}
 
-  // Whose-turn ambient: emerald-tinged rim when it's the viewer's
-  // active row, red-tinged rim when it's the opponent's. Inactive
-  // rows fall back to the neutral faint border so the contrast is
-  // unmistakable at a glance.
+// =============================================================
+// Player frame — one DOM container per player's half of the table.
+// Whose-turn ambient lives here (was previously split across the
+// battlefield-row + player-hud). The inactive side gets a single
+// 92% opacity dim so the active side reads brighter without
+// changing the absolute colours.
+// =============================================================
+.player-frame {
+  display: flex;
+  flex-direction: column;
+  gap: var(--majik-space-2);
+  padding: var(--majik-space-2);
+  border-radius: var(--majik-radius-panel);
+  border: 1px solid transparent;
+  transition: border-color 220ms ease-out, background-color 220ms ease-out, box-shadow 220ms ease-out, opacity 220ms ease-out;
+
   &--active-self {
     border-color: var(--majik-self-rim);
     background: var(--majik-self-soft);
@@ -98,16 +113,22 @@
 }
 
 // =============================================================
-// Stack panel — entry/exit fade-slide
-// Stack items get a fresh DOM node each mount (track is item.id) so a
-// CSS keyframe on append is enough for an entry beat. There's no
-// onLeave hook short of @angular/animations, so the exit transition
-// is intentionally absent — by the time the engine resolves a spell
-// the row is already gone. The entry animation alone reads as
-// "something landed on the stack", which is the polish goal.
+// Stack spine — narrow vertical column sitting between the two
+// player frames. Items flow newest-at-top so resolution reads top
+// → bottom. Reuses .stack-item rim styling from the old stack
+// panel; only the container changed.
 // =============================================================
-.stack-panel {
-  border-color: var(--majik-line-faint);
+.stack-spine {
+  display: flex;
+  flex-direction: column;
+  gap: var(--majik-space-1);
+  max-width: 200px;
+  height: 100%;
+  padding: var(--majik-space-2);
+  border-radius: var(--majik-radius-panel);
+  border: 1px solid var(--majik-line-faint);
+  background: rgba(0, 0, 0, 0.15);
+  overflow-y: auto;
   transition: border-color 220ms ease-out, box-shadow 220ms ease-out;
 
   &--populated {
@@ -117,7 +138,6 @@
 }
 
 .stack-item {
-  animation: stack-item-enter 220ms ease-out both;
   padding-left: var(--majik-space-2);
   border-left: 3px solid var(--majik-accent);
   border-bottom: 1px solid var(--majik-line-faint);
@@ -131,10 +151,67 @@
   }
 }
 
+// Stack-item enter / leave — applied via Angular 21's animate.enter /
+// animate.leave directives on the <div class="stack-item"> nodes.
+// Enter beat reads as "something landed on the stack"; leave beat
+// reads as "and now it resolved + left".
+.stack-item-enter {
+  animation: stack-item-enter 220ms ease-out both;
+}
+.stack-item-leave {
+  animation: stack-item-leave 220ms ease-in both;
+}
+
 @keyframes stack-item-enter {
   0%   { opacity: 0; transform: translateY(-6px) scale(0.96); }
   60%  { opacity: 1; }
   100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes stack-item-leave {
+  0%   { opacity: 1; transform: translateY(0) scale(1); }
+  100% { opacity: 0; transform: translateY(8px) scale(0.96); }
+}
+
+// =============================================================
+// Card zone transitions — applied via animate.enter / animate.leave
+// on <app-card-view> nodes. The event.reducer patches GameState in
+// place (CardMovedEvent / CardDrawnEvent) so a card disappearing
+// from one zone's @for and reappearing in another's is what drives
+// these. Direction varies by zone: hand-row leaves slide DOWN
+// (toward play / graveyard); battlefield enters slide IN from the
+// adjacent hand-row. The full "fly from A to B with absolute
+// coordinates" version is deferred — these uniform direction-cued
+// fade-slides are the v1.
+// =============================================================
+.zone-enter-from-top {
+  animation: zone-enter-from-top 250ms ease-out both;
+}
+.zone-enter-from-bottom {
+  animation: zone-enter-from-bottom 250ms ease-out both;
+}
+.zone-leave-up {
+  animation: zone-leave-up 220ms ease-in both;
+}
+.zone-leave-down {
+  animation: zone-leave-down 220ms ease-in both;
+}
+
+@keyframes zone-enter-from-top {
+  0%   { opacity: 0; transform: translateY(-20px) scale(0.96); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes zone-enter-from-bottom {
+  0%   { opacity: 0; transform: translateY(20px) scale(0.96); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes zone-leave-up {
+  0%   { opacity: 1; transform: translateY(0) scale(1); }
+  100% { opacity: 0; transform: translateY(-20px) scale(0.96); }
+}
+@keyframes zone-leave-down {
+  0%   { opacity: 1; transform: translateY(0) scale(1); }
+  100% { opacity: 0; transform: translateY(20px) scale(0.96); }
 }
 
 // =============================================================
@@ -232,21 +309,18 @@
 // =============================================================
 // Player HUD — friend/foe ambient, deck-color identity strip,
 // zone-colored counter glyphs, life-tier emphasis.
+//
+// Whose-turn rim previously lived here AND on the battlefield row.
+// PR #33 consolidates the rim onto the .player-frame container so a
+// single style hits HUD + hand + battlefield together. The
+// .player-hud--self / --foe / --active classes are still emitted by
+// the HUD component (they remain part of its public spec and are
+// used by other consumers / tests) — they just no longer drive the
+// background+border here. Keeps the HUD spec API stable.
 // =============================================================
 .player-hud {
   border-color: var(--majik-line);
   transition: border-color 220ms ease-out, background-color 220ms ease-out, box-shadow 220ms ease-out;
-
-  &--self.player-hud--active {
-    border-color: var(--majik-self-rim);
-    background: var(--majik-self-soft);
-    box-shadow: inset 0 0 0 1px var(--majik-self-rim);
-  }
-  &--foe.player-hud--active {
-    border-color: var(--majik-foe-rim);
-    background: var(--majik-foe-soft);
-    box-shadow: inset 0 0 0 1px var(--majik-foe-rim);
-  }
 }
 
 .player-hud__color-strip {
