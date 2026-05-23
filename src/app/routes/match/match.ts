@@ -33,8 +33,30 @@ import {
   template: `
     <main class="flex min-h-screen flex-col">
       <header class="flex items-center justify-between border-b border-[color:var(--majik-line)] p-3">
-        <h1 class="majik-h2">Match <code class="majik-code">{{ id }}</code></h1>
+        <div class="flex items-center gap-3">
+          <h1 class="majik-h2">Match <code class="majik-code">{{ id }}</code></h1>
+          @if (myTimerState(); as t) {
+            <span
+              class="match-timer"
+              [class.match-timer--active]="t.active"
+              [class.match-timer--low]="t.low"
+              [attr.aria-label]="'your clock: ' + t.text">
+              <span class="match-timer__label">YOU</span>
+              <span>{{ t.text }}</span>
+            </span>
+          }
+        </div>
         <div class="flex items-center gap-3 text-xs">
+          @if (opponentTimerState(); as t) {
+            <span
+              class="match-timer"
+              [class.match-timer--active]="t.active"
+              [class.match-timer--low]="t.low"
+              [attr.aria-label]="'opponent clock: ' + t.text">
+              <span class="match-timer__label">OPP</span>
+              <span>{{ t.text }}</span>
+            </span>
+          }
           <span class="opacity-70">{{ profile.handle() ?? auth.principal()?.sub }}</span>
           <a routerLink="/lobby" class="text-[color:var(--majik-accent)] underline">Back</a>
         </div>
@@ -67,7 +89,9 @@ import {
                 [phaseStops]="game.phaseStops()"
                 (passClicked)="onPass()"
                 (handCardClicked)="onHandClicked($event)"
-                (phaseStopToggled)="game.togglePhaseStop($event)" />
+                (phaseStopToggled)="game.togglePhaseStop($event)"
+                (concedeClicked)="onConcede()"
+                (undoClicked)="onUndoRequested()" />
               @if (game.prompt(); as p) {
                 @if (game.isMyTurnPrompt()) {
                   <app-prompt-overlay
@@ -103,6 +127,28 @@ export class MatchPage implements OnInit, OnDestroy {
   readonly loadError = signal<string | null>(null);
   readonly current = this.matchSvc.current;
   readonly botThinking = signal(false);
+
+  // Local 1Hz heartbeat for the header timer chips. Server's
+  // clockUpdate$ resyncs the canonical countdown; this just smooths the
+  // display between syncs so it doesn't appear to freeze for a second.
+  // Stamped on every push of a fresh match snapshot so the local tick
+  // computes deltas off the most recently-confirmed clock value.
+  private readonly clockAnchor = signal<{
+    creatorMs: number;
+    opponentMs: number;
+    holderSub: string | null;
+    at: number;
+  } | null>(null);
+  private readonly nowMs = signal<number>(Date.now());
+  private clockTickHandle: ReturnType<typeof setInterval> | null = null;
+
+  // Timer chip view-model. `active` flips on for the player who
+  // currently holds priority (their clock is the one being burned).
+  // `low` triggers the pulsing err style at ≤30s.
+  readonly myTimerState = computed<{ text: string; active: boolean; low: boolean } | null>(() =>
+    this.timerStateFor('self'));
+  readonly opponentTimerState = computed<{ text: string; active: boolean; low: boolean } | null>(() =>
+    this.timerStateFor('opponent'));
 
   // Debounce overlapping re-fetches: every engine event currently
   // triggers a full /state pull. If two land in the same tick we don't
@@ -144,6 +190,23 @@ export class MatchPage implements OnInit, OnDestroy {
   });
 
   constructor() {
+    // Re-anchor the local clock whenever the canonical Match snapshot
+    // changes. The server pushes a fresh Match on each clock-update SignalR
+    // event (see refresh() in load()), so anchoring off matchSvc.current
+    // means we automatically resync every time the server speaks.
+    effect(() => {
+      const m = this.matchSvc.current();
+      if (!m) {
+        this.clockAnchor.set(null);
+        return;
+      }
+      this.clockAnchor.set({
+        creatorMs: m.creatorMillisRemaining,
+        opponentMs: m.opponentMillisRemaining,
+        holderSub: m.priorityHolderSub,
+        at: Date.now(),
+      });
+    });
     effect(() => {
       const m = this.matchSvc.current();
       if (m && (m.state === 'Completed' || m.state === 'Abandoned')) {
@@ -250,12 +313,20 @@ export class MatchPage implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     void this.load();
+    // 1Hz local tick for header timer chips. Stops on destroy. Uses
+    // setInterval — a single 1s cadence is plenty for MM:SS display
+    // and keeps things off the rAF hot path.
+    this.clockTickHandle = setInterval(() => this.nowMs.set(Date.now()), 1000);
   }
 
   ngOnDestroy(): void {
     this.botThinking.set(false);
     this.game.reset();
     void this.signalr.disconnect();
+    if (this.clockTickHandle) {
+      clearInterval(this.clockTickHandle);
+      this.clockTickHandle = null;
+    }
   }
 
   private async load(): Promise<void> {
@@ -383,6 +454,54 @@ export class MatchPage implements OnInit, OnDestroy {
     await this.send({ $type: 'pass' });
   }
 
+  // Concede — hits the existing REST endpoint. Engine emits the
+  // appropriate Completed/Abandoned transition on its own clock; we
+  // don't need to clear local state here, the existing match-state
+  // effects will take it from there.
+  async onConcede(): Promise<void> {
+    const r = await this.matchSvc.concede(this.id);
+    if (!r.ok) console.warn('concede failed', r.error);
+  }
+
+  // Undo — UI stub. The engine doesn't expose an undo command today;
+  // logging the request is enough for now. If a prompt is open we
+  // also clear it locally so the user can re-issue without waiting
+  // for an engine roundtrip.
+  // TODO(undo): wire to a real engine-side cancel/undo command once
+  //   majik.core exposes one (no GameCommand variant for this yet).
+  onUndoRequested(): void {
+    console.info('undo requested (no engine-side cancel yet)');
+    if (this.game.prompt()) {
+      this.game.clearPrompt();
+    }
+  }
+
+  /** View-model builder for the header timer chips. */
+  private timerStateFor(side: 'self' | 'opponent'): { text: string; active: boolean; low: boolean } | null {
+    const m = this.matchSvc.current();
+    const anchor = this.clockAnchor();
+    const mySub = this.auth.principal()?.sub;
+    if (!m || !anchor || !mySub) return null;
+    // Resolve which seat we're displaying. Creator/opponent in the
+    // MatchDto map directly onto the two clock fields.
+    const iAmCreator = mySub === m.creator.sub;
+    const targetIsCreator = side === 'self' ? iAmCreator : !iAmCreator;
+    const baseMs = targetIsCreator ? anchor.creatorMs : anchor.opponentMs;
+    const targetSub = targetIsCreator ? m.creator.sub : m.opponent?.sub ?? null;
+    if (targetSub == null) return null;
+    // Burn local time off whoever currently holds priority. The server
+    // resyncs this on every clock-update event so any drift caps at
+    // the next event boundary.
+    const holdsPriority = anchor.holderSub != null && anchor.holderSub === targetSub;
+    const elapsedSinceAnchor = holdsPriority ? this.nowMs() - anchor.at : 0;
+    const remaining = Math.max(0, baseMs - elapsedSinceAnchor);
+    return {
+      text: formatMmSs(remaining),
+      active: holdsPriority,
+      low: remaining <= 30_000,
+    };
+  }
+
   async onHandClicked(card: CardSnapshot): Promise<void> {
     // Hand-click semantics depend on the active prompt:
     //   * "Bottom" prompt → toggle is handled inside the overlay, this
@@ -457,3 +576,14 @@ export class MatchPage implements OnInit, OnDestroy {
     }
   }
 }
+
+// MM:SS string for header chip — caps at 99:59 because anything beyond
+// that means the server hasn't started counting yet and the leading
+// digits would shove other header content offscreen.
+function formatMmSs(ms: number): string {
+  const totalSec = Math.max(0, Math.floor(ms / 1000));
+  const mins = Math.min(99, Math.floor(totalSec / 60));
+  const secs = totalSec % 60;
+  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+}
+
