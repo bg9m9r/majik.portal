@@ -57,12 +57,15 @@ export function detectKind(kinds: string[] | undefined): PromptKind {
               <p class="text-xs opacity-70">{{ d }}</p>
             }
           </div>
-          <button
-            type="button"
-            class="rounded border border-white/20 px-2 py-0.5 text-xs hover:bg-white/10"
-            (click)="onCancel()">
-            Cancel
-          </button>
+          @if (kind() !== 'mulligan') {
+            <!-- CR 103.4: mulligan has no opt-out — every player must answer keep-or-mulligan. -->
+            <button
+              type="button"
+              class="rounded border border-white/20 px-2 py-0.5 text-xs hover:bg-white/10"
+              (click)="onCancel()">
+              Cancel
+            </button>
+          }
         </div>
 
         @switch (kind()) {
