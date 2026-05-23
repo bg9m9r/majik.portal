@@ -189,3 +189,97 @@ describe('GameStore.phaseStops', () => {
     expect(store.phaseStops()).toEqual({});
   });
 });
+
+describe('GameStore.landsPlayedThisTurn — CR 305.2 land-drop tracker (client-derived)', () => {
+  let store: InstanceType<typeof GameStore>;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({});
+    store = TestBed.inject(GameStore);
+    store.reset();
+    store.setState(snapshot());
+    store.setSelfPlayerIds([ALICE]);
+  });
+
+  it('starts at 0', () => {
+    expect(store.landsPlayedThisTurn()).toBe(0);
+  });
+
+  it('increments on viewer-owned CardMovedEvent (Hand → Battlefield, Land)', () => {
+    const ok = store.applyEvent({
+      type: 'CardMovedEvent',
+      payload: {
+        cardId: 'c-forest', cardName: 'Forest', ownerId: ALICE,
+        manaCost: '', types: ['Land', 'Basic'],
+        from: 'Hand', to: 'Battlefield',
+      },
+    });
+    // Battlefield destination isn't structurally patchable (returns
+    // null from the reducer → caller refetches), but the lands counter
+    // is bookkept independently.
+    expect(ok).toBe(false);
+    expect(store.landsPlayedThisTurn()).toBe(1);
+  });
+
+  it('does NOT increment for the opponent playing a land', () => {
+    store.applyEvent({
+      type: 'CardMovedEvent',
+      payload: {
+        cardId: 'c-forest', cardName: 'Forest', ownerId: BOB,
+        types: ['Land'], from: 'Hand', to: 'Battlefield',
+      },
+    });
+    expect(store.landsPlayedThisTurn()).toBe(0);
+  });
+
+  it('does NOT increment when the moving card is not a Land', () => {
+    store.applyEvent({
+      type: 'CardMovedEvent',
+      payload: {
+        cardId: 'c-bear', cardName: 'Grizzly Bears', ownerId: ALICE,
+        types: ['Creature'], from: 'Hand', to: 'Battlefield',
+      },
+    });
+    expect(store.landsPlayedThisTurn()).toBe(0);
+  });
+
+  it('does NOT increment for a Hand → other-zone move (e.g. discard)', () => {
+    store.applyEvent({
+      type: 'CardMovedEvent',
+      payload: {
+        cardId: 'c-forest', cardName: 'Forest', ownerId: ALICE,
+        types: ['Land'], from: 'Hand', to: 'Graveyard',
+      },
+    });
+    expect(store.landsPlayedThisTurn()).toBe(0);
+  });
+
+  it('resets on TurnStartedEvent', () => {
+    store.applyEvent({
+      type: 'CardMovedEvent',
+      payload: {
+        cardId: 'c-forest', cardName: 'Forest', ownerId: ALICE,
+        types: ['Land'], from: 'Hand', to: 'Battlefield',
+      },
+    });
+    expect(store.landsPlayedThisTurn()).toBe(1);
+    store.applyEvent({
+      type: 'TurnStartedEvent',
+      payload: { turn: 2, playerId: BOB },
+    });
+    expect(store.landsPlayedThisTurn()).toBe(0);
+  });
+
+  it('reset() returns the counter to 0', () => {
+    store.applyEvent({
+      type: 'CardMovedEvent',
+      payload: {
+        cardId: 'c-forest', cardName: 'Forest', ownerId: ALICE,
+        types: ['Land'], from: 'Hand', to: 'Battlefield',
+      },
+    });
+    expect(store.landsPlayedThisTurn()).toBe(1);
+    store.reset();
+    expect(store.landsPlayedThisTurn()).toBe(0);
+  });
+});

@@ -26,7 +26,7 @@ import { BotDecisionsPanelComponent } from './components/bot-decisions-panel.com
 import { PromptOverlayComponent, PromptDecision, detectKind } from './components/prompt-overlay.component';
 import { ToastService } from '../../ui/toast.service';
 import {
-  BotDecision, CardSnapshot, GameCommand, Match, PromptEnvelope
+  BotDecision, CardSnapshot, GameCommand, GameState, Match, PromptEnvelope
 } from '../../core/match/match.types';
 
 @Component({
@@ -278,7 +278,13 @@ export class MatchPage implements OnInit, OnDestroy {
       const p = this.game.prompt();
       if (!p || !this.game.isMyTurnPrompt()) return;
       if (p === this.lastAutoPassedPrompt) return;
-      if (!this.shouldAutoPass(p)) return;
+      const decision = shouldAutoPass(p, {
+        state: this.game.state(),
+        selfPlayerIds: this.game.selfPlayerIds(),
+        phaseStops: this.game.phaseStops(),
+        landsPlayedThisTurn: this.game.landsPlayedThisTurn(),
+      });
+      if (!decision) return;
       this.lastAutoPassedPrompt = p;
       void this.send({ $type: 'pass' });
     });
@@ -288,58 +294,6 @@ export class MatchPage implements OnInit, OnDestroy {
   // emits a fresh envelope object per prompt, so reference equality is
   // sufficient — no need to derive a composite key.
   private lastAutoPassedPrompt: PromptEnvelope | null = null;
-
-  // Phases that should never auto-pass on the viewer's own turn — the
-  // user almost always wants to act in their main phases.
-  private static readonly MY_TURN_NO_PASS_PHASES = new Set([
-    'PreCombatMain',
-    'PostCombatMain',
-  ]);
-
-  // Combat phases on the opponent's turn — auto-pass is suppressed if
-  // the viewer has any non-land card in hand so they don't unknowingly
-  // skip an instant-speed response window into / through combat.
-  private static readonly THEIR_TURN_COMBAT_PHASES = new Set([
-    'BeginningOfCombat',
-    'DeclareAttackers',
-    'DeclareBlockers',
-    'CombatDamage',
-    'EndOfCombat',
-  ]);
-
-  private shouldAutoPass(p: PromptEnvelope): boolean {
-    // Only priority-pass prompts auto-resolve. Targets / attackers /
-    // blockers / mulligan / X / mode / bottom all need user input.
-    if (detectKind(p.expectedKinds) !== 'none') return false;
-    const s = this.game.state();
-    if (!s) return false;
-    // Anything on the stack — never auto-pass. Preserves the response
-    // window per CR 117.3b.
-    if (s.stack.length > 0) return false;
-    const phase = s.phase;
-    const selfIds = this.game.selfPlayerIds();
-    const activeSide: 'mine' | 'theirs' =
-      selfIds.includes(s.activePlayerId) ? 'mine' : 'theirs';
-    // Phase-stop set for this side wins — user explicitly asked to
-    // pause here.
-    const stop = this.game.phaseStops()[phase];
-    if (stop === activeSide) return false;
-    // Main phases on the viewer's turn — user almost certainly wants to
-    // cast/play, so we never silently skip past them.
-    if (activeSide === 'mine' && MatchPage.MY_TURN_NO_PASS_PHASES.has(phase)) {
-      return false;
-    }
-    // Opponent's combat phases — only auto-pass if the viewer has
-    // nothing castable. Approximation: any non-land card in hand. Mana
-    // isn't checked client-side, so this is conservative on purpose.
-    if (activeSide === 'theirs' && MatchPage.THEIR_TURN_COMBAT_PHASES.has(phase)) {
-      const me = s.players.find(pl => selfIds.includes(pl.id));
-      const hasNonLand = (me?.hand.cards ?? []).some(c =>
-        !(c.types ?? []).map(t => t.toLowerCase()).includes('land'));
-      if (hasNonLand) return false;
-    }
-    return true;
-  }
 
   ngOnInit(): void {
     void this.load();
@@ -767,6 +721,111 @@ export function dispatchMatchKey(evt: KeyboardEvent, deps: MatchKeyDeps): void {
     }
     return;
   }
+}
+
+// ---------------------------------------------------------------------
+// Auto-pass guard.
+//
+// Decides whether an arriving "pass priority" prompt should be answered
+// silently with a Pass command, or surfaced to the user for them to
+// decide. Extracted as a pure function so it can be unit-tested in
+// isolation from the MatchPage component graph.
+//
+// Rules (return `true` ⇒ auto-pass, `false` ⇒ surface the prompt):
+//
+//   1. Prompt isn't a plain priority pass (targets / mulligan / X /
+//      mode / attackers / blockers / bottom) → never auto-pass.
+//   2. No GameState snapshot yet → never auto-pass (we don't have
+//      enough info to decide).
+//   3. selfPlayerIds is empty (race: prompt arrived before /state
+//      populated the viewer's seat) → never auto-pass. Conservative
+//      bias: better to surface a prompt the user can ignore than to
+//      silently burn their main phase. CR 117.3a — priority is the
+//      player's right to act, default is *not* to pass.
+//   4. Stack non-empty → never auto-pass (preserves the response
+//      window, CR 117.3b).
+//   5. Phase-stop registered for the active turn's side → never
+//      auto-pass (the user explicitly asked to pause here).
+//   6. Active side is the viewer AND the viewer's phase is a main
+//      phase AND the viewer can still play a land this turn (has a
+//      Land card in hand AND lands-played < CR-305.2 limit) → never
+//      auto-pass. Flips the prior "never auto-pass on main phases"
+//      rule, per user feedback: if the viewer has no playable land
+//      (none in hand, or already played their one for the turn), the
+//      main phase is safe to auto-pass.
+//   7. Opponent's combat phase AND the viewer has a non-land in hand
+//      → never auto-pass (instant-speed response window). Mana isn't
+//      checked client-side, so this is intentionally conservative.
+// ---------------------------------------------------------------------
+
+export interface AutoPassDeps {
+  state: GameState | null;
+  selfPlayerIds: readonly string[];
+  phaseStops: Record<string, 'mine' | 'theirs'>;
+  landsPlayedThisTurn: number;
+}
+
+// Phases on which the viewer can legally play a land (CR 305.3 —
+// only during a main phase, while the stack is empty, on their own
+// turn). Stack-empty + own-turn are checked separately above; this
+// set just names the phases.
+const VIEWER_MAIN_PHASES = new Set(['PreCombatMain', 'PostCombatMain']);
+
+// Combat phases on the opponent's turn — auto-pass is suppressed if
+// the viewer has any non-land card in hand so they don't unknowingly
+// skip an instant-speed response window into / through combat.
+const OPP_COMBAT_PHASES = new Set([
+  'BeginningOfCombat',
+  'DeclareAttackers',
+  'DeclareBlockers',
+  'CombatDamage',
+  'EndOfCombat',
+]);
+
+// CR 305.2 default — one land per turn. The engine's LandDropTracker is
+// the canonical source and can be modified by effects (Azusa, Exploration,
+// Oracle of Mul Daya). The server doesn't expose the per-player limit
+// today, so the guard uses the default; under-counting means the worst
+// case is a surfaced prompt where the engine would've auto-passed —
+// which is the safe direction for this guard.
+const DEFAULT_LAND_DROPS_PER_TURN = 1;
+
+export function shouldAutoPass(p: PromptEnvelope, deps: AutoPassDeps): boolean {
+  // (1) — non-priority prompts always need user input.
+  if (detectKind(p.expectedKinds) !== 'none') return false;
+  // (2) — no snapshot yet.
+  const s = deps.state;
+  if (!s) return false;
+  // (3) — empty selfPlayerIds (race: prompt before /state). Without
+  // knowing which seat is the viewer's, we can't classify the active
+  // side, so the main-phase guard would never fire — conservative
+  // default is to NOT auto-pass.
+  if (deps.selfPlayerIds.length === 0) return false;
+  // (4) — stack non-empty.
+  if (s.stack.length > 0) return false;
+  const phase = s.phase;
+  const selfIds = deps.selfPlayerIds;
+  const activeSide: 'mine' | 'theirs' =
+    selfIds.includes(s.activePlayerId) ? 'mine' : 'theirs';
+  // (5) — phase stop set for the active side.
+  const stop = deps.phaseStops[phase];
+  if (stop === activeSide) return false;
+  // (6) — viewer's main phase + can still play a land.
+  if (activeSide === 'mine' && VIEWER_MAIN_PHASES.has(phase)) {
+    const me = s.players.find(pl => selfIds.includes(pl.id));
+    const hasLandInHand = (me?.hand.cards ?? []).some(c =>
+      (c.types ?? []).some(t => t.toLowerCase() === 'land'));
+    const underLimit = deps.landsPlayedThisTurn < DEFAULT_LAND_DROPS_PER_TURN;
+    if (hasLandInHand && underLimit) return false;
+  }
+  // (7) — opponent's combat phase + the viewer has a non-land in hand.
+  if (activeSide === 'theirs' && OPP_COMBAT_PHASES.has(phase)) {
+    const me = s.players.find(pl => selfIds.includes(pl.id));
+    const hasNonLand = (me?.hand.cards ?? []).some(c =>
+      !(c.types ?? []).map(t => t.toLowerCase()).includes('land'));
+    if (hasNonLand) return false;
+  }
+  return true;
 }
 
 // MM:SS string for header chip — caps at 99:59 because anything beyond
