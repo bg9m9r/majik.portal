@@ -249,6 +249,38 @@ describe('PromptOverlayComponent — combat prompts', () => {
     expect(ids).toEqual(['block-ready']);
   });
 
+  it('mulligan kind renders no Cancel button (CR 103.4 — no opt-out)', () => {
+    // Every player must answer keep-or-mulligan; there is no third option.
+    // The overlay header normally renders a Cancel button to dismiss the
+    // prompt, but mulligan must suppress it so the player cannot escape
+    // the decision.
+    const me = player({ id: 'me', name: 'Alice' });
+    const opp = player({ id: 'opp', name: 'Bob' });
+    const state: GameState = { phase: 'BeginningOfGame', turnNumber: 0, activePlayerId: 'me', players: [me, opp], stack: [] };
+
+    const { component, fixture } = mountOverlay(state, ['MulliganCommand'], ['me']);
+    expect(component.kind()).toBe('mulligan');
+
+    const buttons = (fixture.nativeElement as HTMLElement).querySelectorAll('button');
+    const labels = Array.from(buttons).map(b => (b.textContent ?? '').trim());
+    expect(labels).toEqual(expect.arrayContaining(['Keep', 'Mulligan']));
+    expect(labels).not.toContain('Cancel');
+  });
+
+  it('non-mulligan prompts still render Cancel (opt-out remains legal there)', () => {
+    // Sanity-check the fix didn't strip Cancel globally — declare-attackers
+    // is one example where the player can still bail on the prompt UI.
+    const me = player({ id: 'me', name: 'Alice' });
+    const opp = player({ id: 'opp', name: 'Bob' });
+    const state: GameState = { phase: 'DeclareAttackers', turnNumber: 1, activePlayerId: 'me', players: [me, opp], stack: [] };
+
+    const { fixture } = mountOverlay(state, ['DeclareAttackersCommand'], ['me']);
+
+    const buttons = (fixture.nativeElement as HTMLElement).querySelectorAll('button');
+    const labels = Array.from(buttons).map(b => (b.textContent ?? '').trim());
+    expect(labels).toContain('Cancel');
+  });
+
   it('attackerList only includes tapped opponent creatures (post-attack-declared timing)', () => {
     // CombatFlow taps each attacker before firing the defender's
     // DeclareBlockersAsync prompt (CombatFlow.cs:56-66), so the overlay's
