@@ -1,8 +1,17 @@
 import { DestroyRef, Injectable, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { AuthService as Auth0Service } from '@auth0/auth0-angular';
-import { combineLatest, firstValueFrom } from 'rxjs';
+import { combineLatest, filter, firstValueFrom, race, take, timer } from 'rxjs';
 import { MAJIK_AUTH_CONFIG, isAuthStubbed } from './auth.config';
+
+/**
+ * Upper bound for how long app-init will wait on Auth0's first
+ * `isAuthenticated$` emission. The SDK normally resolves within a tick
+ * (cached session) or after the redirect callback completes; falling
+ * back after this window means a misconfigured tenant cannot brick the
+ * whole app — we just treat the user as logged out and route to /login.
+ */
+export const AUTH_BOOTSTRAP_TIMEOUT_MS = 5000;
 
 interface Principal {
   sub: string;
@@ -48,7 +57,20 @@ export class AuthService {
   readonly isAuthenticated = computed(() => this._authed());
   readonly isStub = this.stubMode;
 
-  bootstrap(): void {
+  /**
+   * Subscribes to Auth0 auth-state streams and resolves once Auth0 has
+   * settled its initial state (either `authenticated=true` after a
+   * redirect-callback exchange, or `authenticated=false` for a logged-out
+   * visitor). Callers (e.g. the app initializer that drives ProfileService)
+   * MUST await this before firing authenticated requests — otherwise a
+   * mid-callback `GET /me` races the token exchange and 401s, which used
+   * to bounce every returning user to /onboarding.
+   *
+   * Resolves on the first emission rather than waiting for a `true` so
+   * logged-out users don't hang at app-init; they fall through to the
+   * route guard, which sends them to /login.
+   */
+  async bootstrap(): Promise<void> {
     if (this.stubMode) {
       const sub = readStubSub();
       this._principal.set({ sub, name: sub });
@@ -77,6 +99,18 @@ export class AuthService {
           this._token.set(null);
         }
       });
+
+    // Wait for the first definite auth-state emission, with a timeout
+    // fallback so a misbehaving SDK can't deadlock app-init.
+    await firstValueFrom(
+      race(
+        this.auth0.isAuthenticated$.pipe(
+          filter((v): v is boolean => typeof v === 'boolean'),
+          take(1)
+        ),
+        timer(AUTH_BOOTSTRAP_TIMEOUT_MS)
+      )
+    );
   }
 
   /**
