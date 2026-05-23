@@ -134,17 +134,92 @@ describe('patchGameState', () => {
     });
   });
 
+  describe('SpellCastEvent', () => {
+    it('appends a StackItem from the enriched payload', () => {
+      const next = patchGameState(baseState(), evt('SpellCastEvent', {
+        stackId: 's-bolt',
+        controllerId: ALICE,
+        cardId: 'c-bolt',
+        cardName: 'Lightning Bolt',
+        kind: 'Spell',
+        description: 'Lightning Bolt',
+      }));
+      expect(next).not.toBeNull();
+      expect(next!.stack).toHaveLength(1);
+      expect(next!.stack[0]).toEqual({
+        id: 's-bolt', kind: 'Spell', description: 'Lightning Bolt',
+      });
+    });
+
+    it('returns null when required payload fields are missing', () => {
+      // No kind / description means we can't reconstruct StackObjectDto.
+      const next = patchGameState(baseState(), evt('SpellCastEvent', {
+        stackId: 's-bolt', controllerId: ALICE, cardName: 'Lightning Bolt',
+      }));
+      expect(next).toBeNull();
+    });
+  });
+
+  describe('StackObjectAddedEvent', () => {
+    it('appends a StackItem for any IStackObject kind', () => {
+      const next = patchGameState(baseState(), evt('StackObjectAddedEvent', {
+        stackId: 's-trigger',
+        controllerId: BOB,
+        kind: 'TriggeredAbility',
+        description: 'Ranger trigger',
+      }));
+      expect(next!.stack).toHaveLength(1);
+      expect(next!.stack[0]).toEqual({
+        id: 's-trigger', kind: 'TriggeredAbility', description: 'Ranger trigger',
+      });
+    });
+
+    it('treats a duplicate stackId as an idempotent no-op (not a refetch)', () => {
+      // SpellCastEvent + StackObjectAddedEvent both fire when a spell is
+      // cast — the second one must NOT push a phantom StackItem, and
+      // must NOT trigger a refetch.
+      const seeded: GameState = {
+        ...baseState(),
+        stack: [{ id: 's-bolt', kind: 'Spell', description: 'Bolt' }],
+      };
+      const next = patchGameState(seeded, evt('StackObjectAddedEvent', {
+        stackId: 's-bolt', controllerId: ALICE, kind: 'Spell', description: 'Bolt',
+      }));
+      expect(next).not.toBeNull();
+      expect(next!.stack).toHaveLength(1);
+    });
+  });
+
+  describe('StackObjectResolvedEvent', () => {
+    it('removes the resolved item from state.stack', () => {
+      const seeded: GameState = {
+        ...baseState(),
+        stack: [
+          { id: 's-bolt', kind: 'Spell', description: 'Bolt' },
+          { id: 's-counter', kind: 'Spell', description: 'Counterspell' },
+        ],
+      };
+      const next = patchGameState(seeded, evt('StackObjectResolvedEvent', {
+        stackId: 's-counter', controllerId: BOB, kind: 'Spell', description: 'Counterspell',
+      }));
+      expect(next!.stack).toEqual([
+        { id: 's-bolt', kind: 'Spell', description: 'Bolt' },
+      ]);
+    });
+
+    it('returns null when the resolved id isn’t on the snapshot stack', () => {
+      // Stale snapshot — caller refetches.
+      const next = patchGameState(baseState(), evt('StackObjectResolvedEvent', {
+        stackId: 's-missing', kind: 'Spell', description: 'Anything',
+      }));
+      expect(next).toBeNull();
+    });
+  });
+
   describe('deferred / unknown events', () => {
     it('returns null for CardMovedEvent (would need battlefield card data)', () => {
       const next = patchGameState(baseState(), evt('CardMovedEvent', {
         cardId: 'x', cardName: 'Forest', from: 'Hand', to: 'Battlefield',
-      }));
-      expect(next).toBeNull();
-    });
-
-    it('returns null for SpellCastEvent (stack changes need refetch today)', () => {
-      const next = patchGameState(baseState(), evt('SpellCastEvent', {
-        stackId: 's-1', controllerId: ALICE, cardName: 'Lightning Bolt',
       }));
       expect(next).toBeNull();
     });
