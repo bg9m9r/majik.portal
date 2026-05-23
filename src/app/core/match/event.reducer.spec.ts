@@ -1,7 +1,25 @@
 import { describe, expect, it } from 'vitest';
 import { patchGameState } from './event.reducer';
 import { NormalisedEventDto } from './event.types';
-import { GameState } from './match.types';
+import { CardSnapshot, GameState } from './match.types';
+
+const HIDDEN_INSTANCE_ID = '00000000-0000-0000-0000-000000000000';
+const HIDDEN_NAME = '(hidden)';
+
+function hiddenCard(): CardSnapshot {
+  return {
+    instanceId: HIDDEN_INSTANCE_ID, name: HIDDEN_NAME, manaCost: '', types: [],
+    power: null, toughness: null, tapped: false, summoningSickness: false,
+  };
+}
+
+function knownCard(instanceId: string, name: string, opts: Partial<CardSnapshot> = {}): CardSnapshot {
+  return {
+    instanceId, name, manaCost: '', types: [],
+    power: null, toughness: null, tapped: false, summoningSickness: false,
+    ...opts,
+  };
+}
 
 // Minimal fixture — only the fields the reducer touches matter; zone
 // shapes are stubbed since none of the patched event types reach into
@@ -216,14 +234,173 @@ describe('patchGameState', () => {
     });
   });
 
-  describe('deferred / unknown events', () => {
-    it('returns null for CardMovedEvent (would need battlefield card data)', () => {
-      const next = patchGameState(baseState(), evt('CardMovedEvent', {
-        cardId: 'x', cardName: 'Forest', from: 'Hand', to: 'Battlefield',
+  // -----------------------------------------------------------------
+  // CardMovedEvent — server emits enriched payload + per-viewer mask.
+  // Coverage walks the key transitions (revealed + masked) and asserts
+  // the destination zone receives either a full CardSnapshot or the
+  // (hidden) placeholder, matching StateSnapshotter.HiddenZone.
+  // -----------------------------------------------------------------
+  describe('CardMovedEvent', () => {
+    it('moves a revealed card from hand to graveyard', () => {
+      const bolt = knownCard('c-bolt', 'Lightning Bolt', { manaCost: 'R', types: ['Instant'] });
+      const seeded: GameState = {
+        ...baseState(),
+        players: baseState().players.map(p => p.id === ALICE
+          ? { ...p, hand: { cards: [bolt] } }
+          : p),
+      };
+      const next = patchGameState(seeded, evt('CardMovedEvent', {
+        cardId: 'c-bolt', cardName: 'Lightning Bolt', ownerId: ALICE,
+        manaCost: 'R', types: ['Instant'],
+        from: 'Hand', to: 'Graveyard',
+      }));
+      expect(next).not.toBeNull();
+      const alice = next!.players.find(p => p.id === ALICE)!;
+      expect(alice.hand.cards).toHaveLength(0);
+      expect(alice.graveyard.cards).toHaveLength(1);
+      expect(alice.graveyard.cards[0].name).toBe('Lightning Bolt');
+      expect(alice.graveyard.cards[0].manaCost).toBe('R');
+      expect(alice.graveyard.cards[0].types).toEqual(['Instant']);
+    });
+
+    it('returns null when destination is Battlefield (needs richer card data)', () => {
+      // Battlefield needs P/T, tapped, summoning sickness, abilities —
+      // none of which travel on CardMovedEvent. Refetch.
+      const bolt = knownCard('c-bear', 'Grizzly Bears');
+      const seeded: GameState = {
+        ...baseState(),
+        players: baseState().players.map(p => p.id === ALICE
+          ? { ...p, hand: { cards: [bolt] } }
+          : p),
+      };
+      const next = patchGameState(seeded, evt('CardMovedEvent', {
+        cardId: 'c-bear', cardName: 'Grizzly Bears', ownerId: ALICE,
+        from: 'Hand', to: 'Battlefield',
       }));
       expect(next).toBeNull();
     });
 
+    it('treats Stack as already-handled (no double-patch)', () => {
+      // SpellCast / StackObject* events already moved the stack — the
+      // CardMovedEvent shouldn't blip the hand count again.
+      const bolt = knownCard('c-bolt', 'Lightning Bolt');
+      const seeded: GameState = {
+        ...baseState(),
+        players: baseState().players.map(p => p.id === ALICE
+          ? { ...p, hand: { cards: [bolt] } }
+          : p),
+      };
+      const next = patchGameState(seeded, evt('CardMovedEvent', {
+        cardId: 'c-bolt', cardName: 'Lightning Bolt', ownerId: ALICE,
+        from: 'Hand', to: 'Stack',
+      }));
+      // No-op patch: state returned as-is (caller MUST NOT refetch).
+      expect(next).not.toBeNull();
+      const alice = next!.players.find(p => p.id === ALICE)!;
+      expect(alice.hand.cards).toHaveLength(1);
+    });
+
+    describe('masked moves (CR 706)', () => {
+      it('adds a (hidden) placeholder to the owner\'s hand for a masked draw', () => {
+        // Library → Hand masked from opponent: portal patches by popping
+        // a library placeholder and pushing a (hidden) placeholder into
+        // the owner's hand, keeping zone counts accurate without
+        // leaking card identity.
+        const seeded: GameState = {
+          ...baseState(),
+          players: baseState().players.map(p => p.id === BOB
+            ? { ...p, library: { cards: [hiddenCard(), hiddenCard(), hiddenCard()] } }
+            : p),
+        };
+        const next = patchGameState(seeded, evt('CardMovedEvent', {
+          ownerId: BOB, from: 'Library', to: 'Hand', hidden: true,
+        }));
+        expect(next).not.toBeNull();
+        const bob = next!.players.find(p => p.id === BOB)!;
+        expect(bob.library.cards).toHaveLength(2);
+        expect(bob.hand.cards).toHaveLength(1);
+        expect(bob.hand.cards[0].instanceId).toBe(HIDDEN_INSTANCE_ID);
+        expect(bob.hand.cards[0].name).toBe(HIDDEN_NAME);
+      });
+
+      it('removes a placeholder from hand for a masked Hand→Library (return to library)', () => {
+        const seeded: GameState = {
+          ...baseState(),
+          players: baseState().players.map(p => p.id === BOB
+            ? { ...p, hand: { cards: [hiddenCard(), hiddenCard()] }, library: { cards: [hiddenCard()] } }
+            : p),
+        };
+        const next = patchGameState(seeded, evt('CardMovedEvent', {
+          ownerId: BOB, from: 'Hand', to: 'Library', hidden: true,
+        }));
+        expect(next).not.toBeNull();
+        const bob = next!.players.find(p => p.id === BOB)!;
+        expect(bob.hand.cards).toHaveLength(1);
+        expect(bob.library.cards).toHaveLength(2);
+        // No revealed card name surfaces on opponent's side.
+        expect(bob.library.cards.every(c => c.name === HIDDEN_NAME)).toBe(true);
+      });
+
+      it('does NOT include card identity in the masked patch path', () => {
+        // Even if (defensively) a stray cardName slipped into a masked
+        // payload, the hidden discriminator MUST win and the inserted
+        // card stays a placeholder. CR 706 strict gate.
+        const seeded: GameState = {
+          ...baseState(),
+          players: baseState().players.map(p => p.id === BOB
+            ? { ...p, library: { cards: [hiddenCard()] } }
+            : p),
+        };
+        const next = patchGameState(seeded, evt('CardMovedEvent', {
+          ownerId: BOB, from: 'Library', to: 'Hand', hidden: true,
+          // Adversarially-injected reveal data — must be ignored.
+          cardId: 'leak-id', cardName: 'Black Lotus',
+        }));
+        const bob = next!.players.find(p => p.id === BOB)!;
+        expect(bob.hand.cards[0].name).toBe(HIDDEN_NAME);
+        expect(bob.hand.cards[0].instanceId).toBe(HIDDEN_INSTANCE_ID);
+      });
+
+      it('returns null when the source zone has nothing to remove (stale snapshot)', () => {
+        // Library masked draw but viewer's library snapshot is empty —
+        // a refetch is the only way to recover the correct count.
+        const next = patchGameState(baseState(), evt('CardMovedEvent', {
+          ownerId: BOB, from: 'Library', to: 'Hand', hidden: true,
+        }));
+        expect(next).toBeNull();
+      });
+    });
+
+    it('returns null when ownerId is missing', () => {
+      const next = patchGameState(baseState(), evt('CardMovedEvent', {
+        cardId: 'x', cardName: 'X', from: 'Hand', to: 'Graveyard',
+      }));
+      expect(next).toBeNull();
+    });
+
+    it('returns null when source card isn\'t in the snapshot (stale)', () => {
+      const next = patchGameState(baseState(), evt('CardMovedEvent', {
+        cardId: 'missing', cardName: 'Ghost', ownerId: ALICE,
+        from: 'Hand', to: 'Graveyard',
+      }));
+      expect(next).toBeNull();
+    });
+  });
+
+  describe('CardDrawnEvent', () => {
+    it('is a no-op (CardMovedEvent already described the transition) and does not signal refetch', () => {
+      // Engine fires CardMovedEvent(Library, Hand) followed by
+      // CardDrawnEvent. Patching both would double-add to the hand.
+      const state = baseState();
+      const next = patchGameState(state, evt('CardDrawnEvent', {
+        playerId: ALICE, hidden: true,
+      }));
+      // Same state object → caller does NOT refetch.
+      expect(next).toBe(state);
+    });
+  });
+
+  describe('deferred / unknown events', () => {
     it('returns null for any unknown event type', () => {
       const next = patchGameState(baseState(), evt('SomethingNobodyImplementedYet', {}));
       expect(next).toBeNull();
