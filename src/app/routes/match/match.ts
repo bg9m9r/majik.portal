@@ -13,8 +13,9 @@ import { CompletedStateComponent } from './components/completed-state.component'
 import { BoardComponent } from './components/board.component';
 import { BotDecisionsPanelComponent } from './components/bot-decisions-panel.component';
 import { PromptOverlayComponent, PromptDecision, detectKind } from './components/prompt-overlay.component';
+import { ToastService } from '../../ui/toast.service';
 import {
-  CardSnapshot, GameCommand, Match, PromptEnvelope
+  BotDecision, CardSnapshot, GameCommand, Match, PromptEnvelope
 } from '../../core/match/match.types';
 
 @Component({
@@ -91,7 +92,8 @@ import {
                 (handCardClicked)="onHandClicked($event)"
                 (phaseStopToggled)="game.togglePhaseStop($event)"
                 (concedeClicked)="onConcede()"
-                (undoClicked)="onUndoRequested()" />
+                (undoClicked)="onUndoRequested()"
+                (tapToggleRequested)="onTapToggleRequested($event)" />
               @if (game.prompt(); as p) {
                 @if (game.isMyTurnPrompt()) {
                   <app-prompt-overlay
@@ -122,6 +124,7 @@ export class MatchPage implements OnInit, OnDestroy {
   readonly auth = inject(AuthService);
   readonly profile = inject(ProfileService);
   readonly game = inject(GameStore);
+  private readonly toast = inject(ToastService);
 
   readonly id = this.route.snapshot.paramMap.get('id') ?? '';
   readonly loadError = signal<string | null>(null);
@@ -354,7 +357,19 @@ export class MatchPage implements OnInit, OnDestroy {
     // to be chatty without hurting the board view.
     this.signalr.botDecisions$
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe(d => this.game.pushBotDecision(d));
+      .subscribe(d => {
+        this.game.pushBotDecision(d);
+        // Surface "big" decisions (mulligan, attacks, blocks, casts,
+        // concedes) as a transient toast in addition to the bottom-right
+        // panel. The full transcript lives in the panel — the toast is
+        // an at-a-glance feed so the user can keep eyes on the board.
+        if (isBigBotDecision(d)) {
+          this.toast.show(formatBotDecisionToast(d), {
+            severity: 'info',
+            durationMs: 3500,
+          });
+        }
+      });
     // Engine "event" channel — first try to apply the event as an
     // in-place delta on the existing snapshot (LifeChanged, PhaseStarted,
     // TurnStarted, etc.). Only fall back to a full /state refetch when
@@ -476,6 +491,19 @@ export class MatchPage implements OnInit, OnDestroy {
     }
   }
 
+  // Right-click "Tap / Untap" override from the board context menu —
+  // stub for now. The engine doesn't expose a direct tap-this-permanent
+  // command (taps fall out of activating abilities / declaring attacks),
+  // so we log the request as a debug signal until a manual-tap
+  // GameCommand variant lands in majik.core.
+  // TODO(manual-tap): wire to engine command when one is exposed.
+  onTapToggleRequested(card: CardSnapshot): void {
+    console.warn('manual tap/untap requested (no engine command yet)', {
+      instanceId: card.instanceId,
+      name: card.name,
+    });
+  }
+
   /** View-model builder for the header timer chips. */
   private timerStateFor(side: 'self' | 'opponent'): { text: string; active: boolean; low: boolean } | null {
     const m = this.matchSvc.current();
@@ -575,6 +603,33 @@ export class MatchPage implements OnInit, OnDestroy {
       console.warn('submitCommand failed', cmd, r.error);
     }
   }
+}
+
+// "Big" bot decision filter — these are the moments that change the
+// board state in a way the user wants to see called out:
+//   * Mulligan kept / sent
+//   * Attacks declared
+//   * Blocks declared
+//   * Spell cast
+//   * Concede
+// Smaller decisions (per-priority pumps, idle passes) stay in the
+// bottom-right diagnostics panel only.
+const BIG_DECISION_TOKENS = ['mulligan', 'attack', 'block', 'cast', 'concede'] as const;
+function isBigBotDecision(d: BotDecision): boolean {
+  const t = (d.decisionType ?? '').toLowerCase();
+  return BIG_DECISION_TOKENS.some(tok => t.includes(tok));
+}
+
+/**
+ * Compact "<bot name> — <decisionType>: <chosen>" string for the toast.
+ * The bot name is pulled from the decision context bag when available
+ * (the server stamps `botName` / `playerName`); falls back to a neutral
+ * "Bot" label so the toast still reads if the server omits it.
+ */
+function formatBotDecisionToast(d: BotDecision): string {
+  const ctx = d.context ?? {};
+  const name = ctx['botName'] ?? ctx['playerName'] ?? ctx['name'] ?? 'Bot';
+  return `${name} — ${d.decisionType}: ${d.chosen}`;
 }
 
 // MM:SS string for header chip — caps at 99:59 because anything beyond
