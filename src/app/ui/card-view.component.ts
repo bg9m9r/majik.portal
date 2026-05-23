@@ -160,8 +160,12 @@ export class CardViewComponent {
  * shape the popover renders. The snapshot doesn't carry oracle text or
  * a derived CMC — the popover falls back to displaying just the
  * mana-cost string + types + P/T when oracleText is missing.
+ *
+ * Exported so other components that surface a snapshot through the
+ * popover (board's right-click "View details" action) reuse the same
+ * mapping without duplicating it.
  */
-function snapshotToCard(snap: CardSnapshot): Card {
+export function snapshotToCard(snap: CardSnapshot): Card {
   return {
     name: snap.name,
     manaCost: snap.manaCost,

@@ -1,4 +1,4 @@
-import { Component, computed, input, output, signal } from '@angular/core';
+import { Component, computed, inject, input, output, signal } from '@angular/core';
 import {
   CdkDrag,
   CdkDragDrop,
@@ -8,11 +8,16 @@ import {
 } from '@angular/cdk/drag-drop';
 import { GameState, GamePlayer, CardSnapshot } from '../../../core/match/match.types';
 import { PhaseStops } from '../../../core/match/game.store';
-import { CardViewComponent } from '../../../ui/card-view.component';
+import { CardViewComponent, snapshotToCard } from '../../../ui/card-view.component';
 import { PlayerHudComponent } from '../../../ui/player-hud.component';
 import { ManaPoolRowComponent } from '../../../ui/mana-pool-row.component';
 import { PhaseBarComponent } from '../../../ui/phase-bar.component';
 import { ActionBarComponent } from './action-bar.component';
+import {
+  CardContextMenuAction,
+  CardContextMenuComponent,
+} from '../../../ui/card-context-menu.component';
+import { CardPopoverService } from '../../../ui/card-popover.service';
 
 @Component({
   selector: 'app-board',
@@ -23,6 +28,7 @@ import { ActionBarComponent } from './action-bar.component';
     ManaPoolRowComponent,
     PhaseBarComponent,
     ActionBarComponent,
+    CardContextMenuComponent,
     CdkDropList,
     CdkDrag,
     CdkDragPlaceholder,
@@ -110,7 +116,8 @@ import { ActionBarComponent } from './action-bar.component';
                   [snapshot]="c"
                   zone="battlefield"
                   animate.enter="zone-enter-from-top"
-                  animate.leave="zone-leave-down" />
+                  animate.leave="zone-leave-down"
+                  (contextmenu)="onContextMenu($event, c, 'opponent')" />
               } @empty {
                 <span class="opacity-30">— opponent battlefield empty —</span>
               }
@@ -155,7 +162,8 @@ import { ActionBarComponent } from './action-bar.component';
                   [snapshot]="c"
                   zone="battlefield"
                   animate.enter="zone-enter-from-bottom"
-                  animate.leave="zone-leave-up" />
+                  animate.leave="zone-leave-up"
+                  (contextmenu)="onContextMenu($event, c, 'self')" />
               } @empty {
                 <span class="opacity-30">— your battlefield empty —</span>
               }
@@ -209,6 +217,13 @@ import { ActionBarComponent } from './action-bar.component';
           (pass)="passClicked.emit()"
           (concede)="concedeClicked.emit()"
           (undoRequested)="undoClicked.emit()" />
+
+        <app-card-context-menu
+          [card]="activeContextCard()"
+          [position]="activeContextPos()"
+          [canTap]="activeContextOwner() === 'self'"
+          (close)="closeContextMenu()"
+          (action)="onContextAction($event)" />
       </div>
     } @else {
       <p class="p-4 opacity-60">No game state.</p>
@@ -225,6 +240,74 @@ export class BoardComponent {
   readonly phaseStopToggled = output<string>();
   readonly concedeClicked = output<void>();
   readonly undoClicked = output<void>();
+  /**
+   * UI stub for the context-menu Tap / Untap entry. The engine doesn't
+   * expose a "tap this permanent" command today (taps happen as a side
+   * effect of activating an ability or attacking), so the page-level
+   * handler logs a TODO. Emitted only for self-owned battlefield cards.
+   */
+  readonly tapToggleRequested = output<CardSnapshot>();
+
+  // Context-menu state. `activeContextCard` doubles as the visibility
+  // flag — when null the menu hides. Position is the page coords of the
+  // right-click event, clamped inside the viewport by the menu itself.
+  readonly activeContextCard = signal<CardSnapshot | null>(null);
+  readonly activeContextPos = signal<{ x: number; y: number } | null>(null);
+  // Tracks which side's battlefield the active context card belongs to,
+  // so the menu can hide Tap / Untap for opponent permanents.
+  readonly activeContextOwner = signal<'self' | 'opponent' | null>(null);
+
+  private readonly popover = inject(CardPopoverService);
+
+  onContextMenu(event: MouseEvent, card: CardSnapshot, owner: 'self' | 'opponent'): void {
+    event.preventDefault();
+    // Pin the hover popover down — it was likely visible at right-click
+    // time and the user just expressed intent to interact, not browse.
+    this.popover.hide();
+    this.activeContextCard.set(card);
+    this.activeContextPos.set({ x: event.clientX, y: event.clientY });
+    this.activeContextOwner.set(owner);
+  }
+
+  closeContextMenu(): void {
+    this.activeContextCard.set(null);
+    this.activeContextPos.set(null);
+    this.activeContextOwner.set(null);
+  }
+
+  /**
+   * Route a context-menu action to the right destination:
+   *   * `tap`      — re-emit upward so the page can log the stub.
+   *   * `details`  — open the hover popover at the click position.
+   *   * `scryfall` — open the search URL in a new tab.
+   */
+  onContextAction(a: CardContextMenuAction): void {
+    const card = this.activeContextCard();
+    const pos = this.activeContextPos();
+    if (!card) return;
+    switch (a) {
+      case 'tap':
+        if (this.activeContextOwner() === 'self') {
+          this.tapToggleRequested.emit(card);
+        }
+        break;
+      case 'details':
+        if (pos) {
+          // Build a minimal DOMRect at the click position so the popover
+          // positioner has somewhere to anchor. The popover clamps inside
+          // the viewport on its own.
+          const rect = new DOMRect(pos.x, pos.y, 0, 0);
+          this.popover.show(snapshotToCard(card), rect);
+        }
+        break;
+      case 'scryfall':
+        if (typeof window !== 'undefined') {
+          const url = `https://scryfall.com/search?q=${encodeURIComponent(`!"${card.name}"`)}`;
+          window.open(url, '_blank', 'noopener,noreferrer');
+        }
+        break;
+    }
+  }
 
   readonly self = computed<GamePlayer | null>(() => {
     const s = this.state();
