@@ -22,6 +22,27 @@
   padding: var(--majik-space-2);
   border-radius: var(--majik-radius-panel);
   height: calc(var(--majik-card-h) + (var(--majik-space-2) * 2));
+  border: 1px solid var(--majik-line-faint);
+  background: rgba(0, 0, 0, 0.20);
+  transition: border-color 220ms ease-out, background-color 220ms ease-out, box-shadow 220ms ease-out;
+
+  // Whose-turn ambient: emerald-tinged rim when it's the viewer's
+  // active row, red-tinged rim when it's the opponent's. Inactive
+  // rows fall back to the neutral faint border so the contrast is
+  // unmistakable at a glance.
+  &--active-self {
+    border-color: var(--majik-self-rim);
+    background: var(--majik-self-soft);
+    box-shadow: inset 0 0 0 1px var(--majik-self-rim);
+  }
+  &--active-foe {
+    border-color: var(--majik-foe-rim);
+    background: var(--majik-foe-soft);
+    box-shadow: inset 0 0 0 1px var(--majik-foe-rim);
+  }
+  &--inactive {
+    opacity: 0.92;
+  }
 }
 
 .hand-row {
@@ -85,8 +106,29 @@
 // the row is already gone. The entry animation alone reads as
 // "something landed on the stack", which is the polish goal.
 // =============================================================
+.stack-panel {
+  border-color: var(--majik-line-faint);
+  transition: border-color 220ms ease-out, box-shadow 220ms ease-out;
+
+  &--populated {
+    border-color: var(--majik-accent);
+    box-shadow: 0 0 0 1px var(--majik-accent-soft);
+  }
+}
+
 .stack-item {
   animation: stack-item-enter 220ms ease-out both;
+  padding-left: var(--majik-space-2);
+  border-left: 3px solid var(--majik-accent);
+  border-bottom: 1px solid var(--majik-line-faint);
+  opacity: 0.65;
+
+  // Top of the stack = next to resolve. Highlight it so the user
+  // reads the resolution order at a glance.
+  &--top {
+    border-left-color: var(--majik-accent-strong);
+    opacity: 1;
+  }
 }
 
 @keyframes stack-item-enter {
@@ -106,10 +148,28 @@
   border: 0;
   color: inherit;
   cursor: pointer;
+  transition: color 200ms ease-out, background-color 200ms ease-out;
+
+  // Each phase belongs to one of four categories (setup / main /
+  // combat / wind-down). The data attribute is set in
+  // phase-bar.component.ts; the colors come from --majik-phase-*
+  // in tokens.scss so the whole bar reads as a 4-band timeline.
+  &[data-category="setup"]  { color: var(--majik-phase-setup); }
+  &[data-category="main"]   { color: var(--majik-phase-main); }
+  &[data-category="combat"] { color: var(--majik-phase-combat); }
+  &[data-category="wind"]   { color: var(--majik-phase-wind); }
 }
 
 .phase-chip-active {
+  background: rgba(255, 255, 255, 0.06);
   animation: phase-chip-pulse 2.4s ease-in-out infinite;
+
+  // Active chip drives its glow color from its category so the
+  // pulse matches the timeline color, not a hard-coded emerald.
+  &[data-category="setup"]  { --phase-glow: 170, 224, 250; }
+  &[data-category="main"]   { --phase-glow: 224, 194, 117; }
+  &[data-category="combat"] { --phase-glow: 249, 170, 143; }
+  &[data-category="wind"]   { --phase-glow: 154, 161, 171; }
 }
 
 // =============================================================
@@ -139,10 +199,10 @@
 
 @keyframes phase-chip-pulse {
   0%, 100% {
-    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.55);
+    box-shadow: 0 0 0 0 rgba(var(--phase-glow, 16, 185, 129), 0.55);
   }
   50% {
-    box-shadow: 0 0 0 4px rgba(16, 185, 129, 0);
+    box-shadow: 0 0 0 4px rgba(var(--phase-glow, 16, 185, 129), 0);
   }
 }
 
@@ -168,3 +228,110 @@
   20%  { color: #6ee7b7; transform: scale(1.15); }
   100% { color: var(--majik-fg); transform: scale(1); }
 }
+
+// =============================================================
+// Player HUD — friend/foe ambient, deck-color identity strip,
+// zone-colored counter glyphs, life-tier emphasis.
+// =============================================================
+.player-hud {
+  border-color: var(--majik-line);
+  transition: border-color 220ms ease-out, background-color 220ms ease-out, box-shadow 220ms ease-out;
+
+  &--self.player-hud--active {
+    border-color: var(--majik-self-rim);
+    background: var(--majik-self-soft);
+    box-shadow: inset 0 0 0 1px var(--majik-self-rim);
+  }
+  &--foe.player-hud--active {
+    border-color: var(--majik-foe-rim);
+    background: var(--majik-foe-soft);
+    box-shadow: inset 0 0 0 1px var(--majik-foe-rim);
+  }
+}
+
+.player-hud__color-strip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 4px;
+  border-top-left-radius: var(--majik-radius-panel);
+  border-bottom-left-radius: var(--majik-radius-panel);
+}
+
+// Life tiers. Healthy fades into the chrome so a fresh board doesn't
+// drown out other signals. Warn shifts to amber. Crit hits red and
+// breathes via the same pulse keyframe as a phase chip glow.
+.player-hud__life--healthy { color: var(--majik-fg-muted); }
+.player-hud__life--warn    { color: var(--text-warn); }
+.player-hud__life--crit {
+  color: var(--text-err);
+  animation: life-crit-breathe 1.6s ease-in-out infinite;
+}
+
+@keyframes life-crit-breathe {
+  0%, 100% { text-shadow: 0 0 0 rgba(252, 165, 165, 0.0); }
+  50%      { text-shadow: 0 0 8px rgba(252, 165, 165, 0.85); }
+}
+
+// Zone-coded counter glyphs (L H G X). The number itself stays
+// neutral so it remains readable; only the leading letter takes
+// the hue. Tooltip / aria-label remain on the wrapper span.
+.player-hud__pip-glyph {
+  font-weight: 700;
+  margin-right: 2px;
+}
+.player-hud__pip--library  .player-hud__pip-glyph { color: var(--mana-u); }
+.player-hud__pip--hand     .player-hud__pip-glyph { color: var(--majik-fg); }
+.player-hud__pip--graveyard .player-hud__pip-glyph { color: rgba(252, 165, 165, 0.75); }
+.player-hud__pip--exile    .player-hud__pip-glyph { color: var(--text-warn); }
+.player-hud__pip--exile { opacity: 0.85; }
+
+// =============================================================
+// Prompt overlay — border + title color keyed off the prompt kind.
+// The matching action-bar readout color is in .prompt-readout
+// further down.
+// =============================================================
+.prompt-overlay {
+  border: 1px solid var(--majik-line-strong);
+  transition: border-color 200ms ease-out;
+
+  &[data-kind="targets"]   { border-color: var(--majik-prompt-targets);   }
+  &[data-kind="attackers"] { border-color: var(--majik-prompt-attackers); }
+  &[data-kind="blockers"]  { border-color: var(--majik-prompt-blockers);  }
+  &[data-kind="mulligan"]  { border-color: var(--majik-prompt-mulligan);  }
+  &[data-kind="x"]         { border-color: var(--majik-prompt-x);         }
+  &[data-kind="mode"]      { border-color: var(--majik-prompt-mode);      }
+  &[data-kind="bottom"]    { border-color: var(--majik-prompt-bottom);    }
+}
+
+.prompt-overlay__title {
+  color: var(--majik-accent-strong);
+}
+.prompt-overlay[data-kind="targets"]   .prompt-overlay__title { color: var(--majik-prompt-targets); }
+.prompt-overlay[data-kind="attackers"] .prompt-overlay__title { color: var(--majik-prompt-attackers); }
+.prompt-overlay[data-kind="blockers"]  .prompt-overlay__title { color: var(--majik-prompt-blockers); }
+.prompt-overlay[data-kind="mulligan"]  .prompt-overlay__title { color: var(--majik-prompt-mulligan); }
+.prompt-overlay[data-kind="x"]         .prompt-overlay__title { color: var(--majik-prompt-x); }
+.prompt-overlay[data-kind="mode"]      .prompt-overlay__title { color: var(--majik-prompt-mode); }
+.prompt-overlay[data-kind="bottom"]    .prompt-overlay__title { color: var(--majik-prompt-bottom); }
+
+// Action-bar readout — same color cue as the overlay border so the
+// bar continues to telegraph the kind even when the modal isn't
+// mounted (e.g. waiting on opponent's combat declaration).
+.prompt-readout {
+  display: inline-flex;
+  gap: var(--majik-space-1);
+  align-items: baseline;
+  padding-left: var(--majik-space-2);
+  border-left: 3px solid var(--majik-accent);
+}
+.prompt-readout__label { font-weight: 600; }
+.prompt-readout[data-kind="targets"]   { border-left-color: var(--majik-prompt-targets);   .prompt-readout__label { color: var(--majik-prompt-targets); } }
+.prompt-readout[data-kind="attackers"] { border-left-color: var(--majik-prompt-attackers); .prompt-readout__label { color: var(--majik-prompt-attackers); } }
+.prompt-readout[data-kind="blockers"]  { border-left-color: var(--majik-prompt-blockers);  .prompt-readout__label { color: var(--majik-prompt-blockers); } }
+.prompt-readout[data-kind="mulligan"]  { border-left-color: var(--majik-prompt-mulligan);  .prompt-readout__label { color: var(--majik-prompt-mulligan); } }
+.prompt-readout[data-kind="x"]         { border-left-color: var(--majik-prompt-x);         .prompt-readout__label { color: var(--majik-prompt-x); } }
+.prompt-readout[data-kind="mode"]      { border-left-color: var(--majik-prompt-mode);      .prompt-readout__label { color: var(--majik-prompt-mode); } }
+.prompt-readout[data-kind="bottom"]    { border-left-color: var(--majik-prompt-bottom);    .prompt-readout__label { color: var(--majik-prompt-bottom); } }
+.prompt-readout[data-kind="none"]      { border-left-color: var(--majik-accent); .prompt-readout__label { color: var(--majik-accent-strong); } }

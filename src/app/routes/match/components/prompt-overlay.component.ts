@@ -46,13 +46,14 @@ export function detectKind(kinds: string[] | undefined): PromptKind {
   template: `
     @if (kind() !== 'none') {
       <div
-        class="fixed inset-x-0 top-0 z-50 mx-auto mt-3 max-w-3xl rounded border border-amber-500/40 bg-black/80 p-3 shadow-xl"
+        class="prompt-overlay fixed inset-x-0 top-0 z-50 mx-auto mt-3 max-w-3xl rounded bg-black/80 p-3 shadow-xl"
+        [attr.data-kind]="kind()"
         role="dialog"
         aria-modal="true"
         [attr.aria-label]="titleFor(kind())">
         <div class="mb-2 flex items-center justify-between">
           <div>
-            <h3 class="text-sm font-semibold text-amber-300">{{ titleFor(kind()) }}</h3>
+            <h3 class="prompt-overlay__title text-sm font-semibold">{{ titleFor(kind()) }}</h3>
             @if (prompt()?.description; as d) {
               <p class="text-xs opacity-70">{{ d }}</p>
             }

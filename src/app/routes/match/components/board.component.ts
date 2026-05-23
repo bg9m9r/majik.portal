@@ -38,6 +38,7 @@ import { ActionBarComponent } from './action-bar.component';
           <app-player-hud
             [player]="opponent()"
             [active]="opponent()?.id === s.activePlayerId"
+            side="opponent"
             label="opponent" />
 
           <!--
@@ -57,14 +58,20 @@ import { ActionBarComponent } from './action-bar.component';
           </div>
 
           <section class="battlefield">
-            <div class="battlefield-row border border-white/5 bg-black/20">
+            <div
+              class="battlefield-row"
+              [class.battlefield-row--active-foe]="opponent()?.id === s.activePlayerId"
+              [class.battlefield-row--inactive]="opponent()?.id !== s.activePlayerId">
               @for (c of opponent()?.battlefield?.cards ?? []; track c.instanceId) {
                 <app-card-view [snapshot]="c" zone="battlefield" />
               } @empty {
                 <span class="opacity-30">— opponent battlefield empty —</span>
               }
             </div>
-            <div class="battlefield-row border border-white/10 bg-black/30">
+            <div
+              class="battlefield-row"
+              [class.battlefield-row--active-self]="self()?.id === s.activePlayerId"
+              [class.battlefield-row--inactive]="self()?.id !== s.activePlayerId">
               @for (c of self()?.battlefield?.cards ?? []; track c.instanceId) {
                 <app-card-view [snapshot]="c" zone="battlefield" />
               } @empty {
@@ -100,10 +107,16 @@ import { ActionBarComponent } from './action-bar.component';
                 <span class="opacity-30">— hand empty —</span>
               }
             </div>
-            <aside class="rounded border border-white/10 p-2">
-              <h3 class="mb-1 text-[10px] uppercase tracking-wider opacity-60">Stack ({{ s.stack.length }})</h3>
-              @for (item of s.stack; track item.id) {
-                <div class="stack-item border-b border-white/5 py-1 text-xs">
+            <aside
+              class="stack-panel rounded border p-2"
+              [class.stack-panel--populated]="s.stack.length > 0">
+              <h3 class="mb-1 text-[10px] uppercase tracking-wider opacity-60">
+                Stack ({{ s.stack.length }})
+              </h3>
+              @for (item of s.stack; track item.id; let i = $index) {
+                <div
+                  class="stack-item py-1 text-xs"
+                  [class.stack-item--top]="i === s.stack.length - 1">
                   <div class="font-semibold">{{ item.kind }}</div>
                   <div class="opacity-70">{{ item.description }}</div>
                 </div>
@@ -116,6 +129,7 @@ import { ActionBarComponent } from './action-bar.component';
           <app-player-hud
             [player]="self()"
             [active]="self()?.id === s.activePlayerId"
+            side="self"
             label="you" />
         </div>
 

@@ -45,6 +45,44 @@
   --majik-outline-target:#caa75a;
 
   /* ----------------------------------------------------------
+     Friend / foe ambient — drives whose-turn rims on the
+     battlefield rows and player HUDs. Green = the viewer
+     (self), red = opponent. Tied to --status-ok / --status-err
+     so the table reads consistently with toasts + status pips.
+     ---------------------------------------------------------- */
+  --majik-self:          #34d399; /* emerald-400, same as --text-ok */
+  --majik-self-soft:     rgba(52, 211, 153, 0.08);
+  --majik-self-rim:      rgba(52, 211, 153, 0.45);
+  --majik-foe:           #fca5a5; /* red-300, same as --text-err */
+  --majik-foe-soft:      rgba(252, 165, 165, 0.08);
+  --majik-foe-rim:       rgba(252, 165, 165, 0.45);
+
+  /* ----------------------------------------------------------
+     Phase-category palette — colors the phase-bar timeline so
+     the four arcs of a turn (setup / main / combat / wind-down)
+     read at a glance. Active chip pulls its glow from the same
+     category color in board.scss.
+     ---------------------------------------------------------- */
+  --majik-phase-setup:   #aae0fa; /* cool blue  — untap / upkeep / draw */
+  --majik-phase-main:    #caa75a; /* warm gold  — pre/post-combat main */
+  --majik-phase-combat:  #f9aa8f; /* hot orange — beginning..end of combat */
+  --majik-phase-wind:    #9aa1ab; /* muted grey — end / cleanup */
+
+  /* ----------------------------------------------------------
+     Prompt-kind palette — drives the prompt overlay border + the
+     action-bar prompt readout. Each kind picks a hue that's
+     already in the system so the chrome telegraphs the kind
+     before the title text is read.
+     ---------------------------------------------------------- */
+  --majik-prompt-targets:   #caa75a; /* targets   — accent gold */
+  --majik-prompt-attackers: #fca5a5; /* attackers — red */
+  --majik-prompt-blockers:  #aae0fa; /* blockers  — blue */
+  --majik-prompt-mulligan:  #cbc2bf; /* mulligan  — neutral mana B */
+  --majik-prompt-x:         #fcd34d; /* X / mode  — amber-300 */
+  --majik-prompt-mode:      #fcd34d;
+  --majik-prompt-bottom:    #beb9b2; /* bottom    — colorless tan */
+
+  /* ----------------------------------------------------------
      WUBRG mana colors (used inside mana pips only)
      ---------------------------------------------------------- */
   --mana-w:              #fffbd5;

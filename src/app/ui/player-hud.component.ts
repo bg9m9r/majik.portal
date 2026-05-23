@@ -1,5 +1,26 @@
 import { Component, computed, effect, input, signal } from '@angular/core';
-import { GamePlayer } from '../core/match/match.types';
+import { CardSnapshot, GamePlayer } from '../core/match/match.types';
+
+// Side input — "self" tints the active rim emerald, "opponent" tints
+// red. Lets the HUD echo the friend/foe ambient used on the
+// battlefield rows so a glance at either side of the table reads as
+// the same player.
+export type HudSide = 'self' | 'opponent';
+
+// Letters in a CardSnapshot.manaCost map to deck-identity colors via
+// a parse of the engine's curly-brace token format ("{1}{G}", "{W/U}",
+// etc.). Hybrid / Phyrexian symbols count both halves so a deck reads
+// as multi-color even before the player visibly casts both halves.
+const COLOR_LETTERS: ReadonlyArray<'W' | 'U' | 'B' | 'R' | 'G'> = ['W', 'U', 'B', 'R', 'G'];
+
+function manaColorsIn(cost: string | undefined | null): Set<string> {
+  const out = new Set<string>();
+  if (!cost) return out;
+  for (const ch of cost.toUpperCase()) {
+    if (COLOR_LETTERS.includes(ch as never)) out.add(ch);
+  }
+  return out;
+}
 
 @Component({
   selector: 'app-player-hud',
@@ -7,11 +28,22 @@ import { GamePlayer } from '../core/match/match.types';
   template: `
     @if (player(); as p) {
       <div
-        class="flex items-center gap-4 rounded border border-white/10 px-3 py-2 text-sm"
-        [class.border-amber-400]="active()"
-        [class.bg-amber-900/10]="active()"
+        class="player-hud relative flex items-center gap-4 overflow-hidden rounded border px-3 py-2 text-sm"
+        [class.player-hud--self]="side() === 'self'"
+        [class.player-hud--foe]="side() === 'opponent'"
+        [class.player-hud--active]="active()"
         [attr.aria-label]="label() + ' ' + p.name + ' life ' + p.life"
         aria-live="polite">
+        <!-- Deck-color identity strip — derived from the union of all
+             visible cards' mana costs. Empty for a deck we haven't
+             seen anything from yet (e.g. brand new opponent). -->
+        @if (deckColors().length > 0) {
+          <span
+            class="player-hud__color-strip"
+            [style.background]="deckColorGradient()"
+            [attr.aria-hidden]="true"></span>
+        }
+
         <div class="flex flex-col">
           <span class="text-xs uppercase tracking-wider opacity-60">{{ label() }}</span>
           <span class="font-semibold">{{ p.name }}</span>
@@ -19,13 +51,27 @@ import { GamePlayer } from '../core/match/match.types';
         <div class="ml-auto flex items-center gap-4 font-mono text-xs">
           <span
             title="Life"
-            class="text-base font-bold inline-block"
+            class="player-hud__life text-base font-bold inline-flex items-center gap-1"
+            [class.player-hud__life--healthy]="lifeTier() === 'healthy'"
+            [class.player-hud__life--warn]="lifeTier() === 'warn'"
+            [class.player-hud__life--crit]="lifeTier() === 'crit'"
             [class.life-flash-loss]="lifeFlash() === 'loss'"
-            [class.life-flash-gain]="lifeFlash() === 'gain'">♥ {{ p.life }}</span>
-          <span title="Library">L {{ p.library.cards.length }}</span>
-          <span title="Hand">H {{ p.hand.cards.length }}</span>
-          <span title="Graveyard">G {{ p.graveyard.cards.length }}</span>
-          <span title="Exile" class="opacity-60">X {{ p.exile.cards.length }}</span>
+            [class.life-flash-gain]="lifeFlash() === 'gain'">
+            <span aria-hidden="true">♥</span>
+            <span>{{ p.life }}</span>
+          </span>
+          <span title="Library" class="player-hud__pip player-hud__pip--library">
+            <span class="player-hud__pip-glyph" aria-hidden="true">L</span> {{ p.library.cards.length }}
+          </span>
+          <span title="Hand" class="player-hud__pip player-hud__pip--hand">
+            <span class="player-hud__pip-glyph" aria-hidden="true">H</span> {{ p.hand.cards.length }}
+          </span>
+          <span title="Graveyard" class="player-hud__pip player-hud__pip--graveyard">
+            <span class="player-hud__pip-glyph" aria-hidden="true">G</span> {{ p.graveyard.cards.length }}
+          </span>
+          <span title="Exile" class="player-hud__pip player-hud__pip--exile">
+            <span class="player-hud__pip-glyph" aria-hidden="true">X</span> {{ p.exile.cards.length }}
+          </span>
         </div>
         <div class="flex items-center gap-1 font-mono text-xs">
           @for (m of manaPips(); track m.color) {
@@ -42,6 +88,7 @@ export class PlayerHudComponent {
   readonly player = input<GamePlayer | null>(null);
   readonly active = input<boolean>(false);
   readonly label = input<string>('player');
+  readonly side = input<HudSide>('self');
 
   // Drives the .life-flash-* class. Reset to null after the keyframe
   // duration so a follow-up change in the same direction re-triggers.
@@ -51,6 +98,57 @@ export class PlayerHudComponent {
   readonly lifeFlash = signal<'gain' | 'loss' | null>(null);
   private lastLife: number | null = null;
   private flashTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // Static life-tier classification. 'crit' adds a slow breathing
+  // pulse so a dying player visually screams; 'healthy' fades the
+  // number so a fresh board doesn't drown out other signals.
+  readonly lifeTier = computed<'healthy' | 'warn' | 'crit'>(() => {
+    const life = this.player()?.life ?? 0;
+    if (life <= 5) return 'crit';
+    if (life <= 10) return 'warn';
+    return 'healthy';
+  });
+
+  // Color identity of the player's deck, derived from every visible
+  // card. We sample hand + battlefield + graveyard + exile; library
+  // is masked face-down so it has no usable manaCost. For the
+  // opponent this means the strip lights up as the game progresses,
+  // which doubles as a tell for what colors they've revealed.
+  readonly deckColors = computed<string[]>(() => {
+    const p = this.player();
+    if (!p) return [];
+    const seen = new Set<string>();
+    const visible: CardSnapshot[] = [
+      ...p.hand.cards,
+      ...p.battlefield.cards,
+      ...p.graveyard.cards,
+      ...p.exile.cards,
+    ];
+    for (const c of visible) {
+      for (const color of manaColorsIn(c.manaCost)) seen.add(color);
+    }
+    // Stable order — W U B R G — so a Bant deck always reads
+    // green→white→blue from left to right, not whatever appeared
+    // first in the snapshot.
+    return COLOR_LETTERS.filter(l => seen.has(l));
+  });
+
+  readonly deckColorGradient = computed<string>(() => {
+    const colors = this.deckColors();
+    if (colors.length === 0) return 'transparent';
+    const stops = colors.map(l => `var(--mana-${l.toLowerCase()})`);
+    if (stops.length === 1) return stops[0];
+    // Hard stops so each color owns its slice — gradient is wide
+    // enough to read as bands rather than smear.
+    const step = 100 / stops.length;
+    const parts: string[] = [];
+    stops.forEach((c, i) => {
+      const start = (i * step).toFixed(2);
+      const end = ((i + 1) * step).toFixed(2);
+      parts.push(`${c} ${start}%`, `${c} ${end}%`);
+    });
+    return `linear-gradient(to bottom, ${parts.join(', ')})`;
+  });
 
   readonly manaPips = computed(() => {
     const p = this.player();
