@@ -23,7 +23,7 @@
     "@angular/forms": "^21.2.0",
     "@angular/platform-browser": "^21.2.0",
     "@angular/router": "^21.2.0",
-    "@descope/angular-sdk": "^0.24.11",
+    "@auth0/auth0-angular": "^2.9.0",
     "@microsoft/signalr": "^10.0.0",
     "@ngrx/operators": "^21.1.0",
     "@ngrx/signals": "^21.1.0",

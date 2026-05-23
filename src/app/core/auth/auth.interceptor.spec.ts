@@ -28,7 +28,8 @@ describe('shouldAttachAuth — URL gating', () => {
 
     it('does NOT attach for protocol-relative URLs (token leak guard)', () => {
       // Regression: previously `url.startsWith('/')` accepted '//evil.com/x', which the browser
-      // resolves to `https://evil.com/x`. Descope would have attached the bearer token.
+      // resolves to `https://evil.com/x`. The interceptor would have attached the bearer token
+      // to that third-party host.
       expect(shouldAttachAuth('//evil.example.com/steal-token', '')).toBe(false);
       expect(shouldAttachAuth('//attacker', '')).toBe(false);
     });

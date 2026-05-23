@@ -2,10 +2,11 @@
 # Deploy: connect this repo (github.com/bg9m9r/majik.portal) as a Blueprint on Render.
 #
 # Secrets to set after first sync (Render dashboard → service → Environment):
-#   MAJIK_API_URL          https://majik-api.onrender.com  (or custom domain — no trailing slash)
-#   DESCOPE_PROJECT_ID     <project id>
-#   DESCOPE_FLOW_ID        sign-up-or-in   (or 'discord' etc.)
-#   DESCOPE_REDIRECT_URL   https://majik-portal.onrender.com/auth/callback
+#   MAJIK_API_URL           https://majik-api.onrender.com  (or custom domain — no trailing slash)
+#   AUTH0_DOMAIN            auth.majik.tech                 (Auth0 custom domain, no scheme)
+#   AUTH0_CLIENT_ID         <SPA app client id>
+#   AUTH0_AUDIENCE          https://api.majik.tech          (Auth0 API identifier)
+#   AUTH0_REDIRECT_URI      https://majik.tech/auth/callback
 #
 # Build step bakes these into src/environments/environment.production.ts before `ng build`,
 # since Angular envs are compile-time. SignalR hub URL derives from MAJIK_API_URL.
@@ -26,31 +27,27 @@ services:
         production: true,
         apiBaseUrl: '${MAJIK_API_URL}',
         signalRHubUrl: '${MAJIK_API_URL}/hubs/match',
-        descope: {
-          projectId: '${DESCOPE_PROJECT_ID}',
-          flowId: '${DESCOPE_FLOW_ID}',
-          baseUrl: '',
-          redirectUrl: '${DESCOPE_REDIRECT_URL}'
+        auth0: {
+          domain: '${AUTH0_DOMAIN}',
+          clientId: '${AUTH0_CLIENT_ID}',
+          audience: '${AUTH0_AUDIENCE}',
+          redirectUri: '${AUTH0_REDIRECT_URI}'
         }
       };
       EOF
       npm run build
       # CSP injected as a <meta> tag so connect-src can be parameterized
-      # on the deployed API origin without hard-coding it in render.yaml.
-      # NOTE: meta CSP cannot enforce frame-ancestors — covered by the
-      # X-Frame-Options: DENY header below.
+      # on the deployed API + Auth0 origins without hard-coding them in
+      # render.yaml. NOTE: meta CSP cannot enforce frame-ancestors —
+      # covered by the X-Frame-Options: DENY header below.
       #
-      # script-src is just `'self'` — we drive Descope OAuth via the
-      # plain JS SDK (descopeSdk.oauth.start/exchange) + a redirect to
-      # Discord, so there's no <descope-sign-in-flow> web component
-      # injecting inline <script> tags at runtime. If we ever re-add
-      # the web component, this needs to grow either a sha256 hash for
-      # the injected script (brittle on SDK updates) or 'unsafe-inline'
-      # (defeats XSS protection).
+      # script-src is just `'self'` — Auth0 Universal Login is a full-
+      # page redirect to the tenant domain, not an embedded iframe, so
+      # nothing injects inline <script> tags into our document.
       DIST=dist/majik-portal/browser
       INDEX="${DIST}/index.html"
       API_WSS="$(printf '%s' "${MAJIK_API_URL}" | sed 's|^https://|wss://|; s|^http://|ws://|')"
-      CSP="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net; img-src 'self' data: https://*.scryfall.io https://cards.scryfall.io https://api.scryfall.com; connect-src 'self' https://api.scryfall.com https://*.descope.com ${MAJIK_API_URL} ${API_WSS}; base-uri 'self'; form-action 'self'"
+      CSP="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net; img-src 'self' data: https://*.scryfall.io https://cards.scryfall.io https://api.scryfall.com; connect-src 'self' https://api.scryfall.com https://${AUTH0_DOMAIN} ${MAJIK_API_URL} ${API_WSS}; base-uri 'self'; form-action 'self'"
       sed -i "s|<head>|<head><meta http-equiv=\"Content-Security-Policy\" content=\"${CSP}\">|" "${INDEX}"
     staticPublishPath: ./dist/majik-portal/browser
     pullRequestPreviewsEnabled: false
@@ -76,9 +73,9 @@ services:
         value: camera=(), microphone=(), geolocation=()
       # Content-Security-Policy is emitted as a <meta> tag in the build step
       # (see buildCommand above) so connect-src can include the deployed
-      # ${MAJIK_API_URL} origin without hard-coding it here. frame-ancestors
-      # is enforced by the X-Frame-Options: DENY header above (meta CSP
-      # cannot enforce frame-ancestors).
+      # ${MAJIK_API_URL} + ${AUTH0_DOMAIN} origins without hard-coding them
+      # here. frame-ancestors is enforced by the X-Frame-Options: DENY
+      # header above (meta CSP cannot enforce frame-ancestors).
       - path: /assets/*
         name: Cache-Control
         value: public, max-age=31536000, immutable
@@ -87,9 +84,11 @@ services:
         value: "20"
       - key: MAJIK_API_URL
         sync: false
-      - key: DESCOPE_PROJECT_ID
+      - key: AUTH0_DOMAIN
         sync: false
-      - key: DESCOPE_FLOW_ID
-        value: sign-up-or-in
-      - key: DESCOPE_REDIRECT_URL
+      - key: AUTH0_CLIENT_ID
+        sync: false
+      - key: AUTH0_AUDIENCE
+        sync: false
+      - key: AUTH0_REDIRECT_URI
         sync: false

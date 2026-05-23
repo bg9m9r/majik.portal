@@ -1,13 +1,18 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
-import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { DescopeAuthService } from '@descope/angular-sdk';
-import { firstValueFrom } from 'rxjs';
+import { Router, RouterLink } from '@angular/router';
+import { AuthService as Auth0Service } from '@auth0/auth0-angular';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { DestroyRef } from '@angular/core';
 
 /**
- * OAuth return target. Descope redirects here after the Discord round-trip
- * with `?code=...` (or `?err=...` on failure). Exchange the code for a
- * session JWT via `descopeSdk.oauth.exchange(code)`, then bounce to /lobby.
- * AuthService.session$ picks up the new session automatically.
+ * Auth0 redirect target. The SDK auto-detects `?code=&state=` on app
+ * bootstrap (APP_INITIALIZER), exchanges the code for a session, and
+ * fires `isAuthenticated$ = true`. This page just waits for that tick
+ * then navigates to `appState.target` (set by LoginPage to `/lobby`)
+ * or `/lobby` as a fallback.
+ *
+ * Auth0 emits errors via `error$` if the exchange or Discord round-trip
+ * failed (user cancelled, callback URL mismatch, etc.).
  */
 @Component({
   selector: 'app-auth-callback',
@@ -36,35 +41,28 @@ import { firstValueFrom } from 'rxjs';
   `
 })
 export class AuthCallbackPage implements OnInit {
-  private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
-  private readonly descope = inject(DescopeAuthService, { optional: true });
+  private readonly auth0 = inject(Auth0Service, { optional: true });
+  private readonly destroyRef = inject(DestroyRef);
 
   readonly error = signal<string | null>(null);
 
-  async ngOnInit(): Promise<void> {
-    if (!this.descope) {
+  ngOnInit(): void {
+    if (!this.auth0) {
       this.error.set('Auth is not configured.');
       return;
     }
-    const params = this.route.snapshot.queryParamMap;
-    const code = params.get('code');
-    const err = params.get('err') ?? params.get('error');
-    if (err) {
-      this.error.set(`Discord sign-in was cancelled or failed (${err}).`);
-      return;
-    }
-    if (!code) {
-      this.error.set('Missing OAuth code in callback URL.');
-      return;
-    }
-    try {
-      await firstValueFrom(this.descope.descopeSdk.oauth.exchange(code));
-      // session$ in AuthService will tick to authenticated and the route
-      // guards on /lobby will let us through.
-      await this.router.navigate(['/lobby']);
-    } catch (e) {
-      this.error.set(e instanceof Error ? e.message : 'Could not exchange OAuth code.');
-    }
+
+    this.auth0.isAuthenticated$
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(authed => {
+        if (authed) this.router.navigateByUrl('/lobby');
+      });
+
+    this.auth0.error$
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(err => {
+        this.error.set(err?.message ?? 'Sign-in failed. Try again.');
+      });
   }
 }
