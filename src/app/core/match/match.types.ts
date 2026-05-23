@@ -60,8 +60,13 @@ export interface CreateMatchRequest {
 export interface JoinMatchRequest { deckId: string }
 export interface PlayDrawRequest { choice: 'play' | 'draw' }
 
-// Minimal game-state types (engine integration ships in a later sub-project;
-// these stand-ins keep the board/prompt components compilable with no generated DTOs.)
+// Game-state shapes — kept structurally compatible with the engine's
+// GameStateDto (see ng-openapi-gen output under core/api/models). The
+// duplicate definition here exists for two reasons:
+//   1) generated DTOs widen numerics to (number | string), which would
+//      ripple typing churn into every UI consumer;
+//   2) the prompt envelope is delivered over SignalR and has no
+//      OpenAPI binding, so its shape lives here too.
 export interface CardSnapshot {
   instanceId: string;
   name: string;
@@ -84,6 +89,7 @@ export interface GamePlayer {
   id: string;
   name: string;
   life: number;
+  hasLost?: boolean;
   mana: ManaPool;
   hand: ZoneSnapshot;
   library: ZoneSnapshot;
@@ -95,11 +101,71 @@ export interface GamePlayer {
 export interface StackItem { id: string; kind: string; description: string }
 
 export interface GameState {
+  gameId?: string;
   phase: string;
   turnNumber: number;
   activePlayerId: string;
   players: GamePlayer[];
   stack: StackItem[];
+}
+
+// Prompt envelope as sent by MatchFacadeBridge on the "prompt" SignalR
+// channel. Mirrors server-side Majik.Core.Api.Dtos.PromptDto. No OpenAPI
+// schema (SignalR-only), so the shape is hand-mirrored here.
+export interface PromptEnvelope {
+  gameId: string;
+  playerId: string;
+  expectedKinds: string[];
+  // Optional human-readable description — present on some prompts to
+  // hint about the choice context. Not part of the wire DTO yet but
+  // tolerated here so we can surface server-side annotations later
+  // without another portal change.
+  description?: string;
+}
+
+// Polymorphic GameCommand wire envelope — matches
+// Majik.Core.Api.Commands.GameCommand on the server. Tagged via the
+// "$type" discriminator (the JsonPolymorphic attribute names).
+export type GameCommand =
+  | PassPriorityCommand
+  | PlayLandCommand
+  | CastSpellCommand
+  | MulliganCommand
+  | ChooseTargetsCommand
+  | ChooseXCommand
+  | ChooseModeCommand
+  | DeclareAttackersCommand
+  | DeclareBlockersCommand
+  | ChooseCardsToBottomCommand;
+
+interface CmdBase { playerId?: string }
+export interface PassPriorityCommand extends CmdBase { $type: 'pass' }
+export interface PlayLandCommand extends CmdBase { $type: 'play-land'; landInstanceId: string }
+export interface CastSpellCommand extends CmdBase {
+  $type: 'cast';
+  cardInstanceId: string;
+  targetInstanceIds: string[];
+  xValue: number | null;
+  modeIndex: number | null;
+}
+export interface MulliganCommand extends CmdBase { $type: 'mulligan'; keep: boolean }
+export interface ChooseTargetsCommand extends CmdBase {
+  $type: 'targets';
+  targetInstanceIds: string[];
+}
+export interface ChooseXCommand extends CmdBase { $type: 'x'; x: number }
+export interface ChooseModeCommand extends CmdBase { $type: 'mode'; modeIndex: number }
+export interface DeclareAttackersCommand extends CmdBase {
+  $type: 'attackers';
+  attackers: { attackerInstanceId: string; defenderId: string }[];
+}
+export interface DeclareBlockersCommand extends CmdBase {
+  $type: 'blockers';
+  blockers: { attackerInstanceId: string; blockerInstanceId: string }[];
+}
+export interface ChooseCardsToBottomCommand extends CmdBase {
+  $type: 'bottom';
+  cardInstanceIds: string[];
 }
 
 // SignalR event payloads
