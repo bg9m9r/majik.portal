@@ -281,6 +281,112 @@ describe('PromptOverlayComponent — combat prompts', () => {
     expect(labels).toContain('Cancel');
   });
 
+  it('moves focus to the first focusable element on mount (targets prompt)', async () => {
+    // A11y: opening the prompt overlay should land focus inside the dialog
+    // so a keyboard user doesn't have to chase it. Mirrors WAI-ARIA modal
+    // dialog pattern — focus jumps to the first focusable child (the
+    // Confirm button for targets / attackers / blockers prompts).
+    const bear = card({ instanceId: 'bear-1', name: 'Grizzly Bears' });
+    const me = player({ id: 'me', name: 'Alice', battlefield: { cards: [bear] } });
+    const opp = player({ id: 'opp', name: 'Bob' });
+    const state: GameState = {
+      phase: 'PreCombatMain', turnNumber: 1, activePlayerId: 'me',
+      players: [me, opp], stack: [],
+    };
+
+    const { component, fixture } = mountOverlay(state, ['ChooseTargetsCommand'], ['me']);
+    // ngAfterViewInit defers focus into a rAF — call directly for
+    // deterministic test behaviour.
+    component.focusFirstFocusable();
+    fixture.detectChanges();
+    const root = (fixture.nativeElement as HTMLElement).querySelector('.prompt-overlay') as HTMLElement;
+    expect(root).toBeTruthy();
+    // First focusable inside the overlay is the Cancel button (in the
+    // header) — verify focus landed somewhere inside the dialog.
+    const active = document.activeElement as HTMLElement | null;
+    expect(active).toBeTruthy();
+    expect(root.contains(active)).toBe(true);
+  });
+
+  it('tryConfirmPrimary emits a targets decision when at least one selected', () => {
+    // The Enter shortcut in match.ts calls tryConfirmPrimary() on the
+    // overlay. With no selection it must be a no-op; with one or more
+    // it must fire the same decision shape confirmTargets does.
+    const bear = card({ instanceId: 'bear-1', name: 'Grizzly Bears' });
+    const me = player({ id: 'me', name: 'Alice', battlefield: { cards: [bear] } });
+    const opp = player({ id: 'opp', name: 'Bob' });
+    const state: GameState = {
+      phase: 'PreCombatMain', turnNumber: 1, activePlayerId: 'me',
+      players: [me, opp], stack: [],
+    };
+
+    const { component } = mountOverlay(state, ['ChooseTargetsCommand'], ['me']);
+    const captured: PromptDecision[] = [];
+    component.decision.subscribe(d => captured.push(d));
+
+    // No selection — confirm refused.
+    expect(component.tryConfirmPrimary()).toBe(false);
+    expect(captured).toHaveLength(0);
+
+    // Select then confirm.
+    component.toggle('bear-1');
+    expect(component.tryConfirmPrimary()).toBe(true);
+    expect(captured).toHaveLength(1);
+    expect(captured[0]).toEqual({ kind: 'targets', targetInstanceIds: ['bear-1'] });
+  });
+
+  it('Tab on the last focusable wraps to the first (focus trap)', () => {
+    // The dialog implements a Tab trap so keyboard focus can't escape
+    // the overlay while a prompt is open. Synthesise the last element
+    // focused and dispatch Tab; the trap should pull focus back to the
+    // first focusable inside the overlay.
+    const me = player({ id: 'me', name: 'Alice', battlefield: { cards: [card({ instanceId: 'b' })] } });
+    const opp = player({ id: 'opp', name: 'Bob' });
+    const state: GameState = {
+      phase: 'DeclareAttackers', turnNumber: 1, activePlayerId: 'me',
+      players: [me, opp], stack: [],
+    };
+
+    const { component, fixture } = mountOverlay(state, ['DeclareAttackersCommand'], ['me']);
+    const root = (fixture.nativeElement as HTMLElement).querySelector('.prompt-overlay') as HTMLElement;
+    const focusables = Array.from(
+      root.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')
+    ).filter(n => !n.hasAttribute('disabled'));
+    expect(focusables.length).toBeGreaterThan(1);
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    last.focus();
+    expect(document.activeElement).toBe(last);
+
+    const evt = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true });
+    component.onOverlayKeydown(evt);
+    // Tab forward from last → first.
+    expect(document.activeElement).toBe(first);
+  });
+
+  it('Shift+Tab on the first focusable wraps to the last (focus trap, reverse)', () => {
+    const me = player({ id: 'me', name: 'Alice', battlefield: { cards: [card({ instanceId: 'b' })] } });
+    const opp = player({ id: 'opp', name: 'Bob' });
+    const state: GameState = {
+      phase: 'DeclareAttackers', turnNumber: 1, activePlayerId: 'me',
+      players: [me, opp], stack: [],
+    };
+
+    const { component, fixture } = mountOverlay(state, ['DeclareAttackersCommand'], ['me']);
+    const root = (fixture.nativeElement as HTMLElement).querySelector('.prompt-overlay') as HTMLElement;
+    const focusables = Array.from(
+      root.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')
+    ).filter(n => !n.hasAttribute('disabled'));
+    expect(focusables.length).toBeGreaterThan(1);
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    first.focus();
+
+    const evt = new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true });
+    component.onOverlayKeydown(evt);
+    expect(document.activeElement).toBe(last);
+  });
+
   it('attackerList only includes tapped opponent creatures (post-attack-declared timing)', () => {
     // CombatFlow taps each attacker before firing the defender's
     // DeclareBlockersAsync prompt (CombatFlow.cs:56-66), so the overlay's

@@ -325,14 +325,72 @@
 .phase-stop-mine   { background: var(--majik-accent-strong); }
 .phase-stop-theirs { background: #fca5a5; }
 
+// PR #37: phase-chip pulse softened from 4px → 2px now that the moving
+// .phase-cursor underline handles the "where are we" cue. Pulse is
+// still here so the active chip subtly breathes, but no longer fights
+// the cursor for attention.
 @keyframes phase-chip-pulse {
   0%, 100% {
     box-shadow: 0 0 0 0 rgba(var(--phase-glow, 16, 185, 129), 0.55);
   }
   50% {
-    box-shadow: 0 0 0 4px rgba(var(--phase-glow, 16, 185, 129), 0);
+    box-shadow: 0 0 0 2px rgba(var(--phase-glow, 16, 185, 129), 0);
   }
 }
+
+// =============================================================
+// Combat assignment overlay — SVG layer pinned over the .board-grid
+// during the attackers / blockers prompt. Pointer-events: none so
+// the card grid stays interactive; the modal still owns input.
+// Coordinates + path strings are computed in board.component.ts off
+// the live card-view rects (data-card-id attribute).
+// =============================================================
+.combat-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+  overflow: visible;
+}
+
+// =============================================================
+// Phase advancement sweep — sliding gold cursor that tracks the
+// active chip. Geometry is set inline by phase-bar.component.ts
+// (left as transform, width as inline style). The transition lives
+// here so the cursor glides rather than snapping.
+//
+// data-category recolours the cursor to the matching phase band so
+// it reads as the same timeline rainbow the chips already do.
+// =============================================================
+.phase-bar { position: relative; }
+
+.phase-cursor {
+  position: absolute;
+  // Anchor to the bottom of the bar — cursor reads as a sliding
+  // underline. Top-of-cursor offset is computed from the chip rect's
+  // top, but visually it's the bottom edge that matters.
+  bottom: 4px;
+  left: 0;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--majik-accent);
+  transform: translateX(0);
+  will-change: transform, width;
+  transition:
+    transform 320ms cubic-bezier(0.4, 0.0, 0.2, 1),
+    width 320ms cubic-bezier(0.4, 0.0, 0.2, 1);
+  pointer-events: none;
+  z-index: 0;
+
+  &[data-category="setup"]  { background: var(--majik-phase-setup); }
+  &[data-category="main"]   { background: var(--majik-phase-main); }
+  &[data-category="combat"] { background: var(--majik-phase-combat); }
+  &[data-category="wind"]   { background: var(--majik-phase-wind); }
+}
+
+// Chips sit above the cursor so the underline reads as a backdrop
+// to the label text rather than crossing through it.
+.phase-bar .phase-chip { position: relative; z-index: 1; }
 
 // =============================================================
 // Life-change flash — applied to the life span when life delta is
@@ -547,6 +605,48 @@
 @keyframes concede-confirm-pulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(252, 165, 165, 0.0); }
   50%      { box-shadow: 0 0 6px 1px rgba(252, 165, 165, 0.55); }
+}
+
+// =============================================================
+// Keyboard-hints legend — collapsible <details> in the action bar.
+// Closed by default; opening lists the keystrokes match.ts wires.
+// =============================================================
+.kbd-hints {
+  display: inline-block;
+  font-size: 11px;
+}
+.kbd-hints__summary {
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  padding: 2px 6px;
+  border: 1px dashed var(--majik-line-faint);
+  border-radius: 4px;
+}
+.kbd-hints__summary::-webkit-details-marker { display: none; }
+.kbd-hints__list {
+  margin: 4px 0 0;
+  padding: 4px 8px;
+  list-style: none;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--majik-line-faint);
+  border-radius: 4px;
+  position: absolute;
+  bottom: 36px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.kbd-hints kbd {
+  display: inline-block;
+  padding: 0 4px;
+  margin-right: 4px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  background: var(--majik-surface-3, rgba(255, 255, 255, 0.08));
+  border: 1px solid var(--majik-line-faint);
+  border-radius: 3px;
+  color: var(--majik-accent);
 }
 
 .action-btn-undo {

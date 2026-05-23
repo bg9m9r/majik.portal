@@ -1,4 +1,15 @@
-import { Component, DestroyRef, OnDestroy, OnInit, computed, effect, inject, signal } from '@angular/core';
+import {
+  Component,
+  DestroyRef,
+  HostListener,
+  OnDestroy,
+  OnInit,
+  ViewChild,
+  computed,
+  effect,
+  inject,
+  signal,
+} from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { MatchService } from '../../core/match/match.service';
@@ -88,6 +99,7 @@ import {
                 [selfPlayerIds]="game.selfPlayerIds()"
                 [currentPrompt]="myPromptSummary()"
                 [phaseStops]="game.phaseStops()"
+                [liveAssignments]="liveAssignments()"
                 (passClicked)="onPass()"
                 (handCardClicked)="onHandClicked($event)"
                 (phaseStopToggled)="game.togglePhaseStop($event)"
@@ -97,11 +109,13 @@ import {
               @if (game.prompt(); as p) {
                 @if (game.isMyTurnPrompt()) {
                   <app-prompt-overlay
+                    #promptOverlay
                     [state]="game.state()"
                     [prompt]="p"
                     [selfPlayerIds]="game.selfPlayerIds()"
                     (decision)="onPromptDecision($event)"
-                    (cancel)="onPromptCancel()" />
+                    (cancel)="onPromptCancel()"
+                    (assignmentsChanged)="onAssignmentsChanged($event)" />
                 }
               }
               <app-bot-decisions-panel [decisions]="game.recentDecisions()" />
@@ -130,6 +144,19 @@ export class MatchPage implements OnInit, OnDestroy {
   readonly loadError = signal<string | null>(null);
   readonly current = this.matchSvc.current;
   readonly botThinking = signal(false);
+
+  // Combat-assignment relay. The prompt overlay emits this whenever
+  // the user toggles an attacker / blocker; we hold it here so the
+  // board's SVG overlay can draw arrows in real time.
+  readonly liveAssignments = signal<{
+    kind: 'attackers' | 'blockers' | null;
+    attackers?: { attackerInstanceId: string; defenderId: string }[];
+    blockers?: { attackerInstanceId: string; blockerInstanceId: string }[];
+  } | null>(null);
+
+  // Forward decl — populated when the prompt overlay is mounted via
+  // the template-ref ViewChild. Used by the Enter keyboard handler.
+  @ViewChild('promptOverlay') promptOverlayRef?: PromptOverlayComponent;
 
   // Local 1Hz heartbeat for the header timer chips. Server's
   // clockUpdate$ resyncs the canonical countdown; this just smooths the
@@ -563,6 +590,7 @@ export class MatchPage implements OnInit, OnDestroy {
     // rejected the prompt will simply re-arrive on the next prompt$
     // message.
     this.game.clearPrompt();
+    this.liveAssignments.set(null);
     await this.send(cmd);
   }
 
@@ -571,6 +599,33 @@ export class MatchPage implements OnInit, OnDestroy {
     // dismiss a prompt overlay; the engine will resend on its next tick
     // if it's still waiting.
     this.game.clearPrompt();
+    this.liveAssignments.set(null);
+  }
+
+  onAssignmentsChanged(a: {
+    kind: 'attackers' | 'blockers';
+    attackers?: { attackerInstanceId: string; defenderId: string }[];
+    blockers?: { attackerInstanceId: string; blockerInstanceId: string }[];
+  }): void {
+    this.liveAssignments.set(a);
+  }
+
+  // ---------------- Keyboard shortcuts (Task 2) ----------------
+  @HostListener('document:keydown', ['$event'])
+  onDocumentKeydown(evt: KeyboardEvent): void {
+    dispatchMatchKey(evt, {
+      hasActionPrompt: () => !!this.myPromptSummary(),
+      hasPrompt: () => !!this.game.prompt(),
+      isMyTurnPrompt: () => this.game.isMyTurnPrompt(),
+      handCards: () => {
+        const me = this.game.state()?.players.find(p => this.game.selfPlayerIds().includes(p.id));
+        return me?.hand.cards ?? [];
+      },
+      pass: () => { void this.onPass(); },
+      cancelPrompt: () => this.onPromptCancel(),
+      confirmPrimary: () => this.promptOverlayRef?.tryConfirmPrimary() ?? false,
+      playHandCard: (c: CardSnapshot) => { void this.onHandClicked(c); },
+    });
   }
 
   private translateDecision(d: PromptDecision): GameCommand | null {
@@ -630,6 +685,88 @@ function formatBotDecisionToast(d: BotDecision): string {
   const ctx = d.context ?? {};
   const name = ctx['botName'] ?? ctx['playerName'] ?? ctx['name'] ?? 'Bot';
   return `${name} — ${d.decisionType}: ${d.chosen}`;
+}
+
+/**
+ * Adapter the keyboard dispatcher reads — kept structural so the unit
+ * spec can stub each method without spinning up the entire MatchPage.
+ */
+export interface MatchKeyDeps {
+  /** True when an action-bar prompt is active (mirrors action-bar.canPass). */
+  hasActionPrompt(): boolean;
+  /** True when ANY prompt is active (used for Escape cancellation). */
+  hasPrompt(): boolean;
+  /** True when the active prompt belongs to the viewer. */
+  isMyTurnPrompt(): boolean;
+  /** Cards in the viewer's hand. */
+  handCards(): CardSnapshot[];
+  pass(): void;
+  cancelPrompt(): void;
+  /** Returns true if a confirmable action was emitted. */
+  confirmPrimary(): boolean;
+  playHandCard(card: CardSnapshot): void;
+}
+
+/**
+ * Pure dispatcher for the match-page keyboard shortcuts. Extracted so
+ * it can be unit-tested without mounting MatchPage + its HTTP /
+ * SignalR / Auth dependency graph.
+ *
+ * Bindings:
+ *   * Space    → pass (only when an action prompt is active)
+ *   * Escape   → cancel prompt
+ *   * Enter    → confirm primary action on the prompt overlay
+ *   * 1-9      → click Nth hand card (top-row digit, not numpad)
+ *
+ * Bails silently when the user is typing in an input / textarea /
+ * select.
+ */
+export function dispatchMatchKey(evt: KeyboardEvent, deps: MatchKeyDeps): void {
+  const target = evt.target as HTMLElement | null;
+  if (target && (
+    target instanceof HTMLInputElement
+    || target instanceof HTMLTextAreaElement
+    || target instanceof HTMLSelectElement
+  )) return;
+
+  const key = evt.key;
+
+  if (key === ' ' || key === 'Spacebar') {
+    if (deps.hasActionPrompt()) {
+      evt.preventDefault();
+      deps.pass();
+    }
+    return;
+  }
+
+  if (key === 'Escape') {
+    if (deps.hasPrompt()) {
+      evt.preventDefault();
+      deps.cancelPrompt();
+    }
+    return;
+  }
+
+  if (key === 'Enter') {
+    if (deps.hasPrompt() && deps.isMyTurnPrompt()) {
+      if (deps.confirmPrimary()) {
+        evt.preventDefault();
+      }
+    }
+    return;
+  }
+
+  // Top-row digits 1..9 only — `event.code` distinguishes Numpad from
+  // the digit row, both of which surface "1"..."9" on `event.key`.
+  if (/^[1-9]$/.test(key) && !evt.code.startsWith('Numpad')) {
+    const idx = parseInt(key, 10) - 1;
+    const cards = deps.handCards();
+    if (idx < cards.length) {
+      evt.preventDefault();
+      deps.playHandCard(cards[idx]);
+    }
+    return;
+  }
 }
 
 // MM:SS string for header chip — caps at 99:59 because anything beyond
