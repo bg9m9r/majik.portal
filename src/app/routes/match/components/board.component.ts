@@ -1,4 +1,11 @@
-import { Component, computed, input, output } from '@angular/core';
+import { Component, computed, input, output, signal } from '@angular/core';
+import {
+  CdkDrag,
+  CdkDragDrop,
+  CdkDragPlaceholder,
+  CdkDropList,
+  moveItemInArray,
+} from '@angular/cdk/drag-drop';
 import { GameState, GamePlayer, CardSnapshot } from '../../../core/match/match.types';
 import { CardViewComponent } from '../../../ui/card-view.component';
 import { PlayerHudComponent } from '../../../ui/player-hud.component';
@@ -8,7 +15,15 @@ import { ActionBarComponent } from './action-bar.component';
 @Component({
   selector: 'app-board',
   standalone: true,
-  imports: [CardViewComponent, PlayerHudComponent, PhaseBarComponent, ActionBarComponent],
+  imports: [
+    CardViewComponent,
+    PlayerHudComponent,
+    PhaseBarComponent,
+    ActionBarComponent,
+    CdkDropList,
+    CdkDrag,
+    CdkDragPlaceholder,
+  ],
   template: `
     @if (state(); as s) {
       <div class="flex flex-1 flex-col">
@@ -36,7 +51,7 @@ import { ActionBarComponent } from './action-bar.component';
             }
           </div>
 
-          <section class="battlefield flex-1">
+          <section class="battlefield">
             <div class="battlefield-row border border-white/5 bg-black/20">
               @for (c of opponent()?.battlefield?.cards ?? []; track c.instanceId) {
                 <app-card-view [snapshot]="c" />
@@ -53,17 +68,28 @@ import { ActionBarComponent } from './action-bar.component';
             </div>
           </section>
 
+          <div class="flex-1"></div>
+
           <section class="grid grid-cols-[1fr_240px] gap-2">
-            <div class="hand-row" role="list" aria-label="your hand">
-              @for (c of self()?.hand?.cards ?? []; track c.instanceId) {
+            <div
+              class="hand-row"
+              role="list"
+              aria-label="your hand"
+              cdkDropList
+              cdkDropListOrientation="horizontal"
+              (cdkDropListDropped)="onHandDrop($event)">
+              @for (c of orderedSelfHand(); track c.instanceId) {
                 <button
                   type="button"
                   role="listitem"
                   class="bg-transparent p-0 focus:outline focus:outline-2 focus:outline-amber-400"
+                  cdkDrag
+                  [cdkDragData]="c"
                   [attr.aria-label]="'play ' + c.name"
                   (click)="handCardClicked.emit(c)"
                   (keydown.enter)="handCardClicked.emit(c)">
                   <app-card-view [snapshot]="c" />
+                  <div *cdkDragPlaceholder class="hand-card-placeholder"></div>
                 </button>
               } @empty {
                 <span class="opacity-30">— hand empty —</span>
@@ -128,4 +154,32 @@ export class BoardComponent {
   // same mask-emitted placeholder list — length equals the engine's
   // real hand size (StateSnapshotter.HiddenZone preserves count).
   readonly opponentHandCount = computed<number>(() => this.opponentHidden().length);
+
+  // Client-only ordering for the local player's hand — server emits
+  // hand cards in draw order, drag-drop just rearranges the projection.
+  // Persisted as an instanceId list so cards leaving the hand (cast,
+  // discarded) prune themselves and freshly-drawn cards land at the
+  // end without resetting the user's chosen order.
+  private readonly handOrder = signal<string[]>([]);
+
+  readonly orderedSelfHand = computed<CardSnapshot[]>(() => {
+    const cards = this.self()?.hand.cards ?? [];
+    const byId = new Map(cards.map(c => [c.instanceId, c]));
+    const seen = new Set<string>();
+    const ordered: CardSnapshot[] = [];
+    for (const id of this.handOrder()) {
+      const card = byId.get(id);
+      if (card) { ordered.push(card); seen.add(id); }
+    }
+    for (const card of cards) {
+      if (!seen.has(card.instanceId)) ordered.push(card);
+    }
+    return ordered;
+  });
+
+  onHandDrop(event: CdkDragDrop<CardSnapshot[]>): void {
+    const next = this.orderedSelfHand().slice();
+    moveItemInArray(next, event.previousIndex, event.currentIndex);
+    this.handOrder.set(next.map(c => c.instanceId));
+  }
 }
