@@ -1,4 +1,5 @@
-import { Component, computed, inject, input, output, signal } from '@angular/core';
+import { Component, computed, input, output, signal } from '@angular/core';
+import { detectKind, PromptKind } from './prompt-overlay.component';
 
 interface PromptSummary {
   expectedKinds?: string[];
@@ -14,10 +15,12 @@ interface PromptSummary {
       class="flex items-center justify-between gap-3 border-t border-white/10 bg-black/40 px-3 py-2"
       role="toolbar"
       aria-label="game actions">
-      <div class="text-xs opacity-70">
+      <div class="text-xs">
         @if (currentPrompt(); as p) {
-          <span class="text-amber-300">prompt:</span>
-          <span class="ml-1">{{ p.description ?? p.expectedKinds?.join(', ') ?? 'awaiting input' }}</span>
+          <span class="prompt-readout" [attr.data-kind]="kind()">
+            <span class="prompt-readout__label">prompt:</span>
+            <span class="prompt-readout__text">{{ p.description ?? p.expectedKinds?.join(', ') ?? 'awaiting input' }}</span>
+          </span>
         } @else {
           <span class="opacity-50">no active prompt</span>
         }
@@ -39,6 +42,12 @@ export class ActionBarComponent {
   readonly currentPrompt = input<PromptSummary | null>(null);
   readonly submitting = signal(false);
   readonly pass = output<void>();
+
+  // Echo the prompt-overlay color cue down to the action bar so the
+  // bar carries the same kind signal even when the overlay isn't
+  // mounted (e.g. waiting on opponent's combat declaration).
+  readonly kind = computed<PromptKind>(() =>
+    detectKind(this.currentPrompt()?.expectedKinds));
 
   async onPass(): Promise<void> {
     this.submitting.set(true);
