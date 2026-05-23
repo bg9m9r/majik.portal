@@ -24,8 +24,9 @@ const PHASES = [
       <span class="mx-2 opacity-30">|</span>
       @for (p of phases; track p) {
         <span
-          class="rounded px-2 py-0.5 font-mono"
+          class="rounded px-2 py-0.5 font-mono transition-opacity duration-200"
           [class.bg-emerald-700]="normalized() === p.toLowerCase()"
+          [class.phase-chip-active]="normalized() === p.toLowerCase()"
           [class.opacity-40]="normalized() !== p.toLowerCase()"
           [attr.aria-current]="normalized() === p.toLowerCase() ? 'step' : null">
           {{ p }}

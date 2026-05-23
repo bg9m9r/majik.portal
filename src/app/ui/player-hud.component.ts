@@ -1,4 +1,4 @@
-import { Component, computed, input } from '@angular/core';
+import { Component, computed, effect, input, signal } from '@angular/core';
 import { GamePlayer } from '../core/match/match.types';
 
 @Component({
@@ -17,7 +17,11 @@ import { GamePlayer } from '../core/match/match.types';
           <span class="font-semibold">{{ p.name }}</span>
         </div>
         <div class="ml-auto flex items-center gap-4 font-mono text-xs">
-          <span title="Life" class="text-base font-bold">♥ {{ p.life }}</span>
+          <span
+            title="Life"
+            class="text-base font-bold inline-block"
+            [class.life-flash-loss]="lifeFlash() === 'loss'"
+            [class.life-flash-gain]="lifeFlash() === 'gain'">♥ {{ p.life }}</span>
           <span title="Library">L {{ p.library.cards.length }}</span>
           <span title="Hand">H {{ p.hand.cards.length }}</span>
           <span title="Graveyard">G {{ p.graveyard.cards.length }}</span>
@@ -39,6 +43,15 @@ export class PlayerHudComponent {
   readonly active = input<boolean>(false);
   readonly label = input<string>('player');
 
+  // Drives the .life-flash-* class. Reset to null after the keyframe
+  // duration so a follow-up change in the same direction re-triggers.
+  // Setting to null between flashes is required because Angular won't
+  // restart a CSS animation on the same class — the toggle is what
+  // re-fires the keyframes.
+  readonly lifeFlash = signal<'gain' | 'loss' | null>(null);
+  private lastLife: number | null = null;
+  private flashTimer: ReturnType<typeof setTimeout> | null = null;
+
   readonly manaPips = computed(() => {
     const p = this.player();
     if (!p) return [];
@@ -54,4 +67,35 @@ export class PlayerHudComponent {
       { color: 'generic', symbol: '*', count: num(m.generic) }
     ];
   });
+
+  constructor() {
+    effect(() => {
+      const p = this.player();
+      if (!p) {
+        this.lastLife = null;
+        return;
+      }
+      const cur = p.life;
+      const prev = this.lastLife;
+      // First sighting: seed the tracker, no flash. Avoids a fake gain
+      // animation on the initial board mount when life pops from null
+      // to the engine's starting 20.
+      if (prev === null) {
+        this.lastLife = cur;
+        return;
+      }
+      if (cur === prev) return;
+      const next: 'gain' | 'loss' = cur > prev ? 'gain' : 'loss';
+      this.lastLife = cur;
+      // Re-arm: clear first so toggling re-triggers the keyframe even
+      // if we're already in the same direction (e.g. 2 damage events
+      // back-to-back).
+      if (this.flashTimer) clearTimeout(this.flashTimer);
+      this.lifeFlash.set(null);
+      // Defer one tick so the class actually toggles off→on. A 0ms
+      // setTimeout is enough; rAF would also work but adds a frame.
+      setTimeout(() => this.lifeFlash.set(next), 0);
+      this.flashTimer = setTimeout(() => this.lifeFlash.set(null), 750);
+    });
+  }
 }

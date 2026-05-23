@@ -56,7 +56,7 @@ import { ActionBarComponent } from './action-bar.component';
             <aside class="rounded border border-white/10 p-2">
               <h3 class="mb-1 text-[10px] uppercase tracking-wider opacity-60">Stack ({{ s.stack.length }})</h3>
               @for (item of s.stack; track item.id) {
-                <div class="border-b border-white/5 py-1 text-xs">
+                <div class="stack-item border-b border-white/5 py-1 text-xs">
                   <div class="font-semibold">{{ item.kind }}</div>
                   <div class="opacity-70">{{ item.description }}</div>
                 </div>
