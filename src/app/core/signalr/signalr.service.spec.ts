@@ -1,4 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { TestBed } from '@angular/core/testing';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { AuthService } from '../auth/auth.service';
 import { SignalrService } from './signalr.service';
 
 // Pure tests for the static wire→DTO normaliser. Standing up a live
@@ -132,5 +134,58 @@ describe('SignalrService.normaliseBotDecision', () => {
       chosenScore: 'not a number',
     })!;
     expect(d.chosenScore).toBe(0);
+  });
+});
+
+// Replay semantics for prompt$ / event$. Regression test for the bot-game
+// mulligan hang: server PR #159 added a per-match prompt buffer that
+// JoinMatch flushes synchronously after the hub opens. SignalrService is
+// a root-scoped singleton, so the .on('prompt', ...) handler fires
+// *during* the awaited `signalr.connect()` — i.e. BEFORE MatchPage's
+// subscription is wired up (the subscription happens AFTER connect
+// resolves). A plain Subject drops emissions with no observers; a
+// ReplaySubject(1) hands the buffered value to the late subscriber.
+describe('SignalrService prompt$/event$ replay semantics', () => {
+  let svc: SignalrService;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [
+        SignalrService,
+        // AuthService is only needed because SignalrService injects it
+        // for the SignalR accessTokenFactory. We never call connect() in
+        // these tests, so a hollow stub is sufficient.
+        { provide: AuthService, useValue: { refresh: () => Promise.resolve('') } },
+      ],
+    });
+    svc = TestBed.inject(SignalrService);
+  });
+
+  it('replays the most recent prompt to late subscribers', () => {
+    // Simulate the race: the .on('prompt', ...) handler runs during
+    // connect() before any consumer subscribes. We poke the internal
+    // subject directly because standing up a real HubConnection requires
+    // a network double.
+    type Internal = { _prompt$: { next: (v: unknown) => void } };
+    const internal = svc as unknown as Internal;
+    internal._prompt$.next({ gameId: 'g1', playerId: 'p1', expectedKinds: ['Mulligan'] });
+
+    let received: unknown = null;
+    svc.prompt$.subscribe(p => { received = p; });
+
+    expect(received).not.toBeNull();
+    expect((received as { gameId: string }).gameId).toBe('g1');
+  });
+
+  it('replays the most recent event to late subscribers', () => {
+    type Internal = { _event$: { next: (v: unknown) => void } };
+    const internal = svc as unknown as Internal;
+    internal._event$.next({ type: 'PhaseStarted', payload: { phase: 'Beginning' } });
+
+    let received: unknown = null;
+    svc.event$.subscribe(e => { received = e; });
+
+    expect(received).not.toBeNull();
+    expect((received as { type: string }).type).toBe('PhaseStarted');
   });
 });

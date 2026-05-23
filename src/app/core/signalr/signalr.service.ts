@@ -1,6 +1,6 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { HubConnection, HubConnectionBuilder, HubConnectionState, LogLevel } from '@microsoft/signalr';
-import { Subject } from 'rxjs';
+import { Observable, ReplaySubject, Subject, defer } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { AuthService } from '../auth/auth.service';
 import {
@@ -31,9 +31,29 @@ export class SignalrService {
   readonly state = this._state.asReadonly();
   readonly error = this._error.asReadonly();
 
-  // Engine events (scoped to a match's underlying game)
-  readonly event$ = new Subject<unknown>();
-  readonly prompt$ = new Subject<unknown>();
+  // Engine events (scoped to a match's underlying game).
+  //
+  // These two channels carry the server-replayed snapshot that JoinMatch
+  // streams synchronously after the hub connection opens (see PR #159 on
+  // majik.core — the server buffers the most recent prompt/event per
+  // match so reconnecting clients catch up without a separate REST hop).
+  //
+  // The race: SignalrService is providedIn:'root' (single instance) and
+  // MatchPage subscribes only AFTER `await signalr.connect()` resolves,
+  // but the .on('prompt', ...) handler fires during the awaited
+  // invoke('JoinMatch') — i.e. BEFORE the subscription is wired up.
+  // A plain Subject drops emissions with no subscribers, so the mulligan
+  // prompt vanished. ReplaySubject(1) buffers the most recent value and
+  // hands it to the late subscriber, fixing the bot-game mulligan hang.
+  //
+  // The subjects are recreated by disconnect() so a stale prompt from a
+  // prior match cannot leak into a new match's overlay. The public-facing
+  // observables `prompt$` / `event$` are defer()'d so each subscriber
+  // sees the *current* subject at the moment they subscribe.
+  private _event$ = new ReplaySubject<unknown>(1);
+  private _prompt$ = new ReplaySubject<unknown>(1);
+  readonly event$: Observable<unknown> = defer(() => this._event$);
+  readonly prompt$: Observable<unknown> = defer(() => this._prompt$);
 
   // Match lifecycle event streams
   readonly opponentJoined$ = new Subject<OpponentJoinedPayload>();
@@ -73,8 +93,8 @@ export class SignalrService {
       .configureLogging(LogLevel.Warning)
       .build();
 
-    this.connection.on('event', (evt: unknown) => this.event$.next(evt));
-    this.connection.on('prompt', (p: unknown) => this.prompt$.next(p));
+    this.connection.on('event', (evt: unknown) => this._event$.next(evt));
+    this.connection.on('prompt', (p: unknown) => this._prompt$.next(p));
     this.connection.on('match.opponent-joined', (p: OpponentJoinedPayload) => this.opponentJoined$.next(p));
     this.connection.on('match.state-changed', (p: StateChangedPayload) => this.stateChanged$.next(p));
     this.connection.on('match.rolled', (p: RolledPayload) => this.rolled$.next(p));
@@ -166,5 +186,15 @@ export class SignalrService {
     this.connection = null;
     this.currentMatchId = null;
     this._state.set('idle');
+    // Replace replay buffers so a stale prompt/event from the previous
+    // match doesn't leak into the next match's subscribers. The public
+    // `prompt$` / `event$` observables defer() to these fields, so any
+    // subscription wired up after the next connect() will see the fresh
+    // buffer (and any prompts/events replayed by JoinMatch on the new
+    // connection).
+    this._event$.complete();
+    this._prompt$.complete();
+    this._event$ = new ReplaySubject<unknown>(1);
+    this._prompt$ = new ReplaySubject<unknown>(1);
   }
 }
