@@ -2,7 +2,14 @@ import { computed } from '@angular/core';
 import { patchState, signalStore, withComputed, withMethods, withState } from '@ngrx/signals';
 import { NormalisedEventDto, normaliseEvent } from './event.types';
 import { patchGameState } from './event.reducer';
-import { GameState, PromptEnvelope } from './match.types';
+import { BotDecision, GameState, PromptEnvelope } from './match.types';
+
+// Cap on the bot-decision ring buffer rendered by the diagnostics panel.
+// Ten is enough to cover a single bot turn (mulligan + priority pumps +
+// combat) without scrolling, and small enough that re-renders stay
+// cheap. Decisions older than this are dropped — the panel is a
+// tail-of-stream view, not a full transcript.
+const MAX_RECENT_DECISIONS = 10;
 
 // In-memory store for the live engine view of a single match. The page
 // component owns the lifecycle: setState on initial bootstrap and on
@@ -30,6 +37,10 @@ type GameStoreState = {
   // shared-control later). Resolved when the snapshot lands by matching
   // the viewer's MatchPlayer handle to PlayerDto.name.
   selfPlayerIds: string[];
+  // Ring buffer of the last N bot decisions received over SignalR. Most
+  // recent first. Capped at MAX_RECENT_DECISIONS so the panel stays
+  // bounded without paging UI.
+  recentDecisions: BotDecision[];
 };
 
 const initial: GameStoreState = {
@@ -37,6 +48,7 @@ const initial: GameStoreState = {
   prompt: null,
   stateVersion: 0,
   selfPlayerIds: [],
+  recentDecisions: [],
 };
 
 export const GameStore = signalStore(
@@ -87,6 +99,17 @@ export const GameStore = signalStore(
       if (!next) return false;
       patchState(store, s => ({ state: next, stateVersion: s.stateVersion + 1 }));
       return true;
+    },
+    // Append a bot decision to the recent-decisions ring. Newest goes to
+    // the front; the ring is truncated to MAX_RECENT_DECISIONS so the
+    // panel never needs to virtualise.
+    pushBotDecision(d: BotDecision): void {
+      patchState(store, s => ({
+        recentDecisions: [d, ...s.recentDecisions].slice(0, MAX_RECENT_DECISIONS),
+      }));
+    },
+    clearBotDecisions(): void {
+      patchState(store, { recentDecisions: [] });
     },
     reset(): void {
       patchState(store, initial);
