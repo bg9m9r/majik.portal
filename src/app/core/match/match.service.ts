@@ -4,7 +4,7 @@ import { firstValueFrom } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import {
   CreateMatchRequest, GameCommand, GameState, JoinMatchRequest, Match,
-  MatchError, MatchErrorCode, PlayDrawRequest
+  MatchError, MatchErrorCode, MatchReplay, PlayDrawRequest
 } from './match.types';
 
 @Injectable({ providedIn: 'root' })
@@ -68,6 +68,16 @@ export class MatchService {
   async submitCommand(id: string, command: GameCommand): Promise<Result<void>> {
     return this.req(() => firstValueFrom(
       this.http.post<void>(`${this.base}/${id}/commands`, command)));
+  }
+
+  // Replay log — captured server-side via the engine→hub bridge. Returns
+  // the full ordered EventDto + BotDecision stream as JSON. Available
+  // only to seated players (see Majik.Server MatchService.GetReplayAsync).
+  // The portal currently uses this purely to drive the "Download replay"
+  // button on the match-over screen; no in-app viewer.
+  async getReplay(id: string): Promise<Result<MatchReplay>> {
+    return this.req(() => firstValueFrom(
+      this.http.get<MatchReplay>(`${this.base}/${id}/replay`)));
   }
 
   private async req<T>(fn: () => Promise<T>): Promise<Result<T>> {
