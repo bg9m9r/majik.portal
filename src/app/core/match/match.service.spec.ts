@@ -104,4 +104,44 @@ describe('MatchService', () => {
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error.code).toBe('network');
   });
+
+  it('getReplay returns the dto on 200', async () => {
+    const p = svc.getReplay('m1');
+    const req = http.expectOne(r => r.method === 'GET' && r.url.endsWith('/matches/m1/replay'));
+    req.flush({
+      matchId: 'm1',
+      sealedAt: '2025-01-01T00:00:00Z',
+      truncated: false,
+      entryCount: 2,
+      entries: [
+        { seq: 1, at: '2025-01-01T00:00:00Z', kind: 'event', event: { type: 'TurnStartedEvent' }, decision: null },
+        { seq: 2, at: '2025-01-01T00:00:01Z', kind: 'bot-decision', event: null, decision: { chosen: 'Pass' } },
+      ],
+    });
+    const r = await p;
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.value.matchId).toBe('m1');
+      expect(r.value.entryCount).toBe(2);
+      expect(r.value.entries).toHaveLength(2);
+    }
+  });
+
+  it('getReplay maps 404 match-not-found to error result', async () => {
+    const p = svc.getReplay('missing');
+    http.expectOne(r => r.method === 'GET' && r.url.endsWith('/matches/missing/replay'))
+      .flush({ error: 'match-not-found' }, { status: 404, statusText: 'Not Found' });
+    const r = await p;
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.code).toBe('match-not-found');
+  });
+
+  it('getReplay maps 403 forbidden', async () => {
+    const p = svc.getReplay('m1');
+    http.expectOne(r => r.url.endsWith('/matches/m1/replay'))
+      .flush({ error: 'forbidden' }, { status: 403, statusText: 'Forbidden' });
+    const r = await p;
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.code).toBe('forbidden');
+  });
 });

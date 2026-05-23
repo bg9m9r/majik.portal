@@ -60,6 +60,18 @@ export interface CreateMatchRequest {
 export interface JoinMatchRequest { deckId: string }
 export interface PlayDrawRequest { choice: 'play' | 'draw' }
 
+// Replay log — server-side capture of the EventDto + BotDecision stream
+// for a match. Returned by GET /matches/:id/replay. The portal treats
+// the payload as opaque JSON for download purposes; entries[] carries
+// the shape defined in Majik.Server/Matches/MatchReplayDto.cs.
+export interface MatchReplay {
+  matchId: string;
+  sealedAt: string | null;
+  truncated: boolean;
+  entryCount: number;
+  entries: unknown[];
+}
+
 // Game-state shapes — kept structurally compatible with the engine's
 // GameStateDto (see ng-openapi-gen output under core/api/models). The
 // duplicate definition here exists for two reasons:
