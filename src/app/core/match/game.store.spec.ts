@@ -142,3 +142,50 @@ describe('GameStore.recentDecisions', () => {
     expect(store.recentDecisions()).toEqual([]);
   });
 });
+
+describe('GameStore.phaseStops', () => {
+  let store: InstanceType<typeof GameStore>;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({});
+    store = TestBed.inject(GameStore);
+    store.reset();
+  });
+
+  it('cycles a phase chip null → mine → theirs → null', () => {
+    expect(store.phaseStops()).toEqual({});
+
+    store.togglePhaseStop('Untap');
+    expect(store.phaseStops()['Untap']).toBe('mine');
+
+    store.togglePhaseStop('Untap');
+    expect(store.phaseStops()['Untap']).toBe('theirs');
+
+    store.togglePhaseStop('Untap');
+    expect(store.phaseStops()['Untap']).toBeUndefined();
+  });
+
+  it('tracks each phase independently', () => {
+    store.togglePhaseStop('Untap');         // mine
+    store.togglePhaseStop('PreCombatMain'); // mine
+    store.togglePhaseStop('PreCombatMain'); // theirs
+
+    expect(store.phaseStops()).toEqual({
+      Untap: 'mine',
+      PreCombatMain: 'theirs',
+    });
+  });
+
+  it('clearPhaseStops wipes all entries', () => {
+    store.togglePhaseStop('Untap');
+    store.togglePhaseStop('Draw');
+    store.clearPhaseStops();
+    expect(store.phaseStops()).toEqual({});
+  });
+
+  it('reset clears phase stops along with everything else', () => {
+    store.togglePhaseStop('Untap');
+    store.reset();
+    expect(store.phaseStops()).toEqual({});
+  });
+});

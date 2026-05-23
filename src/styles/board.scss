@@ -98,10 +98,44 @@
 // =============================================================
 // Phase-bar pulse — the active phase chip exhales a soft glow so
 // the eye picks up "where we are" without scanning the whole row.
+// Chips are <button>s now (the user toggles priority stops); reset
+// the browser-default button surface so they still read as chips.
 // =============================================================
+.phase-chip {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+}
+
 .phase-chip-active {
   animation: phase-chip-pulse 2.4s ease-in-out infinite;
 }
+
+// =============================================================
+// Phase priority-stop badge — gold "M" for stops on the viewer's
+// turn, muted red "T" for stops on the opponent's turn. Anchored
+// top-right of the chip so it doesn't push siblings around.
+// =============================================================
+.phase-stop-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  border-radius: var(--majik-radius-pill);
+  color: #0f1722;
+}
+
+.phase-stop-mine   { background: var(--majik-accent-strong); }
+.phase-stop-theirs { background: #fca5a5; }
 
 @keyframes phase-chip-pulse {
   0%, 100% {

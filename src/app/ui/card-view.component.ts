@@ -3,6 +3,14 @@ import { CardSnapshot } from '../core/match/match.types';
 import { ScryfallImageCache } from '../core/card/scryfall-image-cache.service';
 import { ManaCostComponent } from './mana-cost.component';
 
+// Where this card view is rendered. Summoning-sickness only applies to
+// permanents on the battlefield (CR 302.1 / 716.1 — sickness is a
+// property of being a creature that's been under its controller's
+// control since the start of its turn), so the dot is suppressed in
+// hand / stack / library views even if the engine snapshot still
+// carries `summoningSickness: true`.
+export type CardViewZone = 'battlefield' | 'hand' | 'stack' | 'other';
+
 @Component({
   selector: 'app-card-view',
   standalone: true,
@@ -28,7 +36,7 @@ import { ManaCostComponent } from './mana-cost.component';
           @if (c.power !== null && c.toughness !== null) {
             <span class="absolute bottom-1 right-1 rounded bg-black/70 px-1 font-mono text-[10px] text-stone-100">{{ c.power }}/{{ c.toughness }}</span>
           }
-          @if (c.summoningSickness) {
+          @if (showSummoningSickness()) {
             <span class="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-amber-400" title="Summoning sickness"></span>
           }
         } @else {
@@ -42,7 +50,7 @@ import { ManaCostComponent } from './mana-cost.component';
               <span class="rounded bg-black/40 px-1 font-mono text-stone-100">{{ c.power }}/{{ c.toughness }}</span>
             }
           </div>
-          @if (c.summoningSickness) {
+          @if (showSummoningSickness()) {
             <span class="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-amber-400" title="Summoning sickness"></span>
           }
         }
@@ -53,6 +61,20 @@ import { ManaCostComponent } from './mana-cost.component';
 export class CardViewComponent {
   readonly snapshot = input<CardSnapshot | null>(null);
   readonly hidden = input<boolean>(false);
+  // Defaults to 'other' so the summoning-sickness dot stays suppressed
+  // unless the caller opts in by setting zone="battlefield".
+  readonly zone = input<CardViewZone>('other');
+
+  readonly showSummoningSickness = computed<boolean>(() => {
+    if (this.zone() !== 'battlefield') return false;
+    const c = this.snapshot();
+    if (!c?.summoningSickness) return false;
+    // Only creatures can have summoning sickness. The engine's snapshot
+    // already encodes the "became a creature this turn" case as
+    // `types` containing "Creature" (e.g. an animated land flips its
+    // type bit on activation), so a type check here is sufficient.
+    return (c.types ?? []).some(t => t.toLowerCase() === 'creature');
+  });
 
   private readonly cache = inject(ScryfallImageCache);
 
@@ -76,7 +98,7 @@ export class CardViewComponent {
     if (c.types?.length) parts.push(c.types.join(' '));
     if (c.power !== null && c.toughness !== null) parts.push(`${c.power}/${c.toughness}`);
     if (c.tapped) parts.push('tapped');
-    if (c.summoningSickness) parts.push('summoning sickness');
+    if (this.showSummoningSickness()) parts.push('summoning sickness');
     return parts.join(', ');
   });
 

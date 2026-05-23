@@ -12,7 +12,7 @@ import { PlayDrawPromptComponent } from './components/play-draw-prompt.component
 import { CompletedStateComponent } from './components/completed-state.component';
 import { BoardComponent } from './components/board.component';
 import { BotDecisionsPanelComponent } from './components/bot-decisions-panel.component';
-import { PromptOverlayComponent, PromptDecision } from './components/prompt-overlay.component';
+import { PromptOverlayComponent, PromptDecision, detectKind } from './components/prompt-overlay.component';
 import {
   CardSnapshot, GameCommand, Match, PromptEnvelope
 } from '../../core/match/match.types';
@@ -64,8 +64,10 @@ import {
                 [state]="game.state()"
                 [selfPlayerIds]="game.selfPlayerIds()"
                 [currentPrompt]="myPromptSummary()"
+                [phaseStops]="game.phaseStops()"
                 (passClicked)="onPass()"
-                (handCardClicked)="onHandClicked($event)" />
+                (handCardClicked)="onHandClicked($event)"
+                (phaseStopToggled)="game.togglePhaseStop($event)" />
               @if (game.prompt(); as p) {
                 @if (game.isMyTurnPrompt()) {
                   <app-prompt-overlay
@@ -175,6 +177,75 @@ export class MatchPage implements OnInit, OnDestroy {
         bootstrapped = false;
       }
     });
+    // Auto-pass priority unless one of the guards trips. The signal
+    // graph fires this whenever a new prompt envelope lands; the
+    // `lastAutoPassedPrompt` identity check dedupes against re-runs
+    // triggered by unrelated state mutations on the same envelope.
+    effect(() => {
+      const p = this.game.prompt();
+      if (!p || !this.game.isMyTurnPrompt()) return;
+      if (p === this.lastAutoPassedPrompt) return;
+      if (!this.shouldAutoPass(p)) return;
+      this.lastAutoPassedPrompt = p;
+      void this.send({ $type: 'pass' });
+    });
+  }
+
+  // Identity-tracks the envelope we already auto-passed for. SignalR
+  // emits a fresh envelope object per prompt, so reference equality is
+  // sufficient — no need to derive a composite key.
+  private lastAutoPassedPrompt: PromptEnvelope | null = null;
+
+  // Phases that should never auto-pass on the viewer's own turn — the
+  // user almost always wants to act in their main phases.
+  private static readonly MY_TURN_NO_PASS_PHASES = new Set([
+    'PreCombatMain',
+    'PostCombatMain',
+  ]);
+
+  // Combat phases on the opponent's turn — auto-pass is suppressed if
+  // the viewer has any non-land card in hand so they don't unknowingly
+  // skip an instant-speed response window into / through combat.
+  private static readonly THEIR_TURN_COMBAT_PHASES = new Set([
+    'BeginningOfCombat',
+    'DeclareAttackers',
+    'DeclareBlockers',
+    'CombatDamage',
+    'EndOfCombat',
+  ]);
+
+  private shouldAutoPass(p: PromptEnvelope): boolean {
+    // Only priority-pass prompts auto-resolve. Targets / attackers /
+    // blockers / mulligan / X / mode / bottom all need user input.
+    if (detectKind(p.expectedKinds) !== 'none') return false;
+    const s = this.game.state();
+    if (!s) return false;
+    // Anything on the stack — never auto-pass. Preserves the response
+    // window per CR 117.3b.
+    if (s.stack.length > 0) return false;
+    const phase = s.phase;
+    const selfIds = this.game.selfPlayerIds();
+    const activeSide: 'mine' | 'theirs' =
+      selfIds.includes(s.activePlayerId) ? 'mine' : 'theirs';
+    // Phase-stop set for this side wins — user explicitly asked to
+    // pause here.
+    const stop = this.game.phaseStops()[phase];
+    if (stop === activeSide) return false;
+    // Main phases on the viewer's turn — user almost certainly wants to
+    // cast/play, so we never silently skip past them.
+    if (activeSide === 'mine' && MatchPage.MY_TURN_NO_PASS_PHASES.has(phase)) {
+      return false;
+    }
+    // Opponent's combat phases — only auto-pass if the viewer has
+    // nothing castable. Approximation: any non-land card in hand. Mana
+    // isn't checked client-side, so this is conservative on purpose.
+    if (activeSide === 'theirs' && MatchPage.THEIR_TURN_COMBAT_PHASES.has(phase)) {
+      const me = s.players.find(pl => selfIds.includes(pl.id));
+      const hasNonLand = (me?.hand.cards ?? []).some(c =>
+        !(c.types ?? []).map(t => t.toLowerCase()).includes('land'));
+      if (hasNonLand) return false;
+    }
+    return true;
   }
 
   ngOnInit(): void {

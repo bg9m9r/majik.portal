@@ -24,6 +24,17 @@ const MAX_RECENT_DECISIONS = 10;
 // returns false and the caller falls back to a full /state refetch.
 // This preserves the safety net from the prior single-strategy refetch
 // design while removing a snapshot GET from the common-case event hop.
+// Client-only "stop on phase X" toggle, keyed by engine phase name (the
+// raw GameState.phase string — e.g. "Untap", "PreCombatMain"). Value
+// records whose turn the stop applies to:
+//   * 'mine'   — pause auto-pass when it's the viewer's turn
+//   * 'theirs' — pause auto-pass when it's the opponent's turn
+//   * absent   — no stop set; auto-pass behaves per global guards
+// Cycle is null → 'mine' → 'theirs' → null. Lives in the store so the
+// auto-pass effect in MatchPage can read it without prop drilling.
+export type PhaseStopOwner = 'mine' | 'theirs';
+export type PhaseStops = Record<string, PhaseStopOwner>;
+
 type GameStoreState = {
   state: GameState | null;
   prompt: PromptEnvelope | null;
@@ -41,6 +52,8 @@ type GameStoreState = {
   // recent first. Capped at MAX_RECENT_DECISIONS so the panel stays
   // bounded without paging UI.
   recentDecisions: BotDecision[];
+  // Phase-stop map. See PhaseStops above.
+  phaseStops: PhaseStops;
 };
 
 const initial: GameStoreState = {
@@ -49,6 +62,7 @@ const initial: GameStoreState = {
   stateVersion: 0,
   selfPlayerIds: [],
   recentDecisions: [],
+  phaseStops: {},
 };
 
 export const GameStore = signalStore(
@@ -110,6 +124,22 @@ export const GameStore = signalStore(
     },
     clearBotDecisions(): void {
       patchState(store, { recentDecisions: [] });
+    },
+    // Cycle a phase chip's stop state: null → 'mine' → 'theirs' → null.
+    // The active turn at click time is irrelevant — the user is picking
+    // an absolute side (my turn vs their turn), not a relative one.
+    togglePhaseStop(phase: string): void {
+      patchState(store, s => {
+        const cur = s.phaseStops[phase];
+        const next: PhaseStops = { ...s.phaseStops };
+        if (cur === undefined) next[phase] = 'mine';
+        else if (cur === 'mine') next[phase] = 'theirs';
+        else delete next[phase];
+        return { phaseStops: next };
+      });
+    },
+    clearPhaseStops(): void {
+      patchState(store, { phaseStops: {} });
     },
     reset(): void {
       patchState(store, initial);
