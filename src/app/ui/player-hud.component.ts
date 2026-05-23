@@ -51,7 +51,7 @@ function manaColorsIn(cost: string | undefined | null): Set<string> {
         <div class="ml-auto flex items-center gap-4 font-mono text-xs">
           <span
             title="Life"
-            class="player-hud__life text-base font-bold inline-flex items-center gap-1"
+            class="player-hud__life relative text-base font-bold inline-flex items-center gap-1"
             [class.player-hud__life--healthy]="lifeTier() === 'healthy'"
             [class.player-hud__life--warn]="lifeTier() === 'warn'"
             [class.player-hud__life--crit]="lifeTier() === 'crit'"
@@ -59,6 +59,15 @@ function manaColorsIn(cost: string | undefined | null): Set<string> {
             [class.life-flash-gain]="lifeFlash() === 'gain'">
             <span aria-hidden="true">♥</span>
             <span>{{ p.life }}</span>
+            @if (numeral(); as n) {
+              <span
+                class="life-numeral"
+                [class.life-numeral--loss]="n.delta < 0"
+                [class.life-numeral--gain]="n.delta > 0"
+                [style.left.%]="50"
+                [style.top.px]="-4"
+                aria-hidden="true">{{ n.delta > 0 ? '+' : '' }}{{ n.delta }}</span>
+            }
           </span>
           <span title="Library" class="player-hud__pip player-hud__pip--library">
             <span class="player-hud__pip-glyph" aria-hidden="true">L</span> {{ p.library.cards.length }}
@@ -96,8 +105,14 @@ export class PlayerHudComponent {
   // restart a CSS animation on the same class — the toggle is what
   // re-fires the keyframes.
   readonly lifeFlash = signal<'gain' | 'loss' | null>(null);
+  // Floating numeral that drifts off the life total when life changes.
+  // `id` re-keys the DOM node so back-to-back deltas (e.g. two hits in
+  // one combat) replay the keyframe instead of getting swallowed.
+  readonly numeral = signal<{ id: number; delta: number } | null>(null);
+  private numeralSeq = 0;
   private lastLife: number | null = null;
   private flashTimer: ReturnType<typeof setTimeout> | null = null;
+  private numeralTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Static life-tier classification. 'crit' adds a slow breathing
   // pulse so a dying player visually screams; 'healthy' fades the
@@ -183,7 +198,8 @@ export class PlayerHudComponent {
         return;
       }
       if (cur === prev) return;
-      const next: 'gain' | 'loss' = cur > prev ? 'gain' : 'loss';
+      const delta = cur - prev;
+      const next: 'gain' | 'loss' = delta > 0 ? 'gain' : 'loss';
       this.lastLife = cur;
       // Re-arm: clear first so toggling re-triggers the keyframe even
       // if we're already in the same direction (e.g. 2 damage events
@@ -194,6 +210,18 @@ export class PlayerHudComponent {
       // setTimeout is enough; rAF would also work but adds a frame.
       setTimeout(() => this.lifeFlash.set(next), 0);
       this.flashTimer = setTimeout(() => this.lifeFlash.set(null), 750);
+
+      // Floating numeral — replaces any in-flight numeral so a fast
+      // sequence reads as separate beats. Clears after 280ms (matches
+      // the keyframe duration in board.scss).
+      if (this.numeralTimer) clearTimeout(this.numeralTimer);
+      this.numeral.set(null);
+      const id = ++this.numeralSeq;
+      setTimeout(() => this.numeral.set({ id, delta }), 0);
+      this.numeralTimer = setTimeout(() => {
+        // Only clear if a newer numeral hasn't already replaced ours.
+        if (this.numeral()?.id === id) this.numeral.set(null);
+      }, 320);
     });
   }
 }

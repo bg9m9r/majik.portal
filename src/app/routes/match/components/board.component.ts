@@ -174,7 +174,10 @@ import { ActionBarComponent } from './action-bar.component';
                   (keydown.enter)="handCardClicked.emit(c)"
                   animate.enter="zone-enter-from-top"
                   animate.leave="zone-leave-down">
-                  <app-card-view [snapshot]="c" />
+                  <app-card-view
+                    [snapshot]="c"
+                    zone="hand"
+                    [castable]="castableIds().has(c.instanceId)" />
                   <div *cdkDragPlaceholder class="hand-card-placeholder"></div>
                 </button>
               } @empty {
@@ -265,9 +268,80 @@ export class BoardComponent {
     return ordered;
   });
 
+  // Cheap "can I cast?" heuristic. The full check needs color
+  // requirements + cost reduction effects + alternative costs, but
+  // a CMC-vs-pool-sum prefilter is a useful "this is even plausible"
+  // hint — the engine will reject anything that fails the real rules.
+  //
+  // Active only when:
+  //   * a `none`-kind prompt is open against the viewer (priority is
+  //     ours and there's no specific question to answer);
+  //   * for non-land cards: parsed CMC <= sum(mana pool).
+  // Land cards always glow when priority is ours — the engine will
+  // veto land drops outside main / non-empty stack / second-this-turn.
+  readonly castableIds = computed<Set<string>>(() => {
+    const ids = new Set<string>();
+    if (!this.hasPriority()) return ids;
+    const me = this.self();
+    if (!me) return ids;
+    const pool = totalMana(me.mana);
+    for (const c of me.hand.cards) {
+      if ((c.types ?? []).some(t => t.toLowerCase() === 'land')) {
+        ids.add(c.instanceId);
+        continue;
+      }
+      if (cmcOf(c.manaCost) <= pool) ids.add(c.instanceId);
+    }
+    return ids;
+  });
+
+  private readonly hasPriority = computed<boolean>(() => {
+    const p = this.currentPrompt();
+    if (!p) return false;
+    const ks = (p.expectedKinds ?? []).map(k => k.toLowerCase());
+    // The match shell only forwards the prompt when it belongs to the
+    // viewer (see match.ts myPromptSummary), so any prompt at all is
+    // a priority signal. We still drill into kinds because anything
+    // other than `none` means there's a specific question that
+    // shouldn't be confused with "free to cast whatever".
+    if (ks.length === 0) return true;
+    if (ks.includes('none')) return true;
+    // Anything else is a targeted question — don't paint the whole
+    // hand as castable; the user is mid-flow on a specific input.
+    return false;
+  });
+
   onHandDrop(event: CdkDragDrop<CardSnapshot[]>): void {
     const next = this.orderedSelfHand().slice();
     moveItemInArray(next, event.previousIndex, event.currentIndex);
     this.handOrder.set(next.map(c => c.instanceId));
   }
+}
+
+// Parse a mana-cost token string ("{1}{G}{G}", "{X}{R}", "{W/U}{B}") to
+// a converted mana cost. Numeric tokens contribute their integer; any
+// other token (color, hybrid, phyrexian, snow) contributes 1. {X}
+// contributes 0 — X is uncapped at cast time, so a CMC heuristic
+// can't reason about it without an actual choice.
+export function cmcOf(cost: string | null | undefined): number {
+  if (!cost) return 0;
+  let total = 0;
+  for (const m of cost.matchAll(/\{([^}]+)\}/g)) {
+    const tok = m[1].toUpperCase();
+    if (tok === 'X' || tok === 'Y' || tok === 'Z') continue;
+    if (/^\d+$/.test(tok)) {
+      total += parseInt(tok, 10);
+      continue;
+    }
+    // Color / hybrid / phyrexian / snow — one mana each.
+    total += 1;
+  }
+  return total;
+}
+
+// Sum every bucket in the engine's ManaPool. The engine widens numeric
+// fields through OpenAPI; coerce to Number defensively.
+function totalMana(m: { white: number; blue: number; black: number; red: number; green: number; colorless: number; generic: number }): number {
+  const n = (v: number | string) => (typeof v === 'number' ? v : Number(v) || 0);
+  return n(m.white) + n(m.blue) + n(m.black) + n(m.red) + n(m.green) + n(m.colorless) + n(m.generic);
 }
