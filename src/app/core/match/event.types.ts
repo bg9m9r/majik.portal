@@ -51,3 +51,21 @@ export function pickNumber(payload: Record<string, unknown>, ...keys: string[]):
   }
   return null;
 }
+
+export function pickBoolean(payload: Record<string, unknown>, ...keys: string[]): boolean | null {
+  for (const k of keys) {
+    const v = payload[k] ?? payload[k.charAt(0).toUpperCase() + k.slice(1)];
+    if (typeof v === 'boolean') return v;
+  }
+  return null;
+}
+
+export function pickStringArray(payload: Record<string, unknown>, ...keys: string[]): string[] | null {
+  for (const k of keys) {
+    const v = payload[k] ?? payload[k.charAt(0).toUpperCase() + k.slice(1)];
+    if (Array.isArray(v) && v.every(item => typeof item === 'string')) {
+      return v as string[];
+    }
+  }
+  return null;
+}
