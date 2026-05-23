@@ -18,7 +18,12 @@ export const appConfig: ApplicationConfig = {
     provideApiConfiguration(environment.apiBaseUrl),
     ...provideMajikAuth(),
     provideAppInitializer(async () => {
-      inject(AuthService).bootstrap();
+      // Order matters: AuthService.bootstrap() must resolve before
+      // ProfileService.bootstrap() fires `GET /me`, otherwise the
+      // request races the Auth0 redirect-callback token exchange and
+      // 401s — which the onboarding guard misreads as "no profile" and
+      // bounces the user to /onboarding on every login.
+      await inject(AuthService).bootstrap();
       await inject(ProfileService).bootstrap();
     })
   ]

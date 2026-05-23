@@ -36,24 +36,42 @@ export class ProfileService {
       this._ready.set(true);
       return;
     }
+    // Skip the `GET /me` entirely when the user isn't authenticated. The
+    // auth guard will redirect to /login; firing the request would 401
+    // anyway and (pre-fix) cause the onboarding guard to redirect to
+    // /onboarding instead.
+    if (!this.auth.isAuthenticated()) {
+      this._ready.set(true);
+      return;
+    }
     try {
       const dto = await firstValueFrom(
         this.http.get<ProfileDtoWire>(`${environment.apiBaseUrl}/me`));
       this._profile.set({ ...dto });
+      this._ready.set(true);
     } catch (err) {
       const e = err as HttpErrorResponse;
       if (e.status === 404) {
+        // Authenticated but no row yet — legitimate onboarding case.
         this._profile.set(null);
+        this._ready.set(true);
       } else if (e.status === 503) {
         this.synthesize();
-      } else if (e.status === 401) {
+        this._ready.set(true);
+      } else if (e.status === 401 || e.status === 0) {
+        // Auth not ready (token exchange still in flight) or transport
+        // failure. DO NOT mark ready — leaving `_ready=false` keeps the
+        // onboarding guard from sending an already-onboarded user to
+        // /onboarding on a transient error. The auth guard / route
+        // navigation will surface the real state once auth settles.
         this._profile.set(null);
       } else {
-        // Unknown / network — leave profile null, surface via error signal later.
+        // Unknown server error — surface as "no profile, ready" so the
+        // user isn't stuck on a blank screen; they'll land on /onboarding
+        // and any subsequent save will retry against the live API.
         this._profile.set(null);
+        this._ready.set(true);
       }
-    } finally {
-      this._ready.set(true);
     }
   }
 
