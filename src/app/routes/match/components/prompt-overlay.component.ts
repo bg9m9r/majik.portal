@@ -27,7 +27,7 @@ interface CandidateCard {
   controllerName: string;
 }
 
-function detectKind(kinds: string[] | undefined): PromptKind {
+export function detectKind(kinds: string[] | undefined): PromptKind {
   const ks = (kinds ?? []).map(k => k.toLowerCase());
   if (ks.some(k => k.includes('attacker'))) return 'attackers';
   if (ks.some(k => k.includes('blocker'))) return 'blockers';

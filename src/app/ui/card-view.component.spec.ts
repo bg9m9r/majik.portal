@@ -34,7 +34,12 @@ function makeSnapshot(overrides: Partial<CardSnapshot> = {}): CardSnapshot {
   };
 }
 
-function render(snapshot: CardSnapshot | null, hidden: boolean, cache: ReturnType<typeof makeCacheStub> = makeCacheStub()) {
+function render(
+  snapshot: CardSnapshot | null,
+  hidden: boolean,
+  cache: ReturnType<typeof makeCacheStub> = makeCacheStub(),
+  zone?: 'battlefield' | 'hand' | 'stack' | 'other',
+) {
   TestBed.configureTestingModule({
     imports: [CardViewComponent],
     providers: [{ provide: ScryfallImageCache, useValue: cache }],
@@ -42,6 +47,7 @@ function render(snapshot: CardSnapshot | null, hidden: boolean, cache: ReturnTyp
   const fixture = TestBed.createComponent(CardViewComponent);
   fixture.componentRef.setInput('snapshot', snapshot);
   fixture.componentRef.setInput('hidden', hidden);
+  if (zone !== undefined) fixture.componentRef.setInput('zone', zone);
   fixture.detectChanges();
   return { fixture, cache };
 }
@@ -88,5 +94,60 @@ describe('CardViewComponent', () => {
     const img = fixture.nativeElement.querySelector('img');
     expect(img).not.toBeNull();
     expect(img.getAttribute('src')).toBe('https://img.example/elves.png');
+  });
+
+  describe('summoning sickness dot', () => {
+    function sickness(title = 'Summoning sickness') {
+      return `[title="${title}"]`;
+    }
+
+    it('renders the dot on a sick creature on the battlefield', () => {
+      const { fixture } = render(
+        makeSnapshot({ summoningSickness: true, types: ['Creature'] }),
+        false, makeCacheStub(), 'battlefield');
+      expect(fixture.nativeElement.querySelector(sickness())).not.toBeNull();
+    });
+
+    it('suppresses the dot in hand even when the snapshot flag is true', () => {
+      const { fixture } = render(
+        makeSnapshot({ summoningSickness: true, types: ['Creature'] }),
+        false, makeCacheStub(), 'hand');
+      expect(fixture.nativeElement.querySelector(sickness())).toBeNull();
+    });
+
+    it('suppresses the dot for non-creature permanents (e.g. lands, artifacts)', () => {
+      const { fixture } = render(
+        makeSnapshot({
+          summoningSickness: true,
+          types: ['Land'],
+          power: null,
+          toughness: null,
+        }),
+        false, makeCacheStub(), 'battlefield');
+      expect(fixture.nativeElement.querySelector(sickness())).toBeNull();
+    });
+
+    it('renders the dot for an animated land that is currently a creature', () => {
+      // Animated land mid-turn — the engine flips the type bit on
+      // activation, so types includes both 'Land' and 'Creature'. Per
+      // CR 302.1 it now has summoning sickness for the rest of the
+      // turn it became a creature.
+      const { fixture } = render(
+        makeSnapshot({
+          name: 'Mutavault',
+          summoningSickness: true,
+          types: ['Land', 'Creature'],
+          power: 2, toughness: 2,
+        }),
+        false, makeCacheStub(), 'battlefield');
+      expect(fixture.nativeElement.querySelector(sickness())).not.toBeNull();
+    });
+
+    it('defaults zone to non-battlefield so the dot is opt-in', () => {
+      const { fixture } = render(
+        makeSnapshot({ summoningSickness: true, types: ['Creature'] }),
+        false, makeCacheStub() /* no zone */);
+      expect(fixture.nativeElement.querySelector(sickness())).toBeNull();
+    });
   });
 });
