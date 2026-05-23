@@ -10,6 +10,7 @@ import { GameState, GamePlayer, CardSnapshot } from '../../../core/match/match.t
 import { PhaseStops } from '../../../core/match/game.store';
 import { CardViewComponent } from '../../../ui/card-view.component';
 import { PlayerHudComponent } from '../../../ui/player-hud.component';
+import { ManaPoolRowComponent } from '../../../ui/mana-pool-row.component';
 import { PhaseBarComponent } from '../../../ui/phase-bar.component';
 import { ActionBarComponent } from './action-bar.component';
 
@@ -19,6 +20,7 @@ import { ActionBarComponent } from './action-bar.component';
   imports: [
     CardViewComponent,
     PlayerHudComponent,
+    ManaPoolRowComponent,
     PhaseBarComponent,
     ActionBarComponent,
     CdkDropList,
@@ -76,6 +78,10 @@ import { ActionBarComponent } from './action-bar.component';
               [active]="opponent()?.id === s.activePlayerId"
               side="opponent"
               label="opponent" />
+
+            <!-- Opponent mana-pool row sits between HUD and the
+                 face-down hand row (HUD → mana → hand → battlefield). -->
+            <app-mana-pool-row [player]="opponent()" />
 
             <!--
               Opponent hand (face-down). Server emits the opponent's hand
@@ -185,6 +191,10 @@ import { ActionBarComponent } from './action-bar.component';
               }
             </div>
 
+            <!-- Self mana-pool row sits between the user's hand row
+                 and the HUD (battlefield → hand → mana → HUD). -->
+            <app-mana-pool-row [player]="self()" />
+
             <app-player-hud
               [player]="self()"
               [active]="self()?.id === s.activePlayerId"
@@ -196,7 +206,9 @@ import { ActionBarComponent } from './action-bar.component';
         <app-action-bar
           [canPass]="!!currentPrompt()"
           [currentPrompt]="currentPrompt()"
-          (pass)="passClicked.emit()" />
+          (pass)="passClicked.emit()"
+          (concede)="concedeClicked.emit()"
+          (undoRequested)="undoClicked.emit()" />
       </div>
     } @else {
       <p class="p-4 opacity-60">No game state.</p>
@@ -211,6 +223,8 @@ export class BoardComponent {
   readonly passClicked = output<void>();
   readonly handCardClicked = output<CardSnapshot>();
   readonly phaseStopToggled = output<string>();
+  readonly concedeClicked = output<void>();
+  readonly undoClicked = output<void>();
 
   readonly self = computed<GamePlayer | null>(() => {
     const s = this.state();

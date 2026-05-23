@@ -46,7 +46,15 @@ function manaColorsIn(cost: string | undefined | null): Set<string> {
 
         <div class="flex flex-col">
           <span class="text-xs uppercase tracking-wider opacity-60">{{ label() }}</span>
-          <span class="font-semibold">{{ p.name }}</span>
+          <span class="font-semibold">
+            {{ p.name }}
+            <!-- Colorblind alt cue: triangle disambiguates self/opponent
+                 for protanopes who cannot reliably distinguish the
+                 green/red HUD rim. Hidden from assistive tech because
+                 the host element aria-label already announces the
+                 side via the label input. -->
+            <span class="player-hud__side-glyph" aria-hidden="true">{{ sideGlyph() }}</span>
+          </span>
         </div>
         <div class="ml-auto flex items-center gap-4 font-mono text-xs">
           <span
@@ -81,13 +89,6 @@ function manaColorsIn(cost: string | undefined | null): Set<string> {
           <span title="Exile" class="player-hud__pip player-hud__pip--exile">
             <span class="player-hud__pip-glyph" aria-hidden="true">X</span> {{ p.exile.cards.length }}
           </span>
-        </div>
-        <div class="flex items-center gap-1 font-mono text-xs">
-          @for (m of manaPips(); track m.color) {
-            @if (m.count > 0) {
-              <span class="rounded bg-black/40 px-1" [title]="m.color">{{ m.symbol }}{{ m.count > 1 ? m.count : '' }}</span>
-            }
-          }
         </div>
       </div>
     }
@@ -165,21 +166,11 @@ export class PlayerHudComponent {
     return `linear-gradient(to bottom, ${parts.join(', ')})`;
   });
 
-  readonly manaPips = computed(() => {
-    const p = this.player();
-    if (!p) return [];
-    const m = p.mana;
-    const num = (v: number | string) => (typeof v === 'number' ? v : Number(v));
-    return [
-      { color: 'white', symbol: 'W', count: num(m.white) },
-      { color: 'blue', symbol: 'U', count: num(m.blue) },
-      { color: 'black', symbol: 'B', count: num(m.black) },
-      { color: 'red', symbol: 'R', count: num(m.red) },
-      { color: 'green', symbol: 'G', count: num(m.green) },
-      { color: 'colorless', symbol: 'C', count: num(m.colorless) },
-      { color: 'generic', symbol: '*', count: num(m.generic) }
-    ];
-  });
+  // Colorblind-safe alt cue paired with the friend/foe rim color.
+  // ▲ self / ▼ opponent — paired with the rim's emerald/red so a
+  // protanope still has a non-color cue.
+  readonly sideGlyph = computed<string>(() =>
+    this.side() === 'self' ? '▲' : '▼');
 
   constructor() {
     effect(() => {
