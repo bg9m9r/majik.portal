@@ -88,6 +88,7 @@ export interface CardSnapshot {
   toughness: number | null;
   tapped: boolean;
   summoningSickness: boolean;
+  producedManaColors: string;
 }
 
 export interface ZoneSnapshot { cards: CardSnapshot[] }
@@ -148,7 +149,8 @@ export type GameCommand =
   | ChooseModeCommand
   | DeclareAttackersCommand
   | DeclareBlockersCommand
-  | ChooseCardsToBottomCommand;
+  | ChooseCardsToBottomCommand
+  | ActivateManaAbilityCommand;
 
 interface CmdBase { playerId?: string }
 export interface PassPriorityCommand extends CmdBase { $type: 'pass' }
@@ -178,6 +180,11 @@ export interface DeclareBlockersCommand extends CmdBase {
 export interface ChooseCardsToBottomCommand extends CmdBase {
   $type: 'bottom';
   cardInstanceIds: string[];
+}
+export interface ActivateManaAbilityCommand extends CmdBase {
+  $type: 'activateManaAbility';
+  permanentInstanceId: string;
+  color: string;
 }
 
 // Bot decision envelope — mirrors server-side

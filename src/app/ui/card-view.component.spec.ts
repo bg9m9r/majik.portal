@@ -31,6 +31,7 @@ function makeSnapshot(overrides: Partial<CardSnapshot> = {}): CardSnapshot {
     toughness: 2,
     tapped: false,
     summoningSickness: false,
+    producedManaColors: '',
     ...overrides,
   };
 }

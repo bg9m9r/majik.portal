@@ -30,6 +30,7 @@ import {
   CardContextMenuComponent,
 } from '../../../ui/card-context-menu.component';
 import { CardPopoverService } from '../../../ui/card-popover.service';
+import { ManaColorPickerComponent } from '../../../ui/mana-color-picker.component';
 
 @Component({
   selector: 'app-board',
@@ -41,6 +42,7 @@ import { CardPopoverService } from '../../../ui/card-popover.service';
     PhaseBarComponent,
     ActionBarComponent,
     CardContextMenuComponent,
+    ManaColorPickerComponent,
     CdkDropList,
     CdkDrag,
     CdkDragPlaceholder,
@@ -163,7 +165,8 @@ import { CardPopoverService } from '../../../ui/card-popover.service';
                   zone="battlefield"
                   animate.enter="zone-enter-from-bottom"
                   animate.leave="zone-leave-up"
-                  (contextmenu)="onContextMenu($event, c, 'self')" />
+                  (contextmenu)="onContextMenu($event, c, 'self')"
+                  (cardDoubleClick)="onSelfBattlefieldDoubleClick($event)" />
               } @empty {
                 <span class="opacity-30">— your battlefield empty —</span>
               }
@@ -274,6 +277,14 @@ import { CardPopoverService } from '../../../ui/card-popover.service';
           [canTap]="activeContextOwner() === 'self'"
           (close)="closeContextMenu()"
           (action)="onContextAction($event)" />
+
+        @if (manaPicker(); as mp) {
+          <app-mana-color-picker
+            [colors]="mp.colors"
+            [anchorRect]="mp.anchorRect"
+            (colorSelected)="onManaColorPicked($event)"
+            (dismiss)="closeManaPicker()" />
+        }
       </div>
     } @else {
       <p class="p-4 opacity-60">No game state.</p>
@@ -306,6 +317,12 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
    * handler logs a TODO. Emitted only for self-owned battlefield cards.
    */
   readonly tapToggleRequested = output<CardSnapshot>();
+  /**
+   * Emitted when the viewer double-clicks one of their own permanents
+   * to activate a mana ability. The page translates this into the
+   * matching ActivateManaAbilityCommand.
+   */
+  readonly activateManaRequested = output<{ card: CardSnapshot; color: string }>();
 
   // Context-menu state. `activeContextCard` doubles as the visibility
   // flag — when null the menu hides. Position is the page coords of the
@@ -315,6 +332,15 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
   // Tracks which side's battlefield the active context card belongs to,
   // so the menu can hide Tap / Untap for opponent permanents.
   readonly activeContextOwner = signal<'self' | 'opponent' | null>(null);
+
+  // Mana color-picker popover state. `manaPicker()` is non-null while
+  // the chooser is visible; carries the card we're activating + its
+  // anchor rect for positioning.
+  readonly manaPicker = signal<{
+    card: CardSnapshot;
+    colors: string;
+    anchorRect: DOMRect;
+  } | null>(null);
 
   private readonly popover = inject(CardPopoverService);
 
@@ -332,6 +358,40 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
     this.activeContextCard.set(null);
     this.activeContextPos.set(null);
     this.activeContextOwner.set(null);
+  }
+
+  /**
+   * Double-click on a self-owned battlefield permanent: tap it for
+   * mana. Single-color producers fire the activate command directly;
+   * multi-color producers open the inline color picker so the viewer
+   * can choose. Already-tapped or non-producer cards are ignored.
+   */
+  onSelfBattlefieldDoubleClick(card: CardSnapshot): void {
+    if (card.tapped) return;
+    const colors = card.producedManaColors ?? '';
+    if (colors.length === 0) return;
+    this.popover.hide();
+    if (colors.length === 1) {
+      this.activateManaRequested.emit({ card, color: colors });
+      return;
+    }
+    const grid = this.boardGridEl?.nativeElement;
+    const el = grid?.querySelector(
+      `.arena-side--self .battlefield-row [data-card-id="${card.instanceId}"]`
+    ) as HTMLElement | null;
+    if (!el) return;
+    this.manaPicker.set({ card, colors, anchorRect: el.getBoundingClientRect() });
+  }
+
+  onManaColorPicked(color: string): void {
+    const mp = this.manaPicker();
+    if (!mp) return;
+    this.manaPicker.set(null);
+    this.activateManaRequested.emit({ card: mp.card, color });
+  }
+
+  closeManaPicker(): void {
+    this.manaPicker.set(null);
   }
 
   /**

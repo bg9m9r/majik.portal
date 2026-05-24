@@ -26,6 +26,7 @@ function card(over: Partial<CardSnapshot>): CardSnapshot {
     toughness: over.toughness ?? 2,
     tapped: over.tapped ?? false,
     summoningSickness: over.summoningSickness ?? false,
+    producedManaColors: over.producedManaColors ?? '',
   };
 }
 

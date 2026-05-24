@@ -1,4 +1,4 @@
-import { Component, ElementRef, computed, effect, inject, input } from '@angular/core';
+import { Component, ElementRef, EventEmitter, Output, computed, effect, inject, input } from '@angular/core';
 import { CardSnapshot } from '../core/match/match.types';
 import { Card } from '../core/card/card.types';
 import { ScryfallImageCache } from '../core/card/scryfall-image-cache.service';
@@ -28,7 +28,8 @@ export type CardViewZone = 'battlefield' | 'hand' | 'stack' | 'other';
       [attr.aria-label]="ariaLabel()"
       role="img"
       (mouseenter)="onHover()"
-      (mouseleave)="onLeave()">
+      (mouseleave)="onLeave()"
+      (dblclick)="onDoubleClick()">
       @if (snapshot()?.tapped && !hidden()) {
         <span class="card__tap-pin" aria-hidden="true">TAP</span>
       }
@@ -71,6 +72,13 @@ export class CardViewComponent {
   // hand based on priority + mana availability. Defaults to false so
   // non-hand renderings stay neutral.
   readonly castable = input<boolean>(false);
+
+  @Output() readonly cardDoubleClick = new EventEmitter<CardSnapshot>();
+
+  onDoubleClick(): void {
+    const snap = this.snapshot();
+    if (snap) this.cardDoubleClick.emit(snap);
+  }
 
   readonly showSummoningSickness = computed<boolean>(() => {
     if (this.zone() !== 'battlefield') return false;
