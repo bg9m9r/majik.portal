@@ -193,94 +193,121 @@ function deps(over: Partial<AutoPassDeps> = {}): AutoPassDeps {
     state: state(),
     selfPlayerIds: [ME],
     phaseStops: {},
-    landsPlayedThisTurn: 0,
     fullControl: false,
     ...over,
   };
 }
 
-const PASS_PROMPT: PromptEnvelope = { gameId: 'g-1', playerId: ME, expectedKinds: [] };
+// Primary auto-pass gate: engine signalled PassPriority is the SOLE
+// legal action. Any other kind in the array (PlayLand, CastSpell,
+// ActivateAbility, …) means the viewer has a choice to make.
+const PASS_ONLY_PROMPT: PromptEnvelope = {
+  gameId: 'g-1', playerId: ME, expectedKinds: ['PassPriorityCommand'],
+};
+
+// Realistic priority round the engine sends today — pass + play land
+// + cast spell are all offered regardless of board state (see
+// `Majik.Core.Api/RemoteAgent.cs#ChoosePriorityActionAsync`). With the
+// new gate this prompt must NEVER auto-pass: the user can play a land
+// or cast a spell so they must see the prompt.
+const PASS_OR_ACT_PROMPT: PromptEnvelope = {
+  gameId: 'g-1', playerId: ME,
+  expectedKinds: ['PassPriorityCommand', 'PlayLandCommand', 'CastSpellCommand'],
+};
 
 describe('shouldAutoPass — auto-pass guard', () => {
   it('non-priority prompts (targets/mulligan/etc.) never auto-pass', () => {
-    const targetsPrompt: PromptEnvelope = { ...PASS_PROMPT, expectedKinds: ['targets'] };
+    const targetsPrompt: PromptEnvelope = { ...PASS_ONLY_PROMPT, expectedKinds: ['targets'] };
     expect(shouldAutoPass(targetsPrompt, deps())).toBe(false);
   });
 
+  // -----------------------------------------------------------------
+  // Primary gate — exactly one kind, and it's PassPriority.
+  // -----------------------------------------------------------------
+
+  it('multi-kind priority prompt (pass + play-land + cast) → never auto-pass', () => {
+    // Regression: the screenshot bug. Even on the viewer's main phase
+    // with no lands in hand (all old guards would've auto-passed), the
+    // engine signalled the user can still cast a spell — so we must
+    // surface the prompt.
+    const s = state({ activePlayer: 'me', phase: 'PreCombatMain', hand: [spell()] });
+    expect(shouldAutoPass(PASS_OR_ACT_PROMPT, deps({ state: s }))).toBe(false);
+  });
+
+  it('two-kind priority prompt (pass + play-land) → never auto-pass', () => {
+    const s = state({ activePlayer: 'me', phase: 'PreCombatMain', hand: [land()] });
+    const prompt: PromptEnvelope = {
+      ...PASS_ONLY_PROMPT,
+      expectedKinds: ['PassPriorityCommand', 'PlayLandCommand'],
+    };
+    expect(shouldAutoPass(prompt, deps({ state: s }))).toBe(false);
+  });
+
+  it('empty expectedKinds → never auto-pass (engine must explicitly say "pass only")', () => {
+    const emptyPrompt: PromptEnvelope = { ...PASS_ONLY_PROMPT, expectedKinds: [] };
+    expect(shouldAutoPass(emptyPrompt, deps())).toBe(false);
+  });
+
+  // -----------------------------------------------------------------
+  // Defence-in-depth guards (run only after primary gate matches).
+  // -----------------------------------------------------------------
+
   it('no GameState yet → never auto-pass', () => {
-    expect(shouldAutoPass(PASS_PROMPT, deps({ state: null }))).toBe(false);
+    expect(shouldAutoPass(PASS_ONLY_PROMPT, deps({ state: null }))).toBe(false);
   });
 
   it('empty selfPlayerIds (race: prompt before /state) → never auto-pass', () => {
-    // Regression: previously activeSide always resolved to "theirs" when
-    // selfPlayerIds was empty, which bypassed the main-phase guard and
-    // silently passed through the viewer's own main phases.
+    // Conservative: without selfPlayerIds we can't classify the active
+    // side, so bias toward surfacing the prompt.
     const s = state({ activePlayer: 'me', phase: 'PreCombatMain', hand: [spell()] });
-    expect(shouldAutoPass(PASS_PROMPT, deps({ state: s, selfPlayerIds: [] }))).toBe(false);
+    expect(shouldAutoPass(PASS_ONLY_PROMPT, deps({ state: s, selfPlayerIds: [] }))).toBe(false);
   });
 
   it('stack non-empty → never auto-pass (CR 117.3b response window)', () => {
     const s = state();
     s.stack = [{ id: 's1', kind: 'Spell', description: 'Lightning Bolt' }];
-    expect(shouldAutoPass(PASS_PROMPT, deps({ state: s }))).toBe(false);
+    expect(shouldAutoPass(PASS_ONLY_PROMPT, deps({ state: s }))).toBe(false);
   });
 
-  it('viewer main phase + land in hand + 0 lands played → never auto-pass', () => {
-    const s = state({ activePlayer: 'me', phase: 'PreCombatMain', hand: [land()] });
-    expect(shouldAutoPass(PASS_PROMPT, deps({ state: s, landsPlayedThisTurn: 0 }))).toBe(false);
-  });
-
-  it('viewer main phase + no lands in hand → auto-pass', () => {
+  it('viewer main phase + pass-only prompt → auto-pass (engine signalled no actions)', () => {
+    // With single-kind gate, the old "spell-only hand" / "no land in
+    // hand" sub-cases collapse into "engine said pass-only" → trust it.
     const s = state({ activePlayer: 'me', phase: 'PreCombatMain', hand: [] });
-    expect(shouldAutoPass(PASS_PROMPT, deps({ state: s }))).toBe(true);
-  });
-
-  it('viewer main phase + spell-only hand → auto-pass (no playable land)', () => {
-    const s = state({ activePlayer: 'me', phase: 'PreCombatMain', hand: [spell()] });
-    expect(shouldAutoPass(PASS_PROMPT, deps({ state: s }))).toBe(true);
-  });
-
-  it('viewer main phase + land in hand + already played a land → auto-pass', () => {
-    const s = state({ activePlayer: 'me', phase: 'PreCombatMain', hand: [land()] });
-    expect(shouldAutoPass(PASS_PROMPT, deps({ state: s, landsPlayedThisTurn: 1 }))).toBe(true);
-  });
-
-  it('viewer PostCombatMain + land in hand + 0 lands played → never auto-pass', () => {
-    const s = state({ activePlayer: 'me', phase: 'PostCombatMain', hand: [land()] });
-    expect(shouldAutoPass(PASS_PROMPT, deps({ state: s }))).toBe(false);
+    expect(shouldAutoPass(PASS_ONLY_PROMPT, deps({ state: s }))).toBe(true);
   });
 
   it('phase-stop for the active side wins → never auto-pass', () => {
     const s = state({ activePlayer: 'me', phase: 'Untap', hand: [] });
-    expect(shouldAutoPass(PASS_PROMPT, deps({ state: s, phaseStops: { Untap: 'mine' } }))).toBe(false);
+    expect(shouldAutoPass(PASS_ONLY_PROMPT, deps({ state: s, phaseStops: { Untap: 'mine' } }))).toBe(false);
   });
 
   it('phase-stop for the other side does NOT block auto-pass', () => {
     const s = state({ activePlayer: 'me', phase: 'Untap', hand: [] });
-    expect(shouldAutoPass(PASS_PROMPT, deps({ state: s, phaseStops: { Untap: 'theirs' } }))).toBe(true);
+    expect(shouldAutoPass(PASS_ONLY_PROMPT, deps({ state: s, phaseStops: { Untap: 'theirs' } }))).toBe(true);
   });
 
   it('opponent combat + non-land in viewer hand → never auto-pass', () => {
     const s = state({ activePlayer: 'opp', phase: 'DeclareAttackers', hand: [spell()] });
-    expect(shouldAutoPass(PASS_PROMPT, deps({ state: s }))).toBe(false);
+    expect(shouldAutoPass(PASS_ONLY_PROMPT, deps({ state: s }))).toBe(false);
   });
 
   it('opponent combat + land-only viewer hand → auto-pass', () => {
     const s = state({ activePlayer: 'opp', phase: 'DeclareAttackers', hand: [land()] });
-    expect(shouldAutoPass(PASS_PROMPT, deps({ state: s }))).toBe(true);
+    expect(shouldAutoPass(PASS_ONLY_PROMPT, deps({ state: s }))).toBe(true);
   });
 
   it('opponent non-combat phase + non-land in hand → auto-pass (no instant window guarded here)', () => {
     const s = state({ activePlayer: 'opp', phase: 'Draw', hand: [spell()] });
-    expect(shouldAutoPass(PASS_PROMPT, deps({ state: s }))).toBe(true);
+    expect(shouldAutoPass(PASS_ONLY_PROMPT, deps({ state: s }))).toBe(true);
   });
 
   it('Full Control suppresses auto-pass even when every other guard would clear', () => {
     // Construct a state that would normally auto-pass: opponent's draw
-    // step, viewer has only lands in hand → guard 6/7 don't fire,
-    // guard 5 doesn't fire (no stop). Full Control on → still false.
+    // step, viewer has only lands in hand → instant-window guard doesn't
+    // fire, no phase stop set. Engine signalled pass-only. Full Control
+    // on → still false (highest-priority guard).
     const s = state({ activePlayer: 'opp', phase: 'Draw', hand: [land()] });
-    expect(shouldAutoPass(PASS_PROMPT, deps({ state: s, fullControl: false }))).toBe(true);
-    expect(shouldAutoPass(PASS_PROMPT, deps({ state: s, fullControl: true }))).toBe(false);
+    expect(shouldAutoPass(PASS_ONLY_PROMPT, deps({ state: s, fullControl: false }))).toBe(true);
+    expect(shouldAutoPass(PASS_ONLY_PROMPT, deps({ state: s, fullControl: true }))).toBe(false);
   });
 });
