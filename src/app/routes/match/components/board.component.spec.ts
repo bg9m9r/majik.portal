@@ -31,6 +31,7 @@ function hiddenCard(index: number): CardSnapshot {
     toughness: null,
     tapped: false,
     summoningSickness: false,
+    producedManaColors: '',
   };
 }
 

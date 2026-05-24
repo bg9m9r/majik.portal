@@ -113,7 +113,8 @@ import {
                 (phaseStopToggled)="game.togglePhaseStop($event)"
                 (concedeClicked)="onConcede()"
                 (undoClicked)="onUndoRequested()"
-                (tapToggleRequested)="onTapToggleRequested($event)" />
+                (tapToggleRequested)="onTapToggleRequested($event)"
+                (activateManaRequested)="onActivateManaRequested($event)" />
               @if (game.prompt(); as p) {
                 @if (game.isMyTurnPrompt()) {
                   <app-prompt-overlay
@@ -497,6 +498,17 @@ export class MatchPage implements OnInit, OnDestroy {
     console.warn('manual tap/untap requested (no engine command yet)', {
       instanceId: card.instanceId,
       name: card.name,
+    });
+  }
+
+  // Tap-a-land-for-mana → ActivateManaAbilityCommand. The visual tap
+  // animation falls out of the next state snapshot updating
+  // CardSnapshot.tapped (board.scss handles the 90° rotation).
+  async onActivateManaRequested(req: { card: CardSnapshot; color: string }): Promise<void> {
+    await this.send({
+      $type: 'activateManaAbility',
+      permanentInstanceId: req.card.instanceId,
+      color: req.color,
     });
   }
 

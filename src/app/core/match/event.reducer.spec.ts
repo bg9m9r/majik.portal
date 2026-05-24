@@ -10,6 +10,7 @@ function hiddenCard(): CardSnapshot {
   return {
     instanceId: HIDDEN_INSTANCE_ID, name: HIDDEN_NAME, manaCost: '', types: [],
     power: null, toughness: null, tapped: false, summoningSickness: false,
+    producedManaColors: '',
   };
 }
 
@@ -17,6 +18,7 @@ function knownCard(instanceId: string, name: string, opts: Partial<CardSnapshot>
   return {
     instanceId, name, manaCost: '', types: [],
     power: null, toughness: null, tapped: false, summoningSickness: false,
+    producedManaColors: '',
     ...opts,
   };
 }

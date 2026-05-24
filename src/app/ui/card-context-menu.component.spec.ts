@@ -13,6 +13,7 @@ function makeCard(name = 'Lightning Bolt'): CardSnapshot {
     toughness: null,
     tapped: false,
     summoningSickness: false,
+    producedManaColors: '',
   };
 }
 

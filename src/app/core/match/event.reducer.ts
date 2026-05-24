@@ -316,6 +316,7 @@ function hiddenPlaceholder(): CardSnapshot {
     toughness: null,
     tapped: false,
     summoningSickness: false,
+    producedManaColors: '',
   };
 }
 
@@ -335,6 +336,7 @@ function buildCardSnapshot(
     toughness: null,
     tapped: false,
     summoningSickness: false,
+    producedManaColors: pickString(payload, 'producedManaColors') ?? '',
   };
 }
 

@@ -12,6 +12,7 @@ function card(id: string): CardSnapshot {
     toughness: 1,
     tapped: false,
     summoningSickness: false,
+    producedManaColors: '',
   };
 }
 
@@ -143,6 +144,7 @@ function land(id = 'forest'): CardSnapshot {
     toughness: null,
     tapped: false,
     summoningSickness: false,
+    producedManaColors: '',
   };
 }
 
@@ -156,6 +158,7 @@ function spell(id = 'bolt'): CardSnapshot {
     toughness: null,
     tapped: false,
     summoningSickness: false,
+    producedManaColors: '',
   };
 }
 
