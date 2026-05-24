@@ -193,6 +193,7 @@ function deps(over: Partial<AutoPassDeps> = {}): AutoPassDeps {
     state: state(),
     selfPlayerIds: [ME],
     phaseStops: {},
+    fullControl: false,
     ...over,
   };
 }
@@ -298,5 +299,15 @@ describe('shouldAutoPass — auto-pass guard', () => {
   it('opponent non-combat phase + non-land in hand → auto-pass (no instant window guarded here)', () => {
     const s = state({ activePlayer: 'opp', phase: 'Draw', hand: [spell()] });
     expect(shouldAutoPass(PASS_ONLY_PROMPT, deps({ state: s }))).toBe(true);
+  });
+
+  it('Full Control suppresses auto-pass even when every other guard would clear', () => {
+    // Construct a state that would normally auto-pass: opponent's draw
+    // step, viewer has only lands in hand → instant-window guard doesn't
+    // fire, no phase stop set. Engine signalled pass-only. Full Control
+    // on → still false (highest-priority guard).
+    const s = state({ activePlayer: 'opp', phase: 'Draw', hand: [land()] });
+    expect(shouldAutoPass(PASS_ONLY_PROMPT, deps({ state: s, fullControl: false }))).toBe(true);
+    expect(shouldAutoPass(PASS_ONLY_PROMPT, deps({ state: s, fullControl: true }))).toBe(false);
   });
 });
