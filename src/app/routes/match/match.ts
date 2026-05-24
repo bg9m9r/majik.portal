@@ -109,7 +109,7 @@ import {
                 [phaseStops]="game.phaseStops()"
                 [liveAssignments]="liveAssignments()"
                 (passClicked)="onPass()"
-                (handCardClicked)="onHandClicked($event)"
+                (castOrPlayRequested)="onHandClicked($event)"
                 (phaseStopToggled)="game.togglePhaseStop($event)"
                 (concedeClicked)="onConcede()"
                 (undoClicked)="onUndoRequested()"
@@ -634,6 +634,10 @@ export class MatchPage implements OnInit, OnDestroy {
         return { $type: 'blockers', blockers: d.blockers ?? [] };
       case 'bottom':
         return { $type: 'bottom', cardInstanceIds: d.cardInstanceIds ?? [] };
+      case 'mana':
+        return { $type: 'mana', sourceInstanceIds: d.sourceInstanceIds ?? [] };
+      case 'mana-cancel':
+        return { $type: 'cancelCast' };
       default:
         return null;
     }

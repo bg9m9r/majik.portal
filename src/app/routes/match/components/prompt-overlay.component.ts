@@ -18,7 +18,7 @@ interface PromptInfo {
   description?: string;
 }
 
-export type PromptKind = 'targets' | 'mulligan' | 'x' | 'mode' | 'bottom' | 'attackers' | 'blockers' | 'none';
+export type PromptKind = 'targets' | 'mulligan' | 'x' | 'mode' | 'bottom' | 'attackers' | 'blockers' | 'mana' | 'mana-cancel' | 'none';
 
 export interface PromptDecision {
   kind: PromptKind;
@@ -29,6 +29,7 @@ export interface PromptDecision {
   modeIndex?: number;
   attackers?: { attackerInstanceId: string; defenderId: string }[];
   blockers?: { attackerInstanceId: string; blockerInstanceId: string }[];
+  sourceInstanceIds?: string[];
 }
 
 interface CandidateCard {
@@ -45,6 +46,8 @@ export function detectKind(kinds: string[] | undefined): PromptKind {
   if (ks.some(k => k.includes('mulligan'))) return 'mulligan';
   if (ks.some(k => k === 'bottom' || k.includes('bottom'))) return 'bottom';
   if (ks.some(k => k === 'x' || k.includes('xcommand') || k.includes('choose-x'))) return 'x';
+  // Match before 'mode' since 'choosemodecommand' would otherwise win.
+  if (ks.some(k => k === 'mana' || k.includes('choosemanacommand') || k.includes('choose-mana'))) return 'mana';
   if (ks.some(k => k === 'mode' || k.includes('mode'))) return 'mode';
   return 'none';
 }
@@ -241,6 +244,32 @@ export function detectKind(kinds: string[] | undefined): PromptKind {
             </div>
           }
 
+          @case ('mana') {
+            <div class="flex flex-col gap-2 text-xs">
+              <span class="opacity-70">
+                @if (prompt()?.description; as d) {
+                  {{ d }}
+                } @else {
+                  Pay the spell's mana cost. Auto-pay taps untapped basics for any unpaid amount after the floating mana pool is consumed.
+                }
+              </span>
+              <div class="flex items-center gap-2">
+                <button
+                  type="button"
+                  class="rounded border border-amber-400 px-3 py-1 text-amber-300 hover:bg-amber-400/10"
+                  (click)="confirmMana()">
+                  Auto-pay
+                </button>
+                <button
+                  type="button"
+                  class="rounded border border-red-400 px-3 py-1 text-red-300 hover:bg-red-400/10"
+                  (click)="cancelMana()">
+                  Cancel cast
+                </button>
+              </div>
+            </div>
+          }
+
           @case ('bottom') {
             <div class="flex flex-col gap-2 text-xs">
               <span class="opacity-70">Click cards to bottom them ({{ selected().length }} selected).</span>
@@ -365,6 +394,7 @@ export class PromptOverlayComponent implements AfterViewInit, OnDestroy {
       case 'bottom': return 'Bottom cards';
       case 'attackers': return 'Declare attackers';
       case 'blockers': return 'Declare blockers';
+      case 'mana': return 'Pay mana cost';
       default: return '';
     }
   }
@@ -441,6 +471,17 @@ export class PromptOverlayComponent implements AfterViewInit, OnDestroy {
     }
     this.blockerAssignments.set(map);
     if (this.kind() === 'blockers') this.emitAssignmentsForKind();
+  }
+
+  confirmMana(): void {
+    // Empty sourceInstanceIds → server's ManaPaymentResolver auto-taps
+    // untapped basics for the unpaid deficit after the floating pool is
+    // consumed first (server PR #438).
+    this.decision.emit({ kind: 'mana', sourceInstanceIds: [] });
+  }
+
+  cancelMana(): void {
+    this.decision.emit({ kind: 'mana-cancel' });
   }
 
   confirmBlockers(): void {

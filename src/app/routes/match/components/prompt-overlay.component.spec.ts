@@ -388,6 +388,50 @@ describe('PromptOverlayComponent — combat prompts', () => {
     expect(document.activeElement).toBe(last);
   });
 
+  it('detects mana kind from server "ChooseManaCommand" envelope', () => {
+    // Pairs with majik.core #438: the cast flow now triggers a
+    // ChooseMana prompt for the unpaid deficit after the floating pool
+    // is consumed first. PromptDto.ExpectedKinds carries the C# type
+    // name verbatim (see GameFacade.BuildPrompt), so detectKind must
+    // route it to the dedicated mana UI.
+    const me = player({ id: 'me', name: 'Alice' });
+    const opp = player({ id: 'opp', name: 'Bob' });
+    const state: GameState = { phase: 'PreCombatMain', turnNumber: 1, activePlayerId: 'me', players: [me, opp], stack: [] };
+
+    const { component } = mountOverlay(state, ['ChooseManaCommand'], ['me']);
+
+    expect(component.kind()).toBe('mana');
+    expect(component.titleFor(component.kind())).toBe('Pay mana cost');
+  });
+
+  it('confirmMana emits an empty source list (server auto-pays the deficit)', () => {
+    const me = player({ id: 'me', name: 'Alice' });
+    const opp = player({ id: 'opp', name: 'Bob' });
+    const state: GameState = { phase: 'PreCombatMain', turnNumber: 1, activePlayerId: 'me', players: [me, opp], stack: [] };
+
+    const { component } = mountOverlay(state, ['ChooseManaCommand'], ['me']);
+    const captured: PromptDecision[] = [];
+    component.decision.subscribe(d => captured.push(d));
+
+    component.confirmMana();
+
+    expect(captured).toEqual([{ kind: 'mana', sourceInstanceIds: [] }]);
+  });
+
+  it('cancelMana emits a mana-cancel decision (translated to cancelCast on the wire)', () => {
+    const me = player({ id: 'me', name: 'Alice' });
+    const opp = player({ id: 'opp', name: 'Bob' });
+    const state: GameState = { phase: 'PreCombatMain', turnNumber: 1, activePlayerId: 'me', players: [me, opp], stack: [] };
+
+    const { component } = mountOverlay(state, ['ChooseManaCommand'], ['me']);
+    const captured: PromptDecision[] = [];
+    component.decision.subscribe(d => captured.push(d));
+
+    component.cancelMana();
+
+    expect(captured).toEqual([{ kind: 'mana-cancel' }]);
+  });
+
   it('attackerList only includes tapped opponent creatures (post-attack-declared timing)', () => {
     // CombatFlow taps each attacker before firing the defender's
     // DeclareBlockersAsync prompt (CombatFlow.cs:56-66), so the overlay's
