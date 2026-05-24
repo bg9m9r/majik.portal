@@ -59,6 +59,14 @@ import {
           }
         </div>
         <div class="flex items-center gap-3 text-xs">
+          @if (fullControl()) {
+            <span
+              class="full-control-chip"
+              role="status"
+              aria-label="full control active — auto-pass priority is suppressed">
+              ⌃ FULL CONTROL
+            </span>
+          }
           @if (opponentTimerState(); as t) {
             <span
               class="match-timer"
@@ -170,6 +178,12 @@ export class MatchPage implements OnInit, OnDestroy {
     at: number;
   } | null>(null);
   private readonly nowMs = signal<number>(Date.now());
+
+  // Full Control mode — true while the user is holding Control. Read by
+  // the auto-pass effect so the viewer keeps priority on every step,
+  // even after casting (mirrors MTGO's "Full Control" toggle). The
+  // template binds an indicator chip off this signal too.
+  readonly fullControl = signal<boolean>(false);
   private clockTickHandle: ReturnType<typeof setInterval> | null = null;
 
   // Timer chip view-model. `active` flips on for the player who
@@ -283,6 +297,7 @@ export class MatchPage implements OnInit, OnDestroy {
         selfPlayerIds: this.game.selfPlayerIds(),
         phaseStops: this.game.phaseStops(),
         landsPlayedThisTurn: this.game.landsPlayedThisTurn(),
+        fullControl: this.fullControl(),
       });
       if (!decision) return;
       this.lastAutoPassedPrompt = p;
@@ -567,6 +582,16 @@ export class MatchPage implements OnInit, OnDestroy {
   // ---------------- Keyboard shortcuts (Task 2) ----------------
   @HostListener('document:keydown', ['$event'])
   onDocumentKeydown(evt: KeyboardEvent): void {
+    // Full Control — track the Ctrl modifier (Meta on macOS feels
+    // identical for this purpose). Don't preventDefault; the user
+    // still needs Ctrl+Tab / Ctrl+R / etc. to work.
+    if (evt.key === 'Control' || evt.key === 'Meta') {
+      this.fullControl.set(true);
+    } else if (evt.ctrlKey || evt.metaKey) {
+      // Modifier was pressed before focus reached us. Sync from the
+      // event's own flags so the signal isn't stuck false.
+      this.fullControl.set(true);
+    }
     dispatchMatchKey(evt, {
       hasActionPrompt: () => !!this.myPromptSummary(),
       hasPrompt: () => !!this.game.prompt(),
@@ -580,6 +605,25 @@ export class MatchPage implements OnInit, OnDestroy {
       confirmPrimary: () => this.promptOverlayRef?.tryConfirmPrimary() ?? false,
       playHandCard: (c: CardSnapshot) => { void this.onHandClicked(c); },
     });
+  }
+
+  // Releasing Ctrl drops Full Control. A second listener (not the
+  // dispatcher above) because the action shouldn't go through the
+  // input-focus / shortcut-handler gate — Full Control state should
+  // sync regardless of where focus is.
+  @HostListener('document:keyup', ['$event'])
+  onDocumentKeyup(evt: KeyboardEvent): void {
+    if (evt.key === 'Control' || evt.key === 'Meta') {
+      this.fullControl.set(false);
+    }
+  }
+
+  // Tab-away / window-blur drops Full Control too — otherwise the
+  // user could leave the tab with Ctrl held, release outside, and
+  // come back to a stuck-on indicator.
+  @HostListener('window:blur')
+  onWindowBlur(): void {
+    this.fullControl.set(false);
   }
 
   private translateDecision(d: PromptDecision): GameCommand | null {
@@ -763,6 +807,10 @@ export interface AutoPassDeps {
   selfPlayerIds: readonly string[];
   phaseStops: Record<string, 'mine' | 'theirs'>;
   landsPlayedThisTurn: number;
+  // When true (user holding Ctrl), auto-pass is suppressed for every
+  // step — even after casting a spell, even on phases that would
+  // otherwise be safe to skip. Mirrors MTGO's "Full Control" toggle.
+  fullControl: boolean;
 }
 
 // Phases on which the viewer can legally play a land (CR 305.3 —
@@ -791,6 +839,11 @@ const OPP_COMBAT_PHASES = new Set([
 const DEFAULT_LAND_DROPS_PER_TURN = 1;
 
 export function shouldAutoPass(p: PromptEnvelope, deps: AutoPassDeps): boolean {
+  // (0) — Full Control: user is holding Ctrl. Suppress auto-pass for
+  // every step, including the priority pass that normally follows a
+  // spell resolution. Highest-priority guard so it wins over any
+  // other rule.
+  if (deps.fullControl) return false;
   // (1) — non-priority prompts always need user input.
   if (detectKind(p.expectedKinds) !== 'none') return false;
   // (2) — no snapshot yet.

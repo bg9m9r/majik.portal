@@ -45,37 +45,37 @@ import { CardPopoverService } from '../../../ui/card-popover.service';
     CdkDrag,
     CdkDragPlaceholder,
   ],
-  // Layout overview (PR #33):
+  // Layout overview (Arena-style):
   //
   //   ┌─────────────────────────────────────────────────────────────────┐
   //   │ phase-bar                                                       │
-  //   ├──────────────────┬────────────┬──────────────────────────────────┤
-  //   │ player-frame     │ stack-spine│ player-frame                    │
-  //   │  --foe           │  (200px)   │  --self                         │
-  //   │   HUD            │   newest   │   battlefield-row (self)        │
-  //   │   hand-row (opp) │     ↓      │   hand-row (self, drag-drop)    │
-  //   │   battlefield    │   oldest   │   HUD                           │
-  //   ├──────────────────┴────────────┴──────────────────────────────────┤
+  //   ├─────────────────────────────────────────────────────────────────┤
+  //   │ opp HUD  +  mana row                                            │
+  //   │ opp hand-row (face-down, slim)                                  │
+  //   │ ───── opponent battlefield-row (full width) ───────────         │
+  //   │                                                                 │
+  //   │ ───── self battlefield-row (full width) ───────────             │
+  //   │ self hand-row (drag-drop, full width)                           │
+  //   │ self mana row  +  HUD                                           │
+  //   ├─────────────────────────────────────────────────────────────────┤
   //   │ action-bar                                                      │
   //   └─────────────────────────────────────────────────────────────────┘
   //
-  // Each player-frame is the DOM unit that means "this is one player's
-  // half of the table". The whose-turn ambient rim moves onto the frame
-  // container (was previously split across the battlefield row + HUD).
-  // A single inactive-side dim sells "active reads brighter" without
-  // changing the absolute colours.
+  //   Stack panel floats on the right edge (absolute, top-right of the
+  //   board area). Compact when empty (just header), expanded when
+  //   populated. Doesn't push battlefield content around as the stack
+  //   grows / shrinks — Arena keeps the table layout stable.
   //
-  // The self-frame stacks battlefield ABOVE hand ABOVE HUD so the user's
-  // hand sits closest to the bottom-of-screen action bar (table layout
-  // convention). The opponent-frame mirrors this: HUD ABOVE hand ABOVE
-  // battlefield.
+  // The two whose-turn ambient rims now sit on the .battlefield-row
+  // elements directly (back from PR #33's frame-container approach) so
+  // the full-width rows read as the obvious "table half" boundaries.
+  // HUDs keep their own active rim from PR #32 so the friend/foe cue
+  // is reinforced top + bottom.
   //
   // Zone transitions: card-view nodes track by instanceId, so as the
   // reducer patches state in place (event.reducer.ts), Angular's
   // animate.enter / animate.leave directives fire when a card appears in
-  // or disappears from a zone. Keyframes live in board.scss — leave =
-  // fade + slight downshift, enter = fade up. Stack-item leave uses the
-  // same primitive so resolution finally has a visual.
+  // or disappears from a zone. Keyframes live in board.scss.
   template: `
     @if (state(); as s) {
       <div class="flex flex-1 flex-col">
@@ -88,36 +88,33 @@ import { CardPopoverService } from '../../../ui/card-popover.service';
         <!--
           Screen-reader announcer. Single polite region driven by
           GameStore.lastAnnouncement, bumped on every patch via the
-          announcementFor() composer. zero-width space prefix forces
-          re-announcements even when text repeats — screen readers
-          dedupe identical strings within the same region.
+          announcementFor() composer.
         -->
         <div class="sr-only" aria-live="polite" aria-atomic="true">
           {{ liveAnnouncement() }}
         </div>
 
-        <div #boardGrid class="board-grid relative grid grid-cols-[1fr_200px_1fr] gap-2 p-3 flex-1">
-          <!-- Opponent frame: HUD on top, hand below, battlefield at the bottom. -->
-          <section
-            class="player-frame player-frame--foe"
-            [class.player-frame--active-foe]="opponent()?.id === s.activePlayerId"
-            [class.player-frame--inactive]="opponent()?.id !== s.activePlayerId">
-            <app-player-hud
-              [player]="opponent()"
-              [active]="opponent()?.id === s.activePlayerId"
-              side="opponent"
-              label="opponent" />
-
-            <!-- Opponent mana-pool row sits between HUD and the
-                 face-down hand row (HUD → mana → hand → battlefield). -->
-            <app-mana-pool-row [player]="opponent()" />
+        <div #boardGrid class="board-arena relative flex flex-1 flex-col gap-2 p-3">
+          <!-- Opponent zone: HUD + mana row on top, slim face-down hand
+               below, full-width battlefield at the bottom (closest to
+               the dividing line in the middle of the table). -->
+          <div class="arena-side arena-side--foe">
+            <div class="flex items-center gap-3">
+              <app-player-hud
+                class="flex-1"
+                [player]="opponent()"
+                [active]="opponent()?.id === s.activePlayerId"
+                side="opponent"
+                label="opponent" />
+              <app-mana-pool-row [player]="opponent()" />
+            </div>
 
             <!--
               Opponent hand (face-down). Server emits the opponent's hand
               as N "(hidden)" placeholder cards via the per-viewer mask in
               StateSnapshotter (CR 706) — we render one face-down card per
               placeholder so the count is visually obvious without leaking
-              names. Cards are non-interactive — they're opponent property.
+              names.
             -->
             <div class="hand-row hand-row--opponent" role="list"
                  [attr.aria-label]="'opponent hand, ' + opponentHandCount() + ' cards'">
@@ -133,7 +130,10 @@ import { CardPopoverService } from '../../../ui/card-popover.service';
               }
             </div>
 
-            <div class="battlefield-row">
+            <div
+              class="battlefield-row"
+              [class.battlefield-row--active-foe]="opponent()?.id === s.activePlayerId"
+              [class.battlefield-row--inactive]="opponent()?.id !== s.activePlayerId">
               @for (c of opponent()?.battlefield?.cards ?? []; track c.instanceId) {
                 <app-card-view
                   [snapshot]="c"
@@ -146,41 +146,16 @@ import { CardPopoverService } from '../../../ui/card-popover.service';
                 <span class="opacity-30">— opponent battlefield empty —</span>
               }
             </div>
-          </section>
+          </div>
 
-          <!--
-            Center stack spine. Vertical column between the two player
-            frames; newest stack object at the top so resolution reads
-            top → bottom. Reuses the existing .stack-item rim styling
-            from board.scss; only the layout container changes.
-          -->
-          <aside
-            class="stack-spine"
-            [class.stack-spine--populated]="s.stack.length > 0"
-            aria-label="stack">
-            <h3 class="mb-1 text-[10px] uppercase tracking-wider opacity-60">
-              Stack ({{ s.stack.length }})
-            </h3>
-            @for (item of reversedStack(); track item.id; let i = $index) {
-              <div
-                class="stack-item py-1 text-xs"
-                [class.stack-item--top]="i === 0"
-                animate.enter="stack-item-enter"
-                animate.leave="stack-item-leave">
-                <div class="font-semibold">{{ item.kind }}</div>
-                <div class="opacity-70">{{ item.description }}</div>
-              </div>
-            } @empty {
-              <p class="text-xs opacity-40">empty</p>
-            }
-          </aside>
-
-          <!-- Self frame: battlefield on top, hand below, HUD at the bottom. -->
-          <section
-            class="player-frame player-frame--self"
-            [class.player-frame--active-self]="self()?.id === s.activePlayerId"
-            [class.player-frame--inactive]="self()?.id !== s.activePlayerId">
-            <div class="battlefield-row">
+          <!-- Self zone: full-width battlefield closest to the middle,
+               hand below, mana + HUD at the bottom (closest to the
+               action bar). Mirror of the opponent side. -->
+          <div class="arena-side arena-side--self">
+            <div
+              class="battlefield-row"
+              [class.battlefield-row--active-self]="self()?.id === s.activePlayerId"
+              [class.battlefield-row--inactive]="self()?.id !== s.activePlayerId">
               @for (c of self()?.battlefield?.cards ?? []; track c.instanceId) {
                 <app-card-view
                   [snapshot]="c"
@@ -224,27 +199,48 @@ import { CardPopoverService } from '../../../ui/card-popover.service';
               }
             </div>
 
-            <!-- Self mana-pool row sits between the user's hand row
-                 and the HUD (battlefield → hand → mana → HUD). -->
-            <app-mana-pool-row [player]="self()" />
+            <div class="flex items-center gap-3">
+              <app-player-hud
+                class="flex-1"
+                [player]="self()"
+                [active]="self()?.id === s.activePlayerId"
+                side="self"
+                label="you" />
+              <app-mana-pool-row [player]="self()" />
+            </div>
+          </div>
 
-            <app-player-hud
-              [player]="self()"
-              [active]="self()?.id === s.activePlayerId"
-              side="self"
-              label="you" />
-          </section>
+          <!--
+            Stack floats on the right edge (absolute, doesn't push the
+            table around). Header always visible; items only render when
+            populated. Newest at the top — resolution reads top → bottom.
+          -->
+          <aside
+            class="stack-floating"
+            [class.stack-floating--populated]="s.stack.length > 0"
+            aria-label="stack">
+            <h3 class="mb-1 text-[10px] uppercase tracking-wider opacity-60">
+              Stack ({{ s.stack.length }})
+            </h3>
+            @for (item of reversedStack(); track item.id; let i = $index) {
+              <div
+                class="stack-item py-1 text-xs"
+                [class.stack-item--top]="i === 0"
+                animate.enter="stack-item-enter"
+                animate.leave="stack-item-leave">
+                <div class="font-semibold">{{ item.kind }}</div>
+                <div class="opacity-70">{{ item.description }}</div>
+              </div>
+            } @empty {
+              <p class="text-xs opacity-40">empty</p>
+            }
+          </aside>
 
           <!--
             SVG combat-assignment overlay. Layered above the board cells
             (pointer-events: none so card interactions still work). The
             modal-driven attackers/blockers prompt remains the source of
             truth for keyboard a11y — this is purely a visual augment.
-            V1: lines render once the user has at least one in-progress
-            assignment (dashed = uncommitted) or after the prompt has
-            been confirmed (solid). Coordinates are measured off the
-            DOM card nodes via getBoundingClientRect — see
-            recomputeCombatLines() below.
           -->
           @if (combatLines().length > 0) {
             <svg
@@ -455,7 +451,7 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
       // to the opponent HUD anchor. We pull the .player-hud anchor on
       // the foe frame as the target since the prompt currently only
       // supports defender = opponent (no planeswalkers yet).
-      const foeAnchor = grid.querySelector('.player-frame--foe .player-hud') as HTMLElement | null;
+      const foeAnchor = grid.querySelector('.arena-side--foe .player-hud') as HTMLElement | null;
       const foeRect = foeAnchor?.getBoundingClientRect();
       if (!foeRect) return;
       const target = {
@@ -464,7 +460,7 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
       };
       for (const a of assignments.attackers ?? []) {
         const card = grid.querySelector(
-          `.player-frame--self .battlefield-row [data-card-id="${a.attackerInstanceId}"]`
+          `.arena-side--self .battlefield-row [data-card-id="${a.attackerInstanceId}"]`
         ) as HTMLElement | null;
         if (!card) continue;
         const r = card.getBoundingClientRect();
@@ -482,10 +478,10 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
     } else if (assignments.kind === 'blockers') {
       for (const b of assignments.blockers ?? []) {
         const blockerEl = grid.querySelector(
-          `.player-frame--self .battlefield-row [data-card-id="${b.blockerInstanceId}"]`
+          `.arena-side--self .battlefield-row [data-card-id="${b.blockerInstanceId}"]`
         ) as HTMLElement | null;
         const attackerEl = grid.querySelector(
-          `.player-frame--foe .battlefield-row [data-card-id="${b.attackerInstanceId}"]`
+          `.arena-side--foe .battlefield-row [data-card-id="${b.attackerInstanceId}"]`
         ) as HTMLElement | null;
         if (!blockerEl || !attackerEl) continue;
         const bRect = blockerEl.getBoundingClientRect();

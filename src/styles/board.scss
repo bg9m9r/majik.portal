@@ -36,15 +36,20 @@
 // 92% opacity dim so the active side reads brighter without
 // changing the absolute colours.
 // =============================================================
-.player-frame {
+// Arena layout — opp side stacks top, self side stacks bottom. Each
+// arena-side is a vertical stack of (HUD row, hand row, battlefield
+// row). The battlefield rows themselves carry the whose-turn ambient
+// rim because they're the visually-dominant element on each side.
+.arena-side {
   display: flex;
   flex-direction: column;
   gap: var(--majik-space-2);
-  padding: var(--majik-space-2);
-  border-radius: var(--majik-radius-panel);
-  border: 1px solid transparent;
-  transition: border-color 220ms ease-out, background-color 220ms ease-out, box-shadow 220ms ease-out, opacity 220ms ease-out;
+}
 
+// Whose-turn ambient rim moves back onto .battlefield-row directly so
+// the full-width row reads as the "table half" boundary. The HUD keeps
+// its own active rim from PR #32 so the cue is reinforced top + bottom.
+.battlefield-row {
   &--active-self {
     border-color: var(--majik-self-rim);
     background: var(--majik-self-soft);
@@ -164,27 +169,32 @@
 }
 
 // =============================================================
-// Stack spine — narrow vertical column sitting between the two
-// player frames. Items flow newest-at-top so resolution reads top
-// → bottom. Reuses .stack-item rim styling from the old stack
-// panel; only the container changed.
+// Stack floating panel — pinned to the right edge of the board
+// area so it never reflows the table when items appear/resolve.
+// Compact header always visible; expands downward as items land.
 // =============================================================
-.stack-spine {
+.stack-floating {
+  position: absolute;
+  top: var(--majik-space-3);
+  right: var(--majik-space-3);
+  width: 200px;
+  max-height: calc(100% - (var(--majik-space-3) * 2));
   display: flex;
   flex-direction: column;
   gap: var(--majik-space-1);
-  max-width: 200px;
-  height: 100%;
   padding: var(--majik-space-2);
   border-radius: var(--majik-radius-panel);
   border: 1px solid var(--majik-line-faint);
-  background: rgba(0, 0, 0, 0.15);
+  background: rgba(0, 0, 0, 0.55);
   overflow-y: auto;
-  transition: border-color 220ms ease-out, box-shadow 220ms ease-out;
+  z-index: 5;
+  pointer-events: auto;
+  transition: border-color 220ms ease-out, box-shadow 220ms ease-out, background-color 220ms ease-out;
 
   &--populated {
     border-color: var(--majik-accent);
     box-shadow: 0 0 0 1px var(--majik-accent-soft);
+    background: rgba(0, 0, 0, 0.75);
   }
 }
 
@@ -354,6 +364,33 @@
 }
 
 // =============================================================
+// Full Control indicator — header chip visible while the user is
+// holding Ctrl. Pulses to reinforce that priority auto-pass is
+// being actively suppressed. Mirrors MTGO's "Full Control" idiom.
+// =============================================================
+.full-control-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--majik-space-1);
+  padding: 2px var(--majik-space-2);
+  border-radius: var(--majik-radius-pill);
+  border: 1px solid var(--majik-accent-strong);
+  background: rgba(224, 194, 117, 0.12);
+  color: var(--majik-accent-strong);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  animation: full-control-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes full-control-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(224, 194, 117, 0.45); }
+  50%      { box-shadow: 0 0 0 4px rgba(224, 194, 117, 0.0); }
+}
+
+// =============================================================
 // Phase advancement sweep — sliding gold cursor that tracks the
 // active chip. Geometry is set inline by phase-bar.component.ts
 // (left as transform, width as inline style). The transition lives
@@ -439,17 +476,23 @@
 // Player HUD — friend/foe ambient, deck-color identity strip,
 // zone-colored counter glyphs, life-tier emphasis.
 //
-// Whose-turn rim previously lived here AND on the battlefield row.
-// PR #33 consolidates the rim onto the .player-frame container so a
-// single style hits HUD + hand + battlefield together. The
-// .player-hud--self / --foe / --active classes are still emitted by
-// the HUD component (they remain part of its public spec and are
-// used by other consumers / tests) — they just no longer drive the
-// background+border here. Keeps the HUD spec API stable.
+// In the Arena layout the whose-turn rim sits on the .battlefield-row
+// directly (full-width row is the dominant "table half" element). The
+// HUD then re-asserts a smaller friend/foe rim of its own below so the
+// cue is reinforced both ends of the table.
 // =============================================================
 .player-hud {
   border-color: var(--majik-line);
   transition: border-color 220ms ease-out, background-color 220ms ease-out, box-shadow 220ms ease-out;
+
+  &--self.player-hud--active {
+    border-color: var(--majik-self-rim);
+    background: var(--majik-self-soft);
+  }
+  &--foe.player-hud--active {
+    border-color: var(--majik-foe-rim);
+    background: var(--majik-foe-soft);
+  }
 }
 
 .player-hud__color-strip {
