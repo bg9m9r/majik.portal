@@ -179,9 +179,10 @@ export class MatchPage implements OnInit, OnDestroy {
   } | null>(null);
   private readonly nowMs = signal<number>(Date.now());
 
-  // Full Control mode — true while the user is holding Control. Read by
-  // the auto-pass effect so the viewer keeps priority on every step,
-  // even after casting (mirrors MTGO's "Full Control" toggle). The
+  // Full Control mode — press-once toggle on the Ctrl / Meta key.
+  // While true the auto-pass effect short-circuits so the viewer
+  // keeps priority on every step, even after casting (mirrors MTGO's
+  // "Full Control" toggle). Press Ctrl again to release. The
   // template binds an indicator chip off this signal too.
   readonly fullControl = signal<boolean>(false);
   private clockTickHandle: ReturnType<typeof setInterval> | null = null;
@@ -581,15 +582,14 @@ export class MatchPage implements OnInit, OnDestroy {
   // ---------------- Keyboard shortcuts (Task 2) ----------------
   @HostListener('document:keydown', ['$event'])
   onDocumentKeydown(evt: KeyboardEvent): void {
-    // Full Control — track the Ctrl modifier (Meta on macOS feels
-    // identical for this purpose). Don't preventDefault; the user
-    // still needs Ctrl+Tab / Ctrl+R / etc. to work.
-    if (evt.key === 'Control' || evt.key === 'Meta') {
-      this.fullControl.set(true);
-    } else if (evt.ctrlKey || evt.metaKey) {
-      // Modifier was pressed before focus reached us. Sync from the
-      // event's own flags so the signal isn't stuck false.
-      this.fullControl.set(true);
+    // Full Control — press-once toggle on the bare Ctrl / Meta key.
+    // `evt.repeat` is filtered so OS auto-repeat doesn't fire the
+    // toggle multiple times while the key is held. Combination keys
+    // (Ctrl+R, Ctrl+Tab, Ctrl+digit) keep their normal browser
+    // behaviour because those keydowns surface as the OTHER key with
+    // `ctrlKey` set, not as `evt.key === 'Control'`.
+    if ((evt.key === 'Control' || evt.key === 'Meta') && !evt.repeat) {
+      this.fullControl.update(v => !v);
     }
     dispatchMatchKey(evt, {
       hasActionPrompt: () => !!this.myPromptSummary(),
@@ -604,25 +604,6 @@ export class MatchPage implements OnInit, OnDestroy {
       confirmPrimary: () => this.promptOverlayRef?.tryConfirmPrimary() ?? false,
       playHandCard: (c: CardSnapshot) => { void this.onHandClicked(c); },
     });
-  }
-
-  // Releasing Ctrl drops Full Control. A second listener (not the
-  // dispatcher above) because the action shouldn't go through the
-  // input-focus / shortcut-handler gate — Full Control state should
-  // sync regardless of where focus is.
-  @HostListener('document:keyup', ['$event'])
-  onDocumentKeyup(evt: KeyboardEvent): void {
-    if (evt.key === 'Control' || evt.key === 'Meta') {
-      this.fullControl.set(false);
-    }
-  }
-
-  // Tab-away / window-blur drops Full Control too — otherwise the
-  // user could leave the tab with Ctrl held, release outside, and
-  // come back to a stuck-on indicator.
-  @HostListener('window:blur')
-  onWindowBlur(): void {
-    this.fullControl.set(false);
   }
 
   private translateDecision(d: PromptDecision): GameCommand | null {
