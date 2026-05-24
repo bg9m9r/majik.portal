@@ -150,7 +150,9 @@ export type GameCommand =
   | DeclareAttackersCommand
   | DeclareBlockersCommand
   | ChooseCardsToBottomCommand
-  | ActivateManaAbilityCommand;
+  | ActivateManaAbilityCommand
+  | ChooseManaCommand
+  | CancelCastCommand;
 
 interface CmdBase { playerId?: string }
 export interface PassPriorityCommand extends CmdBase { $type: 'pass' }
@@ -186,6 +188,11 @@ export interface ActivateManaAbilityCommand extends CmdBase {
   permanentInstanceId: string;
   color: string;
 }
+export interface ChooseManaCommand extends CmdBase {
+  $type: 'mana';
+  sourceInstanceIds: string[];
+}
+export interface CancelCastCommand extends CmdBase { $type: 'cancelCast' }
 
 // Bot decision envelope — mirrors server-side
 // Majik.Bot.Diagnostics.BotDecision. Arrives on the SignalR

@@ -155,9 +155,15 @@ import { ManaColorPickerComponent } from '../../../ui/mana-color-picker.componen
                action bar). Mirror of the opponent side. -->
           <div class="arena-side arena-side--self">
             <div
+              #selfBattlefieldList="cdkDropList"
+              id="self-battlefield-droplist"
               class="battlefield-row"
               [class.battlefield-row--active-self]="self()?.id === s.activePlayerId"
-              [class.battlefield-row--inactive]="self()?.id !== s.activePlayerId">
+              [class.battlefield-row--inactive]="self()?.id !== s.activePlayerId"
+              cdkDropList
+              cdkDropListSortingDisabled
+              [cdkDropListConnectedTo]="['self-hand-droplist']"
+              (cdkDropListDropped)="onBattlefieldDrop($event)">
               @for (c of self()?.battlefield?.cards ?? []; track c.instanceId) {
                 <app-card-view
                   [snapshot]="c"
@@ -173,11 +179,14 @@ import { ManaColorPickerComponent } from '../../../ui/mana-color-picker.componen
             </div>
 
             <div
+              #selfHandList="cdkDropList"
+              id="self-hand-droplist"
               class="hand-row"
               role="list"
               aria-label="your hand"
               cdkDropList
               cdkDropListOrientation="horizontal"
+              [cdkDropListConnectedTo]="['self-battlefield-droplist']"
               (cdkDropListDropped)="onHandDrop($event)">
               @for (c of orderedSelfHand(); track c.instanceId) {
                 <button
@@ -187,8 +196,6 @@ import { ManaColorPickerComponent } from '../../../ui/mana-color-picker.componen
                   cdkDrag
                   [cdkDragData]="c"
                   [attr.aria-label]="'play ' + c.name"
-                  (click)="handCardClicked.emit(c)"
-                  (keydown.enter)="handCardClicked.emit(c)"
                   animate.enter="zone-enter-from-top"
                   animate.leave="zone-leave-down">
                   <app-card-view
@@ -306,7 +313,13 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
     blockers?: { attackerInstanceId: string; blockerInstanceId: string }[];
   } | null>(null);
   readonly passClicked = output<void>();
-  readonly handCardClicked = output<CardSnapshot>();
+  /**
+   * Drag-from-hand-to-self-battlefield request. Replaces the prior
+   * click-to-cast affordance — pairs with majik.core #438 which made
+   * the cast flow pay from the floating pool first and adds a
+   * CancelCastCommand backstop.
+   */
+  readonly castOrPlayRequested = output<CardSnapshot>();
   readonly phaseStopToggled = output<string>();
   readonly concedeClicked = output<void>();
   readonly undoClicked = output<void>();
@@ -666,9 +679,26 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
   });
 
   onHandDrop(event: CdkDragDrop<CardSnapshot[]>): void {
+    // Hand-to-hand drop = reorder. Cross-container drops (hand →
+    // battlefield) surface on the destination droplist instead, so
+    // ignore them here.
+    if (event.previousContainer !== event.container) return;
     const next = this.orderedSelfHand().slice();
     moveItemInArray(next, event.previousIndex, event.currentIndex);
     this.handOrder.set(next.map(c => c.instanceId));
+  }
+
+  /**
+   * Drop on the self-battlefield droplist. Only acts on cross-container
+   * drops (hand → battlefield); sortingDisabled is set on the
+   * destination so battlefield-to-battlefield drags don't reorder the
+   * grid. The dragged CardSnapshot is carried via cdkDragData.
+   */
+  onBattlefieldDrop(event: CdkDragDrop<unknown>): void {
+    if (event.previousContainer === event.container) return;
+    const card = event.item?.data as CardSnapshot | undefined;
+    if (!card) return;
+    this.castOrPlayRequested.emit(card);
   }
 }
 
