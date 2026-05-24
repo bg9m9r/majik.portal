@@ -390,11 +390,18 @@ export class MatchPage implements OnInit, OnDestroy {
         // The wire DTO uses PascalCase or camelCase depending on
         // System.Text.Json options on the server; tolerate both.
         const raw = p as Record<string, unknown>;
+        // Library-search prompts (CR 701.19a) carry an engine-pre-
+        // filtered candidate list + a human label on the wire. Mirror
+        // both into the envelope so the prompt overlay can render the
+        // picker without re-deriving the candidate set from a hidden
+        // zone (CR 706).
         const envelope: PromptEnvelope = {
           gameId: String(raw['gameId'] ?? raw['GameId'] ?? ''),
           playerId: String(raw['playerId'] ?? raw['PlayerId'] ?? ''),
           expectedKinds: (raw['expectedKinds'] ?? raw['ExpectedKinds'] ?? []) as string[],
           description: (raw['description'] ?? raw['Description']) as string | undefined,
+          candidates: (raw['candidates'] ?? raw['Candidates']) as CardSnapshot[] | undefined,
+          label: (raw['label'] ?? raw['Label']) as string | undefined,
         };
         this.game.setPrompt(envelope);
       });
@@ -638,6 +645,14 @@ export class MatchPage implements OnInit, OnDestroy {
         return { $type: 'mana', sourceInstanceIds: d.sourceInstanceIds ?? [] };
       case 'mana-cancel':
         return { $type: 'cancelCast' };
+      case 'libraryPick':
+        // CR 701.19a — wire null for "find nothing" (legal); the server
+        // rejects ids outside the offered candidate set with a clear
+        // error so a stale selection can never silently mis-tutor.
+        return {
+          $type: 'chooseLibraryPick',
+          selectedInstanceId: d.selectedInstanceId ?? null,
+        };
       default:
         return null;
     }
