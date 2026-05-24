@@ -16,9 +16,26 @@ interface PromptInfo {
   expectedKinds?: string[];
   playerId?: string;
   description?: string;
+  // CR 701.19a — library-search prompts ship the engine-pre-filtered
+  // candidate list + a human-readable predicate label here. The
+  // overlay reads them straight off the envelope to render a picker;
+  // the library is otherwise hidden in GameState under CR 706.
+  candidates?: CardSnapshot[];
+  label?: string;
 }
 
-export type PromptKind = 'targets' | 'mulligan' | 'x' | 'mode' | 'bottom' | 'attackers' | 'blockers' | 'mana' | 'mana-cancel' | 'none';
+export type PromptKind =
+  | 'targets'
+  | 'mulligan'
+  | 'x'
+  | 'mode'
+  | 'bottom'
+  | 'attackers'
+  | 'blockers'
+  | 'mana'
+  | 'mana-cancel'
+  | 'libraryPick'
+  | 'none';
 
 export interface PromptDecision {
   kind: PromptKind;
@@ -30,6 +47,9 @@ export interface PromptDecision {
   attackers?: { attackerInstanceId: string; defenderId: string }[];
   blockers?: { attackerInstanceId: string; blockerInstanceId: string }[];
   sourceInstanceIds?: string[];
+  // CR 701.19a — id of the picked candidate, or `null` for the legal
+  // "find nothing" branch (the player may decline to choose).
+  selectedInstanceId?: string | null;
 }
 
 interface CandidateCard {
@@ -40,6 +60,12 @@ interface CandidateCard {
 
 export function detectKind(kinds: string[] | undefined): PromptKind {
   const ks = (kinds ?? []).map(k => k.toLowerCase());
+  // CR 701.19a — match BEFORE 'targets' / 'mode' / 'mulligan' so the
+  // server's literal "ChooseLibraryPickCommand" envelope routes to the
+  // dedicated library-search picker rather than the generic targets
+  // grid (which only reads from the battlefield + can't see the
+  // candidates).
+  if (ks.some(k => k.includes('libraryp') || k.includes('library-pick') || k.includes('chooselibrary'))) return 'libraryPick';
   if (ks.some(k => k.includes('attacker'))) return 'attackers';
   if (ks.some(k => k.includes('blocker'))) return 'blockers';
   if (ks.some(k => k.includes('target'))) return 'targets';
@@ -270,6 +296,71 @@ export function detectKind(kinds: string[] | undefined): PromptKind {
             </div>
           }
 
+          @case ('libraryPick') {
+            <!--
+              CR 701.19a — library search picker. Server pre-filters the
+              candidates (e.g. green creature cards with mv ≤ X for
+              Green Sun's Zenith) and ships them on the prompt envelope
+              along with a human-readable predicate label. Picking
+              nothing is legal — the player may decline to choose.
+            -->
+            <div class="flex flex-col gap-2 text-xs">
+              @if (prompt()?.label; as lbl) {
+                <span class="opacity-70">Find: {{ lbl }}.</span>
+              } @else {
+                <span class="opacity-70">Pick a card from your library, or decline.</span>
+              }
+              <div class="flex items-center gap-2">
+                <input
+                  type="search"
+                  class="flex-1 rounded border border-white/15 bg-black/30 px-2 py-1 outline-none focus:border-amber-400"
+                  placeholder="Filter by name…"
+                  aria-label="Filter library candidates"
+                  [ngModel]="libraryPickFilter()"
+                  (ngModelChange)="libraryPickFilter.set($event)"
+                  name="library-pick-filter" />
+                <span class="opacity-50">{{ filteredLibraryCandidates().length }} / {{ libraryCandidates().length }}</span>
+              </div>
+              <div class="max-h-60 overflow-y-auto rounded border border-white/10">
+                @for (c of filteredLibraryCandidates(); track c.instanceId) {
+                  <button
+                    type="button"
+                    class="flex w-full items-center justify-between border-b border-white/5 px-2 py-1 text-left last:border-b-0"
+                    [class.bg-amber-400/10]="selectedLibraryInstanceId() === c.instanceId"
+                    [class.border-l-2]="selectedLibraryInstanceId() === c.instanceId"
+                    [class.border-l-amber-400]="selectedLibraryInstanceId() === c.instanceId"
+                    (click)="selectLibraryCandidate(c.instanceId)">
+                    <span class="flex-1">
+                      <span class="font-medium">{{ c.name }}</span>
+                      <span class="ml-2 opacity-60">{{ c.manaCost }}</span>
+                      <span class="ml-2 opacity-50">{{ libraryCardTypeLine(c) }}</span>
+                    </span>
+                    @if (c.power !== null && c.toughness !== null) {
+                      <span class="ml-2 opacity-70">{{ c.power }}/{{ c.toughness }}</span>
+                    }
+                  </button>
+                } @empty {
+                  <p class="p-2 opacity-50">No matching cards.</p>
+                }
+              </div>
+              <div class="flex items-center gap-2">
+                <button
+                  type="button"
+                  class="rounded border border-amber-400 px-3 py-1 text-amber-300 hover:bg-amber-400/10 disabled:cursor-not-allowed disabled:opacity-40"
+                  [disabled]="!selectedLibraryInstanceId()"
+                  (click)="confirmLibraryPick()">
+                  Search and pick
+                </button>
+                <button
+                  type="button"
+                  class="rounded border border-white/20 px-3 py-1 text-white/80 hover:bg-white/10"
+                  (click)="confirmLibraryPickNothing()">
+                  Pick nothing
+                </button>
+              </div>
+            </div>
+          }
+
           @case ('bottom') {
             <div class="flex flex-col gap-2 text-xs">
               <span class="opacity-70">Click cards to bottom them ({{ selected().length }} selected).</span>
@@ -336,6 +427,17 @@ export class PromptOverlayComponent implements AfterViewInit, OnDestroy {
   // may share an attacker — that's what CR 509.1 allows.
   readonly blockerAssignments = signal<Record<string, string>>({});
   xValue = 0;
+  // CR 701.19a — library-search picker state. selectedLibraryInstanceId
+  // tracks the highlighted candidate; libraryPickFilter is a free-form
+  // name-substring filter so the picker scales past a few candidates
+  // (e.g. Green Sun's Zenith for X=4 on a fat deck). Both reset
+  // implicitly when the picker unmounts (new prompt envelope).
+  // libraryPickFilter is a WritableSignal (not a plain field) so the
+  // filteredLibraryCandidates computed reacts to filter changes; the
+  // [(ngModel)] binding uses the underlying setter directly via the
+  // signal-as-model glue.
+  readonly selectedLibraryInstanceId = signal<string | null>(null);
+  readonly libraryPickFilter = signal<string>('');
 
   readonly kind = computed<PromptKind>(() => detectKind(this.prompt()?.expectedKinds));
 
@@ -385,6 +487,22 @@ export class PromptOverlayComponent implements AfterViewInit, OnDestroy {
     return out;
   });
 
+  // CR 701.19a — library-search candidates ride on the prompt envelope
+  // because the library zone is hidden in GameState under CR 706.
+  readonly libraryCandidates = computed<CardSnapshot[]>(() =>
+    this.prompt()?.candidates ?? []
+  );
+
+  // Case-insensitive name-substring filter applied to the library
+  // candidate list. Empty filter leaves the list untouched so the user
+  // doesn't have to type to see the full set.
+  readonly filteredLibraryCandidates = computed<CardSnapshot[]>(() => {
+    const q = this.libraryPickFilter().trim().toLowerCase();
+    const all = this.libraryCandidates();
+    if (!q) return all;
+    return all.filter(c => c.name.toLowerCase().includes(q));
+  });
+
   titleFor(k: PromptKind): string {
     switch (k) {
       case 'targets': return 'Choose targets';
@@ -395,6 +513,7 @@ export class PromptOverlayComponent implements AfterViewInit, OnDestroy {
       case 'attackers': return 'Declare attackers';
       case 'blockers': return 'Declare blockers';
       case 'mana': return 'Pay mana cost';
+      case 'libraryPick': return 'Search your library';
       default: return '';
     }
   }
@@ -482,6 +601,39 @@ export class PromptOverlayComponent implements AfterViewInit, OnDestroy {
 
   cancelMana(): void {
     this.decision.emit({ kind: 'mana-cancel' });
+  }
+
+  // CR 701.19a — library-search picker handlers. Selection is local
+  // state (no server round-trip on click); only confirmLibraryPick /
+  // confirmLibraryPickNothing emit the wire ChooseLibraryPickCommand.
+  selectLibraryCandidate(id: string): void {
+    this.selectedLibraryInstanceId.set(
+      this.selectedLibraryInstanceId() === id ? null : id);
+  }
+
+  confirmLibraryPick(): void {
+    const id = this.selectedLibraryInstanceId();
+    if (!id) return;
+    this.decision.emit({ kind: 'libraryPick', selectedInstanceId: id });
+    this.selectedLibraryInstanceId.set(null);
+    this.libraryPickFilter.set('');
+  }
+
+  confirmLibraryPickNothing(): void {
+    // CR 701.19a — declining to choose from a successful search is
+    // legal. `null` selectedInstanceId is the wire shape for that
+    // branch; the server-side resolver translates it to a no-pick
+    // (Green Sun's Zenith etc. simply shuffle without tutoring).
+    this.decision.emit({ kind: 'libraryPick', selectedInstanceId: null });
+    this.selectedLibraryInstanceId.set(null);
+    this.libraryPickFilter.set('');
+  }
+
+  // Compact "Creature — Elf Druid" type line for the picker rows. The
+  // CardSnapshot.types is already strongly typed but we render a single
+  // line to keep each row scannable.
+  libraryCardTypeLine(card: CardSnapshot): string {
+    return (card.types ?? []).join(' ');
   }
 
   confirmBlockers(): void {

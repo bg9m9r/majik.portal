@@ -44,12 +44,17 @@ function player(over: Partial<GamePlayer> & Pick<GamePlayer, 'id' | 'name'>): Ga
   };
 }
 
-function mountOverlay(state: GameState | null, kinds: string[], selfPlayerIds: string[]) {
+function mountOverlay(
+  state: GameState | null,
+  kinds: string[],
+  selfPlayerIds: string[],
+  promptExtras: { candidates?: CardSnapshot[]; label?: string } = {},
+) {
   TestBed.configureTestingModule({ imports: [PromptOverlayComponent] });
   const fixture = TestBed.createComponent(PromptOverlayComponent);
   const ref: ComponentRef<PromptOverlayComponent> = fixture.componentRef;
   ref.setInput('state', state);
-  ref.setInput('prompt', { expectedKinds: kinds });
+  ref.setInput('prompt', { expectedKinds: kinds, ...promptExtras });
   ref.setInput('selfPlayerIds', selfPlayerIds);
   fixture.detectChanges();
   return { component: fixture.componentInstance, fixture };
@@ -453,5 +458,135 @@ describe('PromptOverlayComponent — combat prompts', () => {
     const list = component.attackerList();
     expect(list).toHaveLength(1);
     expect(list[0].instanceId).toBe('atk-1');
+  });
+});
+
+// CR 701.19a — library-search picker (Green Sun's Zenith, Mystical
+// Tutor, Path to Exile, …). Server PR adds ChooseLibraryPickCommand on
+// the wire + ships the engine-filtered candidate list + a kindLabel on
+// the prompt envelope (the library is hidden in GameState under
+// CR 706, so the portal has no other way to render the choice). These
+// tests cover detectKind, candidate forwarding, name-filter, and the
+// two confirm paths (pick / find-nothing).
+describe('PromptOverlayComponent — library pick prompt', () => {
+  function makeMe() {
+    return player({ id: 'me', name: 'Alice' });
+  }
+  function makeState(): GameState {
+    return { phase: 'Main', turnNumber: 3, activePlayerId: 'me', players: [makeMe()], stack: [] };
+  }
+
+  it('detects libraryPick kind from server "ChooseLibraryPickCommand" envelope', () => {
+    const { component } = mountOverlay(
+      makeState(),
+      ['ChooseLibraryPickCommand'],
+      ['me'],
+      { candidates: [], label: 'green creature card with mana value 2 or less' },
+    );
+
+    expect(component.kind()).toBe('libraryPick');
+    expect(component.titleFor(component.kind())).toBe('Search your library');
+  });
+
+  it('exposes envelope candidates to the picker computed', () => {
+    const elf = card({ instanceId: 'elf-1', name: 'Llanowar Elves', manaCost: '{G}' });
+    const bop = card({ instanceId: 'bop-1', name: 'Birds of Paradise', manaCost: '{G}' });
+    const { component } = mountOverlay(
+      makeState(),
+      ['ChooseLibraryPickCommand'],
+      ['me'],
+      { candidates: [elf, bop], label: 'green creature card with mana value 1 or less' },
+    );
+
+    expect(component.libraryCandidates()).toHaveLength(2);
+    expect(component.libraryCandidates()[0].instanceId).toBe('elf-1');
+    // Empty filter → full set passes through.
+    expect(component.filteredLibraryCandidates()).toHaveLength(2);
+  });
+
+  it('filteredLibraryCandidates narrows by case-insensitive name substring', () => {
+    const elf = card({ instanceId: 'elf-1', name: 'Llanowar Elves' });
+    const bop = card({ instanceId: 'bop-1', name: 'Birds of Paradise' });
+    const noble = card({ instanceId: 'nh-1', name: 'Noble Hierarch' });
+    const { component } = mountOverlay(
+      makeState(),
+      ['ChooseLibraryPickCommand'],
+      ['me'],
+      { candidates: [elf, bop, noble], label: 'green creature card' },
+    );
+
+    component.libraryPickFilter.set('noble');
+    const matched = component.filteredLibraryCandidates();
+    expect(matched).toHaveLength(1);
+    expect(matched[0].instanceId).toBe('nh-1');
+
+    // Case insensitive — uppercase + partial substring still match.
+    component.libraryPickFilter.set('BIRDS');
+    const matched2 = component.filteredLibraryCandidates();
+    expect(matched2).toHaveLength(1);
+    expect(matched2[0].instanceId).toBe('bop-1');
+  });
+
+  it('confirmLibraryPick emits decision with the selected InstanceId', () => {
+    const elf = card({ instanceId: 'elf-1', name: 'Llanowar Elves' });
+    const bop = card({ instanceId: 'bop-1', name: 'Birds of Paradise' });
+    const { component } = mountOverlay(
+      makeState(),
+      ['ChooseLibraryPickCommand'],
+      ['me'],
+      { candidates: [elf, bop], label: 'green creature card' },
+    );
+    const captured: PromptDecision[] = [];
+    component.decision.subscribe(d => captured.push(d));
+
+    component.selectLibraryCandidate('bop-1');
+    expect(component.selectedLibraryInstanceId()).toBe('bop-1');
+    component.confirmLibraryPick();
+
+    expect(captured).toEqual([
+      { kind: 'libraryPick', selectedInstanceId: 'bop-1' },
+    ]);
+    // Confirmation resets local selection state so a stale highlight
+    // doesn't bleed across into the next prompt.
+    expect(component.selectedLibraryInstanceId()).toBeNull();
+    expect(component.libraryPickFilter()).toBe('');
+  });
+
+  it('confirmLibraryPickNothing emits null for the legal "find nothing" branch', () => {
+    // CR 701.19a — a player may decline to choose from a successful
+    // search. Wire shape is `selectedInstanceId: null`; the server's
+    // ChooseLibraryPickCommand handler maps it to a no-pick (e.g.
+    // Green Sun's Zenith resolves without tutoring, but still shuffles
+    // itself back into the library).
+    const elf = card({ instanceId: 'elf-1', name: 'Llanowar Elves' });
+    const { component } = mountOverlay(
+      makeState(),
+      ['ChooseLibraryPickCommand'],
+      ['me'],
+      { candidates: [elf], label: 'creature card' },
+    );
+    const captured: PromptDecision[] = [];
+    component.decision.subscribe(d => captured.push(d));
+
+    component.confirmLibraryPickNothing();
+
+    expect(captured).toEqual([
+      { kind: 'libraryPick', selectedInstanceId: null },
+    ]);
+  });
+
+  it('selectLibraryCandidate twice on the same id clears selection (toggle)', () => {
+    const elf = card({ instanceId: 'elf-1', name: 'Llanowar Elves' });
+    const { component } = mountOverlay(
+      makeState(),
+      ['ChooseLibraryPickCommand'],
+      ['me'],
+      { candidates: [elf], label: 'creature card' },
+    );
+
+    component.selectLibraryCandidate('elf-1');
+    expect(component.selectedLibraryInstanceId()).toBe('elf-1');
+    component.selectLibraryCandidate('elf-1');
+    expect(component.selectedLibraryInstanceId()).toBeNull();
   });
 });

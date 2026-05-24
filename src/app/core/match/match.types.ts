@@ -134,6 +134,16 @@ export interface PromptEnvelope {
   // tolerated here so we can surface server-side annotations later
   // without another portal change.
   description?: string;
+  // Library-search prompts (CR 701.19a — Green Sun's Zenith, Path to
+  // Exile, Mystical Tutor, …) carry the engine-pre-filtered candidate
+  // card list here. The library is otherwise hidden in GameState under
+  // CR 706 — without these snapshots the portal has no safe way to
+  // render a picker. Null on every other prompt kind. The companion
+  // `label` is a human-readable description of the search predicate
+  // ("green creature card with mana value 2 or less" etc.) sourced
+  // from the engine's `kindLabel`.
+  candidates?: CardSnapshot[];
+  label?: string;
 }
 
 // Polymorphic GameCommand wire envelope — matches
@@ -152,7 +162,8 @@ export type GameCommand =
   | ChooseCardsToBottomCommand
   | ActivateManaAbilityCommand
   | ChooseManaCommand
-  | CancelCastCommand;
+  | CancelCastCommand
+  | ChooseLibraryPickCommand;
 
 interface CmdBase { playerId?: string }
 export interface PassPriorityCommand extends CmdBase { $type: 'pass' }
@@ -193,6 +204,14 @@ export interface ChooseManaCommand extends CmdBase {
   sourceInstanceIds: string[];
 }
 export interface CancelCastCommand extends CmdBase { $type: 'cancelCast' }
+// CR 701.19a — response to a library-search prompt. `selectedInstanceId`
+// is the InstanceId of the picked candidate, or `null` to model
+// "find nothing" (a legal choice — the player may decline to choose).
+// Server rejects ids outside the offered candidate set.
+export interface ChooseLibraryPickCommand extends CmdBase {
+  $type: 'chooseLibraryPick';
+  selectedInstanceId: string | null;
+}
 
 // Bot decision envelope — mirrors server-side
 // Majik.Bot.Diagnostics.BotDecision. Arrives on the SignalR
