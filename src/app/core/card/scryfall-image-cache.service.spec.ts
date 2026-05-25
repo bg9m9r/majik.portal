@@ -18,6 +18,7 @@ describe('ScryfallImageCache', () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
+    vi.useRealTimers();
     try { localStorage.clear(); } catch { /* ignore */ }
     fetchMock = vi.fn();
     // jsdom exposes fetch on globalThis; assign our mock.

@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { Subject } from 'rxjs';
-import { describe, expect, it, beforeEach, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CardApi } from './card.api';
 import { Card } from './card.types';
 import { CardSearchStore } from './card-search.store';
@@ -29,6 +29,10 @@ describe('CardSearchStore', () => {
     });
     store = TestBed.inject(CardSearchStore);
     vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('setQuery debounces 400ms then queries', () => {
