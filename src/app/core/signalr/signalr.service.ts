@@ -1,5 +1,5 @@
 import { Injectable, inject, signal } from '@angular/core';
-import { HubConnection, HubConnectionBuilder, HubConnectionState, LogLevel } from '@microsoft/signalr';
+import { HttpError, HubConnection, HubConnectionBuilder, HubConnectionState, LogLevel } from '@microsoft/signalr';
 import { Observable, ReplaySubject, Subject, defer } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { AuthService } from '../auth/auth.service';
@@ -24,6 +24,13 @@ export class SignalrService {
 
   private connection: HubConnection | null = null;
   private currentMatchId: string | null = null;
+
+  // One-shot flag flipped by the 401 detection path below. When true, the
+  // next `accessTokenFactory` invocation force-refreshes the Auth0 token
+  // (cacheMode: 'off') and clears the flag. Default behavior is to return
+  // the cached token — forcing a refresh on every connect is what tripped
+  // Auth0's `invalid_grant` in prod once refresh-token rotation was on.
+  private retryWithFreshToken = false;
 
   private readonly _state = signal<ConnectionState>('idle');
   private readonly _error = signal<string | null>(null);
@@ -85,9 +92,23 @@ export class SignalrService {
 
     this.connection = new HubConnectionBuilder()
       .withUrl(environment.signalRHubUrl, {
-        // SignalR invokes this on initial connect AND on every reconnect attempt. Force-refresh
-        // the Auth0 access token so reconnects after a long disconnect don't reuse an expired JWT.
-        accessTokenFactory: () => this.auth.refresh()
+        // SignalR invokes this on initial connect AND on every reconnect
+        // attempt. Return the cached Auth0 token by default — the SDK
+        // transparently refreshes it when near expiry. Forcing a refresh
+        // every time (the previous behavior) caused Auth0 to reject the
+        // rotated refresh token with `invalid_grant` in prod once rapid
+        // reconnects drifted local + tenant state out of sync.
+        //
+        // Only force a refresh after a confirmed 401 negotiate (set by
+        // the start()/onreconnecting() catch blocks below). Self-clearing
+        // so a single failure can't lock us into perpetual force-refresh.
+        accessTokenFactory: () => {
+          if (this.retryWithFreshToken) {
+            this.retryWithFreshToken = false;
+            return this.auth.forceRefresh();
+          }
+          return this.auth.getAccessToken();
+        }
       })
       .withAutomaticReconnect()
       .configureLogging(LogLevel.Warning)
@@ -112,7 +133,16 @@ export class SignalrService {
       this._state.set(err ? 'error' : 'closed');
       if (err) this._error.set(err.message);
     });
-    this.connection.onreconnecting(() => this._state.set('connecting'));
+    this.connection.onreconnecting(err => {
+      // If the previous transport dropped because the server rejected our
+      // token, arm a one-shot force-refresh so the upcoming reconnect's
+      // accessTokenFactory invocation pulls a fresh JWT. Anything else
+      // (network blip, idle timeout) reuses the cached token.
+      if (SignalrService.isAuthError(err)) {
+        this.retryWithFreshToken = true;
+      }
+      this._state.set('connecting');
+    });
     this.connection.onreconnected(() => this._state.set('open'));
 
     try {
@@ -120,10 +150,37 @@ export class SignalrService {
       await this.connection.invoke('JoinMatch', matchId);
       this._state.set('open');
     } catch (err: unknown) {
+      // Initial negotiate rejected our token: force one refresh + retry
+      // a single time. If the second attempt still 401s the user's
+      // session is genuinely dead and we surface the error normally.
+      if (SignalrService.isAuthError(err) && !this.retryWithFreshToken) {
+        this.retryWithFreshToken = true;
+        try {
+          await this.connection.start();
+          await this.connection.invoke('JoinMatch', matchId);
+          this._state.set('open');
+          return;
+        } catch (retryErr: unknown) {
+          this._state.set('error');
+          this._error.set(retryErr instanceof Error ? retryErr.message : String(retryErr));
+          throw retryErr;
+        }
+      }
       this._state.set('error');
       this._error.set(err instanceof Error ? err.message : String(err));
       throw err;
     }
+  }
+
+  /**
+   * Returns true when an error looks like an auth rejection from the
+   * SignalR negotiate (HTTP 401) — the only signal we treat as "force
+   * one token refresh and try again". Anything else (transport, 5xx,
+   * generic Error) falls through to normal error handling so we don't
+   * accidentally hammer Auth0's /oauth/token endpoint.
+   */
+  static isAuthError(err: unknown): boolean {
+    return err instanceof HttpError && err.statusCode === 401;
   }
 
   /**
