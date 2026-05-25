@@ -43,9 +43,13 @@ __screenshots__/
 .DS_Store
 Thumbs.db
 
-# Generated OpenAPI client
+# Generated OpenAPI client (regenerated from committed openapi.json snapshot
+# via `npm run openapi:gen`).
 /src/app/core/api
-/openapi.json
+
+# openapi.json is the committed schema snapshot — CI uses it to regenerate
+# the client without needing a live Majik.Server. Refresh with
+# `npm run openapi:fetch` against the latest server before bumping consumers.
 
 # Playwright
 /test-results
