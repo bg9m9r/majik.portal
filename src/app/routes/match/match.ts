@@ -341,6 +341,12 @@ export class MatchPage implements OnInit, OnDestroy {
     this.matchSvc.setCurrent(r.value);
     try {
       await this.signalr.connect(this.id);
+      // Close the initial-state race: events that fired between the
+      // first GET and the SignalR group join would otherwise be lost
+      // (e.g. bot-game roll result published before we subscribed).
+      // Re-fetch so the roll / state catch up.
+      const fresh = await this.matchSvc.get(this.id);
+      if (fresh.ok) this.matchSvc.setCurrent(fresh.value);
     } catch {
       // signalr.service surfaces error via state signal; non-fatal for loading
     }
