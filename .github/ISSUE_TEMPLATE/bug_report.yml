@@ -1,0 +1,70 @@
+name: Bug report
+description: Report something that does not work as expected.
+title: "[bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a report. Please fill in as much detail as you can — minimal, reliable repros get fixed fastest.
+
+        For **security** issues, do not file here — see `SECURITY.md` for the private report path.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug.
+      placeholder: When I did X, Y happened instead of Z.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Numbered steps a maintainer can follow on a fresh checkout.
+      placeholder: |
+        1. Run `dotnet test --filter ...`
+        2. Observe failure in test `Foo.Bar`
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What you expected to happen, ideally with a rule citation if it's a gameplay bug.
+      placeholder: Per Rule 704.5j, the creature should be put into its owner's graveyard.
+    validations:
+      required: true
+
+  - type: input
+    id: commit
+    attributes:
+      label: Commit / branch
+      description: Output of `git rev-parse HEAD` or the branch you're on.
+      placeholder: e.g. main @ a1b2c3d
+    validations:
+      required: true
+
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: OS, .NET / Node version, browser if relevant.
+      placeholder: |
+        - OS: Ubuntu 24.04
+        - .NET: 8.0.x
+        - Browser: Firefox 132
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / stack trace
+      description: Paste relevant output. Will be automatically formatted as a code block.
+      render: shell
+    validations:
+      required: false

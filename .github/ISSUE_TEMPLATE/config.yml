@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security report
+    url: https://github.com/bg9m9r/majik.project/security/advisories/new
+    about: Report a vulnerability privately via GitHub Security Advisories. Do not file public issues for security.
+  - name: Comprehensive Rules
+    url: https://magic.wizards.com/en/rules
+    about: Looking for the canonical rulebook? Start here. Project uses 2025-11-14 release (see majik.core/MagicCompRules*.txt).
