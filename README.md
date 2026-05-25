@@ -9,7 +9,6 @@ Pairs with [`bg9m9r/majik`](https://github.com/bg9m9r/majik) (engine + server). 
 - **Angular 21** standalone components, signals, lazy routes
 - **NgRx Signals** for store
 - **SignalR** client (`@microsoft/signalr`) against `Majik.Server`'s `/hubs/match`
-- **Descope** for auth (Discord social provider)
 - **Tailwind v4** + design tokens in `src/styles/tokens.scss`
 - **Vitest** for unit tests, **Playwright** for e2e
 - **ng-openapi-gen** — typed API client generated from `Majik.Server`'s `/openapi/v1.json` (gitignored, regen with `npm run openapi`)
@@ -20,7 +19,7 @@ Visual direction documented in [`FRONTEND_PLAN.md`](./FRONTEND_PLAN.md) and the 
 
 | Route | Component | Auth |
 |---|---|---|
-| `/login` | landing + Descope sign-in flow | anonymous |
+| `/login` | landing + sign-in | anonymous |
 | `/onboarding` | first-time handle picker | auth |
 | `/lobby` | match list, deck picker, create-match wizard | auth + profile |
 | `/decks` | deck list / editor | auth + profile |
@@ -39,7 +38,7 @@ npm run openapi          # fetches http://localhost:5057/openapi/v1.json, genera
 npm run start            # http://localhost:4200
 ```
 
-`environment.ts` defaults assume the local server at `http://localhost:5057` and a dev Descope project. The server's card pool is embedded inside the `Majik.Core` assembly, so no separate seed step is needed — `dotnet run --project Majik.Server` is enough.
+`environment.ts` defaults assume the local server at `http://localhost:5057`. The server's card pool is embedded inside the `Majik.Core` assembly, so no separate seed step is needed — `dotnet run --project Majik.Server` is enough.
 
 ## Tests
 
@@ -55,7 +54,7 @@ npm run e2e              # Playwright e2e tests
 npm run build            # production build → dist/majik-portal/browser/
 ```
 
-Production build uses Angular's `fileReplacements` to swap `environment.ts` → `environment.production.ts`. On Render the heredoc in `render.yaml`'s `buildCommand` writes the resolved `MAJIK_API_URL` / `DESCOPE_*` values into `environment.production.ts` before `ng build`.
+Production build uses Angular's `fileReplacements` to swap `environment.ts` → `environment.production.ts`. On Render the heredoc in `render.yaml`'s `buildCommand` writes the resolved env values (e.g. `MAJIK_API_URL`) into `environment.production.ts` before `ng build`.
 
 ## Deploy
 

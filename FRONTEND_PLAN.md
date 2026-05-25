@@ -17,7 +17,6 @@ Surrounding choices:
 | Framework | **Angular 18+** (standalone components, signals) | Confirmed. Standalone components avoid NgModule overhead; signals interop is solid in 18. |
 | State | **NgRx 18** + `@ngrx/effects` + `@ngrx/signals` | NgRx for global game state (canonical event-sourced shape from server). `@ngrx/signals` for component-local view state where Redux ceremony is overkill. |
 | WebSocket | **`@microsoft/signalr`** (official client) | Matches the server hub. TypeScript types ship with the package. |
-| Auth | **`@descope/angular-sdk`** against **Descope**, Discord as the social provider | Descope's Angular SDK wraps their flow engine + session management; we drop `<descope-sign-in-flow>` into the login page and subscribe to `DescopeAuthService.session$`. Discord is configured as a social OAuth provider on the Descope project; the frontend only ever speaks to Descope. Silent refresh handled by the SDK. |
 | API client | **`ng-openapi-gen`** generating from `/openapi/v1.json` | Build-time codegen produces typed services for every endpoint added in Phase 3. Regenerate when server contract changes. |
 | Styling | **Tailwind CSS** + small set of hand-written SCSS for board layout | Utility-first keeps the Arena aesthetic achievable without a heavy component library. Layout (overlap, rotation, fan) is bespoke enough that a library would fight us. |
 | Icons | **Lucide** (or Tabler) via `lucide-angular` | Clean line icons for action bar, phase bar, mana symbols. |
@@ -120,46 +119,18 @@ Two-row battlefield avoids Arena's diagonal lanes (which need animations to read
 - **Stack panel:** newest on top, controller portrait + card name + targets summary. Resolution = item slides out at the top (no fade, instant remove).
 - **No motion design beyond:** card 90° tap rotation (100ms), hover zoom card appear (instant), stack item insert/remove (instant). Everything else snaps.
 
-## Routing + auth flow
+## Routing flow
 
-Auth backend: **Descope** project with **Discord configured as a social OAuth provider** inside the Descope flow. The frontend embeds Descope's `<descope-sign-in-flow>` web component and subscribes to `DescopeAuthService.session$`; Descope handles the Discord OAuth dance, federates the identity into a Descope user, and issues a JWT signed by the project. The `sub` is an opaque, stable Descope user ID (e.g. `U2P...`) — not the Discord snowflake. The server's IdP-agnostic JwtBearer config validates against the Descope project issuer.
-
-1. `/login` — render `<descope-sign-in-flow>`. The flow shows the Discord button (alongside any other configured social providers); the user bounces through Discord and back. The SDK persists the session and emits a `success` event we use to navigate to `/lobby`.
-2. `AuthGuard` protects `/lobby` and `/game/:id` by reading `AuthService.isAuthenticated()`, which mirrors `DescopeAuthService.session$`.
+1. `/login` — landing + sign-in. On success, navigate to `/lobby`.
+2. `AuthGuard` protects `/lobby` and `/game/:id`.
 3. `/lobby` — list active games (GET /games returns count; future enhancement adds search), button to create new. Once created, route to `/game/:newId`.
 4. `/game/:id` — claim seat on enter (POST /games/{id}/seat); both seats must be claimed before start. "Start game" button calls POST /games/{id}/start?mode=full when both seats are filled.
-5. HTTP interceptor attaches `Authorization: Bearer <token>` (Descope session token) to every API request, and an `accessTokenFactory` feeds the same token into the SignalR connection builder.
-
-### API-side Descope token validation
-
-The server's `JwtBearer` scheme validates every incoming token against the configured Descope project (signature via JWKS, issuer, audience, lifetime), then runs `DescopeTokenValidator` as an `OnTokenValidated` event handler for two Majik-specific extras:
-
-1. **Non-empty sub.** Descope subs are opaque project-scoped IDs — no provider prefix to enforce. We just require the claim to be present; everything else (signing key, issuer, audience, exp) is already covered by the JwtBearer pipeline.
-2. **Discord convenience claim.** Lifts a `discordUserId` claim onto the principal from either (a) a direct `discordUserId` claim, or (b) the nested `customAttributes` JSON blob Descope emits when custom attributes are configured. Downstream code (audit log, future friends list) reads it without parsing JSON.
-
-Endpoints stay protected by the existing `AsPlayer` authorization policy; this work runs *before* authorization so a sub-less token never reaches the policy check. `GameSeating` keys seats by the Descope `sub` — the user's stable identity inside the project.
-
-Disabled when `Auth:Authority` is empty (dev convenience before the project is provisioned).
-
-### Descope setup notes
-
-One-time project config required before slice 1 lands:
-
-- Create a Descope project (`majik-dev` for development, separate prod project later). The **Project ID** (visible top-right in the console) is what both client (`projectId`) and server (`Auth:Audience`) reference.
-- **Authentication Methods → Social** — enable **Discord**, paste the Discord OAuth2 app's client id + secret, grant `identify` scope (no `email` — Discord names suffice for in-game identity).
-- **Flows** — use the default `sign-up-or-in` flow, or clone it and trim down to "Discord only" so the screen skips the connection picker.
-- **Custom Attributes** (optional but recommended) — define `discordUserId` as a string attribute, then in the flow, set it from the Discord identity's `id` after the OAuth callback so it ends up on the JWT. Without this the server still works — the `discordUserId` lift is best-effort.
-- **JWT Templates** — confirm the default user JWT template is enabled (it is by default). The audience claim is the project ID; the issuer is `https://api.descope.com/<PROJECT_ID>`.
-- Server-side `appsettings.json` fills in `Auth:Authority` (`https://api.descope.com/<PROJECT_ID>`) and `Auth:Audience` (`<PROJECT_ID>`).
-- Frontend env config (`src/environments/environment.ts`) carries `descope.projectId` and an optional `baseUrl` for self-hosted Descope deployments.
-
-The Descope `sub` is what `GameSeating` stores when a player claims a slot. Stable across logins; survives server restarts as long as the same Descope project issues the token.
 
 ## Phased roadmap (frontend slices, mirror server cadence)
 
 **Each slice ships standalone**, mirroring how the engine + server were built. Estimate is rough — adjust as the design lands.
 
-1. **Scaffold + auth** — Angular 18 standalone app, Tailwind, `@descope/angular-sdk`, AuthGuard, dummy `/lobby` and `/game/:id` routes. Descope projectId from env. ~1 day.
+1. **Scaffold + auth** — Angular 18 standalone app, Tailwind, AuthGuard, dummy `/lobby` and `/game/:id` routes. ~1 day.
 2. **API client + healthz** — wire `ng-openapi-gen`, generate typed services from `/openapi/v1.json`. Hit /whoami and render the principal. ~½ day.
 3. **Lobby** — create game form (alice/bob names), redirect to `/game/:id`. ~½ day.
 4. **Seat claim UI** — both players visit /game/:id, claim their slot. Shows "waiting for opponent" until both claimed. ~½ day.
@@ -181,7 +152,6 @@ Total rough estimate: 12–15 dev days for a playable v1.
 
 The implementation plan can answer these as their slices land:
 
-- **OIDC IdP** — **Descope with Discord social provider** (confirmed). Project setup notes above. Dev project + prod project separate; staging shares dev for now.
 - **Card image cache** — proxy through the server vs. hit Scryfall directly from the browser. Direct is simpler; revisit if CORS / rate-limit becomes an issue.
 - **Mobile / tablet support** — out of scope for v1. Design for desktop ≥1280px. Tablet-friendly layout adapts later.
 - **Spectator view** — server can support it (StateSnapshotter has a no-viewer "spectator" mode), but no UI for now. v1 = players only.
@@ -203,7 +173,6 @@ The frontend will exercise these as it lands, and may surface gaps:
 - **Action submission via SignalR** — currently every command POSTs `/games/{id}/commands`. For low-latency UX a hub-side `Submit` method would be cleaner. Add as a later server slice if HTTP-per-action proves laggy.
 - **Per-player event payload masking** — engine-side deferred per Phase 3 plan; only relevant once events carry data that opponents shouldn't see (e.g. a draw event carrying the drawn card name to the drawer). Frontend will need the masked variant when the engine adds it.
 - **CORS** — server doesn't currently enable CORS. When the frontend is hosted on a different origin from the API, add `AddCors` + an explicit allowed-origins policy on the server.
-- **OIDC IdP smoke** — first frontend slice's Descope + Discord roundtrip is the first time real tokens hit the JwtBearer setup. Watch for issuer mismatches (`https://api.descope.com/<PROJECT_ID>` exact) and audience misconfig.
 
 ## Verification
 
