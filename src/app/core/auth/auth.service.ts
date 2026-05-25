@@ -132,11 +132,34 @@ export class AuthService {
   }
 
   /**
-   * Force-refresh the access token (network round-trip via Auth0) and
-   * cache it. Used by SignalR's accessTokenFactory so reconnects don't
-   * reuse an expired JWT. Falls back to the cached token on failure.
+   * Return the current Auth0 access token using the SDK's default cache
+   * behavior — the SDK transparently refreshes only when the cached token
+   * is near expiry. This is what `SignalrService`'s `accessTokenFactory`
+   * uses by default; forcing a refresh on every connect is what triggered
+   * the prod Auth0 `invalid_grant` regression with refresh-token rotation
+   * enabled (rotated refresh tokens drift out of sync when reused
+   * aggressively across rapid reconnects).
    */
-  async refresh(): Promise<string> {
+  async getAccessToken(): Promise<string> {
+    if (this.stubMode || !this.auth0) {
+      return this._token() ?? '';
+    }
+    try {
+      const token = await firstValueFrom(this.auth0.getAccessTokenSilently());
+      if (token) this._token.set(token);
+      return token ?? this._token() ?? '';
+    } catch {
+      return this._token() ?? '';
+    }
+  }
+
+  /**
+   * Force a network-level refresh of the access token (cacheMode: 'off').
+   * Reserved for explicit retry paths — e.g. SignalR's accessTokenFactory
+   * after a 401 negotiate. Do NOT use as the default token getter; see
+   * `getAccessToken()` for the steady-state path.
+   */
+  async forceRefresh(): Promise<string> {
     if (this.stubMode || !this.auth0) {
       return this._token() ?? '';
     }

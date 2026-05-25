@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { describe, expect, it, beforeEach } from 'vitest';
-import { BehaviorSubject, NEVER, ReplaySubject, Subject } from 'rxjs';
-import { AuthService as Auth0Service } from '@auth0/auth0-angular';
+import { BehaviorSubject, NEVER, ReplaySubject, Subject, of, throwError } from 'rxjs';
+import { AuthService as Auth0Service, GetTokenSilentlyOptions } from '@auth0/auth0-angular';
 import { AUTH_BOOTSTRAP_TIMEOUT_MS, AuthService } from './auth.service';
 import { MAJIK_AUTH_CONFIG, MajikAuthConfig } from './auth.config';
 
@@ -149,4 +149,119 @@ describe('AuthService.bootstrap()', () => {
     expect(elapsed).toBeLessThan(AUTH_BOOTSTRAP_TIMEOUT_MS + 2000);
     expect(svc.isAuthenticated()).toBe(false);
   }, AUTH_BOOTSTRAP_TIMEOUT_MS + 5000);
+});
+
+/**
+ * Regression coverage for the prod Auth0 `invalid_grant` outage on
+ * `POST auth.majik.tech/oauth/token`. The previous SignalR
+ * accessTokenFactory always called a force-refresh path; with refresh
+ * token rotation enabled at Auth0, the rotated refresh token drifted
+ * out of sync across rapid reconnects and the next refresh blew up.
+ *
+ * The new contract is split:
+ *  - `getAccessToken()` uses the Auth0 SDK cache (default) — what
+ *    SignalR's accessTokenFactory + the HTTP interceptor both use in
+ *    the happy path.
+ *  - `forceRefresh()` is reserved for the explicit retry-after-401
+ *    path. Keep the two distinct so a future caller can't accidentally
+ *    regress to the aggressive behavior.
+ */
+describe('AuthService token retrieval', () => {
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  it('getAccessToken() calls Auth0 with default cache (no cacheMode: off)', async () => {
+    const observed: GetTokenSilentlyOptions[] = [];
+    const fakeAuth0 = {
+      isAuthenticated$: new BehaviorSubject<boolean>(true),
+      idTokenClaims$: new BehaviorSubject<unknown>(null),
+      error$: new Subject<any>(),
+      getAccessTokenSilently: (opts?: GetTokenSilentlyOptions) => {
+        observed.push(opts ?? {});
+        return of('cached-jwt');
+      },
+    };
+    TestBed.configureTestingModule({
+      providers: [
+        AuthService,
+        { provide: MAJIK_AUTH_CONFIG, useValue: REAL_CFG },
+        { provide: Auth0Service, useValue: fakeAuth0 },
+      ],
+    });
+    const svc = TestBed.inject(AuthService);
+
+    const token = await svc.getAccessToken();
+    expect(token).toBe('cached-jwt');
+    expect(observed).toHaveLength(1);
+    // Default cache mode — the SDK refreshes only when near expiry.
+    // The previous bug was passing `{ cacheMode: 'off' }` here, which
+    // bypassed the cache and hammered Auth0's token endpoint.
+    expect(observed[0].cacheMode).toBeUndefined();
+  });
+
+  it('forceRefresh() asks Auth0 for a fresh token (cacheMode: off)', async () => {
+    const observed: GetTokenSilentlyOptions[] = [];
+    const fakeAuth0 = {
+      isAuthenticated$: new BehaviorSubject<boolean>(true),
+      idTokenClaims$: new BehaviorSubject<unknown>(null),
+      error$: new Subject<any>(),
+      getAccessTokenSilently: (opts?: GetTokenSilentlyOptions) => {
+        observed.push(opts ?? {});
+        return of('fresh-jwt');
+      },
+    };
+    TestBed.configureTestingModule({
+      providers: [
+        AuthService,
+        { provide: MAJIK_AUTH_CONFIG, useValue: REAL_CFG },
+        { provide: Auth0Service, useValue: fakeAuth0 },
+      ],
+    });
+    const svc = TestBed.inject(AuthService);
+
+    const token = await svc.forceRefresh();
+    expect(token).toBe('fresh-jwt');
+    expect(observed[0].cacheMode).toBe('off');
+  });
+
+  it('getAccessToken() falls back to the cached signal value on Auth0 error', async () => {
+    // If Auth0 throws (e.g. network drop, transient tenant issue) the
+    // factory must not propagate — SignalR would refuse to connect.
+    // Returning the previously-cached token lets reconnect attempts
+    // continue; the server enforces token validity at negotiate time.
+    const fakeAuth0 = {
+      isAuthenticated$: new BehaviorSubject<boolean>(true),
+      idTokenClaims$: new BehaviorSubject<unknown>(null),
+      error$: new Subject<any>(),
+      getAccessTokenSilently: () => throwError(() => new Error('boom')),
+    };
+    TestBed.configureTestingModule({
+      providers: [
+        AuthService,
+        { provide: MAJIK_AUTH_CONFIG, useValue: REAL_CFG },
+        { provide: Auth0Service, useValue: fakeAuth0 },
+      ],
+    });
+    const svc = TestBed.inject(AuthService);
+
+    // No prior token cached — should resolve to ''.
+    await expect(svc.getAccessToken()).resolves.toBe('');
+    await expect(svc.forceRefresh()).resolves.toBe('');
+  });
+
+  it('returns the cached signal in stub mode without invoking Auth0', async () => {
+    TestBed.configureTestingModule({
+      providers: [
+        AuthService,
+        { provide: MAJIK_AUTH_CONFIG, useValue: STUB_CFG },
+        { provide: Auth0Service, useValue: null },
+      ],
+    });
+    const svc = TestBed.inject(AuthService);
+    // In stub mode there's no Auth0 SDK, so both paths short-circuit
+    // to the cached signal — exercise both for symmetry.
+    await expect(svc.getAccessToken()).resolves.toBe('');
+    await expect(svc.forceRefresh()).resolves.toBe('');
+  });
 });
