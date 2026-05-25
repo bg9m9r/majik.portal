@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
-import { AutoPassDeps, dispatchMatchKey, MatchKeyDeps, shouldAutoPass } from './match';
-import { CardSnapshot, GameState, PromptEnvelope } from '../../core/match/match.types';
+import {
+  AutoPassDeps,
+  dispatchMatchKey,
+  MatchKeyDeps,
+  shouldAutoPass,
+  shouldAutoSubmitRoll,
+} from './match';
+import { CardSnapshot, GameState, Match, PromptEnvelope } from '../../core/match/match.types';
 
 function card(id: string): CardSnapshot {
   return {
@@ -312,5 +318,78 @@ describe('shouldAutoPass — auto-pass guard', () => {
     const s = state({ activePlayer: 'opp', phase: 'Draw', hand: [land()] });
     expect(shouldAutoPass(PASS_ONLY_PROMPT, deps({ state: s, fullControl: false }))).toBe(true);
     expect(shouldAutoPass(PASS_ONLY_PROMPT, deps({ state: s, fullControl: true }))).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------
+// shouldAutoSubmitRoll — bot-match auto-roll guard
+// ---------------------------------------------------------------------
+
+function rollingMatch(over: Partial<Match> & { roll?: Match['roll'] } = {}): Match {
+  return {
+    id: 'm-1',
+    state: 'Rolling',
+    visibility: 'Public',
+    format: 'constructed',
+    clockMinutes: 25,
+    creator: { sub: 'human-sub', handle: 'Human', deckId: 'd-h' },
+    opponent: { sub: 'bot-sub', handle: 'Bot', deckId: 'd-b' },
+    roll: { creatorRoll: null, opponentRoll: 1, winnerSub: null },
+    firstChoice: null,
+    gameId: null,
+    creatorMillisRemaining: 1500_000,
+    opponentMillisRemaining: 1500_000,
+    priorityHolderSub: null,
+    priorityStartedAt: null,
+    winnerSub: null,
+    timeoutLoserSub: null,
+    createdAt: '2026-05-25T00:00:00Z',
+    updatedAt: '2026-05-25T00:00:00Z',
+    ...over,
+  };
+}
+
+describe('shouldAutoSubmitRoll — bot-match auto-roll guard', () => {
+  // Regression for the screenshot bug: in a bot match the bot rolls
+  // first (opponentRoll=1), then the human's auto-roll effect fires
+  // before Auth0 idTokenClaims$ has emitted, so auth.principal() is
+  // null. The old gate bailed on null principal and the match got
+  // stuck. The new guard ignores principal entirely.
+  it('fires for a fresh Rolling match even before auth.principal() resolves', () => {
+    const m = rollingMatch({
+      roll: { creatorRoll: null, opponentRoll: 1, winnerSub: null },
+    });
+    expect(shouldAutoSubmitRoll(m, false)).toBe(true);
+  });
+
+  it('does not fire once the roll has a winner', () => {
+    const m = rollingMatch({
+      roll: { creatorRoll: 4, opponentRoll: 1, winnerSub: 'human-sub' },
+    });
+    expect(shouldAutoSubmitRoll(m, false)).toBe(false);
+  });
+
+  it('does not fire when already submitted in this page lifetime', () => {
+    const m = rollingMatch();
+    expect(shouldAutoSubmitRoll(m, true)).toBe(false);
+  });
+
+  it('does not fire when the match snapshot is null', () => {
+    expect(shouldAutoSubmitRoll(null, false)).toBe(false);
+  });
+
+  it('does not fire outside Rolling state', () => {
+    const m = rollingMatch({ state: 'Playing' });
+    expect(shouldAutoSubmitRoll(m, false)).toBe(false);
+  });
+
+  it('fires even when the viewer-side slot already looks filled (server is idempotent)', () => {
+    // Worst-case race: another snapshot landed with both slots filled
+    // but no winner yet (mid-resolution). Server still safely returns
+    // the current snapshot — we don't need to second-guess it.
+    const m = rollingMatch({
+      roll: { creatorRoll: 6, opponentRoll: 1, winnerSub: null },
+    });
+    expect(shouldAutoSubmitRoll(m, false)).toBe(true);
   });
 });

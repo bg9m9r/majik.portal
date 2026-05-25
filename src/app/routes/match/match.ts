@@ -259,16 +259,22 @@ export class MatchPage implements OnInit, OnDestroy {
         this.botThinking.set(false);
       }
     });
+    // Auto-roll on Rolling state. We deliberately do NOT gate on
+    // `auth.principal()` / creator-vs-opponent slot detection here —
+    // the server already maps the caller's JWT `sub` onto the correct
+    // seat and treats a duplicate `submitRoll` for an already-filled
+    // slot as a silent no-op (see `MatchService.SubmitRollAsync` in
+    // majik.core). Adding client-side gating was the source of a
+    // stuck-on-"ROLL FOR FIRST PLAYER" bug: in a bot match the human's
+    // `auth.principal()` can be null while the Auth0 `idTokenClaims$`
+    // stream is still bootstrapping, so the effect bailed and never
+    // fired. Trust the server: fire once per page lifetime as soon as
+    // we see Rolling state, stop once a winner is recorded.
     effect(() => {
       const m = this.matchSvc.current();
-      if (!m || m.state !== 'Rolling' || this.rollSubmitted) return;
-      const sub = this.auth.principal()?.sub;
-      if (!sub) return;
-      const isCreator = sub === m.creator.sub;
-      const slotFilled = isCreator ? m.roll?.creatorRoll != null : m.roll?.opponentRoll != null;
-      if (slotFilled) return;
+      if (!shouldAutoSubmitRoll(m, this.rollSubmitted)) return;
       this.rollSubmitted = true;
-      void this.matchSvc.submitRoll(m.id).then(r => {
+      void this.matchSvc.submitRoll(m!.id).then(r => {
         if (!r.ok) this.rollSubmitted = false;
       });
     });
@@ -883,6 +889,40 @@ export function shouldAutoPass(p: PromptEnvelope, deps: AutoPassDeps): boolean {
       !(c.types ?? []).map(t => t.toLowerCase()).includes('land'));
     if (hasNonLand) return false;
   }
+  return true;
+}
+
+// ---------------------------------------------------------------------
+// Auto-roll guard.
+//
+// Decides whether the Rolling-state effect should fire `submitRoll` on
+// this signal-tick. Extracted as a pure function so it can be unit-
+// tested without standing up MatchPage's full DI graph.
+//
+// Rules:
+//   * No match snapshot yet → never roll.
+//   * Match isn't in Rolling state → never roll.
+//   * Roll already resolved (winnerSub set) → never roll.
+//   * Already submitted in this page lifetime → never roll (the
+//     component caller flips `submitted=true` synchronously to dedupe
+//     re-entrancy from overlapping signal recomputes).
+//
+// We intentionally do NOT inspect `auth.principal()` or per-slot fill
+// state here. The server is the authority on which seat the caller
+// occupies (mapped from JWT `sub`) and `submitRoll` is idempotent for
+// an already-filled slot, so any client-side gating just risks
+// stalling the flow when Auth0 hasn't emitted claims yet (the bot-
+// match "stuck on ROLL FOR FIRST PLAYER" bug). See
+// `Majik.Server/Matches/MatchService.SubmitRollAsync`.
+// ---------------------------------------------------------------------
+export function shouldAutoSubmitRoll(
+  m: Match | null,
+  submitted: boolean,
+): boolean {
+  if (!m) return false;
+  if (m.state !== 'Rolling') return false;
+  if (submitted) return false;
+  if (m.roll?.winnerSub) return false;
   return true;
 }
 
