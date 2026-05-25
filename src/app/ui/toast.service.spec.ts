@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { describe, expect, it, beforeEach, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ToastService } from './toast.service';
 
 describe('ToastService', () => {
@@ -9,6 +9,10 @@ describe('ToastService', () => {
     TestBed.configureTestingModule({ providers: [ToastService] });
     svc = TestBed.inject(ToastService);
     vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('starts empty', () => {
