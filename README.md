@@ -39,7 +39,7 @@ npm run openapi          # fetches http://localhost:5057/openapi/v1.json, genera
 npm run start            # http://localhost:4200
 ```
 
-`environment.ts` defaults assume the local server at `http://localhost:5057` and a dev Descope project. To run UI work without a backend, leave the API up but pre-seed `cards.db` once (see the core repo's README).
+`environment.ts` defaults assume the local server at `http://localhost:5057` and a dev Descope project. The server's card pool is embedded inside the `Majik.Core` assembly, so no separate seed step is needed — `dotnet run --project Majik.Server` is enough.
 
 ## Tests
 
