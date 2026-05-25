@@ -1,0 +1,32 @@
+majik.portal
+Copyright 2026 Brett Gamerson
+
+This product includes software developed as part of the Majik project
+(https://github.com/bg9m9r/majik.portal).
+
+----------------------------------------------------------------------
+
+Magic: The Gathering Fan Content Notice
+
+Majik is unofficial Fan Content permitted under the Wizards of the Coast
+Fan Content Policy (https://company.wizards.com/en/legal/fancontentpolicy).
+Not approved or endorsed by Wizards. Portions of the materials used are
+property of Wizards of the Coast. (c) Wizards of the Coast LLC.
+
+"Magic: The Gathering" and all related card names, mana symbols, set
+symbols, and rules text rendered by this client are trademarks and/or
+copyrighted material of Wizards of the Coast LLC. Use of these marks in
+this project is descriptive and nominative; no affiliation, sponsorship,
+or endorsement is claimed or implied.
+
+----------------------------------------------------------------------
+
+Third-Party Components
+
+Brand assets (public/logo/)
+  The Majik brand mark is part of the Majik design system and is
+  released under the Apache-2.0 license of this repository. Use as-is
+  if you fork; do not modify the mark to imply endorsement.
+
+npm dependencies carry their own licenses; see node_modules/<pkg>/LICENSE
+or `npm ls --long` for the resolved graph.

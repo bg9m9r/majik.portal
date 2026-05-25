@@ -87,6 +87,18 @@ From the Majik design system (`/skill majik-design`):
 
 The engine cites `MagicCompRules 20251114.txt` (2025-11-14 Comp Rules) as the source of truth. When the UI surfaces wording (prompts, tooltips, etc.), match the rules text. Cite rule numbers (e.g. `Rule 704.5j`) in code and reviews.
 
+## Contributing
+
+See [`CONTRIBUTING.md`](./CONTRIBUTING.md). All commits must carry a DCO `Signed-off-by` trailer (`git commit -s`).
+
 ## License
 
-Open source. Brand mark in `public/logo/` is part of the Majik design system — use as-is if you fork.
+Source code is licensed under the [Apache License, Version 2.0](./LICENSE). Third-party attributions in [`NOTICE`](./NOTICE).
+
+Brand mark in `public/logo/` is part of the Majik design system — use as-is if you fork; do not modify it to imply endorsement.
+
+### Magic: The Gathering Fan Content
+
+majik.portal is unofficial Fan Content permitted under the [Wizards Fan Content Policy](https://company.wizards.com/en/legal/fancontentpolicy). Not approved or endorsed by Wizards. Portions of the materials used are property of Wizards of the Coast. © Wizards of the Coast LLC.
+
+"Magic: The Gathering" and all related card names, mana symbols, set symbols, and rules text rendered by this client are trademarks and/or copyrighted material of Wizards of the Coast LLC.
