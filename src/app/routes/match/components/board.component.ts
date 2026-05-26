@@ -236,6 +236,8 @@ import { ManaColorPickerComponent } from '../../../ui/mana-color-picker.componen
               <div
                 class="stack-item py-1 text-xs"
                 [class.stack-item--top]="i === 0"
+                [class.stack-item--trigger]="item.kind === 'TriggeredAbility'"
+                [attr.data-stack-kind]="item.kind"
                 animate.enter="stack-item-enter"
                 animate.leave="stack-item-leave">
                 <div class="font-semibold">{{ item.kind }}</div>

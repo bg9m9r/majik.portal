@@ -210,6 +210,26 @@
     border-left-color: var(--majik-accent-strong);
     opacity: 1;
   }
+
+  // Triggered ability — landed on the stack passively (ETB, dies,
+  // upkeep, etc.) without an explicit user cast. These are the easiest
+  // to miss when the only legal priority action is PassPriority and
+  // the auto-pass effect would otherwise resolve them invisibly, so
+  // give them a distinctive amber tint + a brief pulse on arrival
+  // (in addition to the stack-mutation display window enforced by
+  // shouldAutoPass). Sticks for a beat then settles — the goal is "the
+  // user definitely sees this exist", not a permanent visual.
+  &--trigger {
+    border-left-color: var(--majik-warn, #f4b740);
+    background: rgba(244, 183, 64, 0.08);
+    animation: stack-item-trigger-pulse 1200ms ease-out 1;
+  }
+}
+
+@keyframes stack-item-trigger-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(244, 183, 64, 0.55); }
+  60%  { box-shadow: 0 0 0 6px rgba(244, 183, 64, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(244, 183, 64, 0); }
 }
 
 // Stack-item enter / leave — applied via Angular 21's animate.enter /

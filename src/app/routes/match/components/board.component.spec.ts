@@ -137,3 +137,39 @@ describe('BoardComponent — opponent hand rendering', () => {
     expect(oppHandRow.getAttribute('aria-label')).toBe('opponent hand, 5 cards');
   });
 });
+
+describe('BoardComponent — stack viewer trigger highlight', () => {
+  it('marks TriggeredAbility items with stack-item--trigger so the user notices them', () => {
+    // Bug repro coverage: when an ETB trigger lands on the stack the
+    // stack item needs a visible marker so the user sees it before any
+    // auto-pass resolves it (the timing side of the fix lives in the
+    // shouldAutoPass guard). This test pins the class name the stylesheet
+    // hooks the amber pulse onto.
+    const me = player({ id: 'me', name: 'Alice' });
+    const opp = player({ id: 'opp', name: 'Bob' });
+    const state: GameState = {
+      phase: 'Main',
+      turnNumber: 1,
+      activePlayerId: 'me',
+      players: [me, opp],
+      stack: [
+        { id: 's-trigger', kind: 'TriggeredAbility', description: 'ETB trigger' },
+        { id: 's-spell', kind: 'Spell', description: 'Lightning Bolt' },
+      ],
+    };
+
+    const { fixture } = mountBoard(state, ['me']);
+
+    const items: HTMLElement[] = Array.from(
+      fixture.nativeElement.querySelectorAll('.stack-item'),
+    );
+    expect(items.length).toBe(2);
+
+    const trigger = items.find(el => el.getAttribute('data-stack-kind') === 'TriggeredAbility');
+    const spell = items.find(el => el.getAttribute('data-stack-kind') === 'Spell');
+    expect(trigger).toBeTruthy();
+    expect(spell).toBeTruthy();
+    expect(trigger!.classList.contains('stack-item--trigger')).toBe(true);
+    expect(spell!.classList.contains('stack-item--trigger')).toBe(false);
+  });
+});
