@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   AutoPassDeps,
+  STACK_MUTATION_DISPLAY_MS,
   dispatchMatchKey,
   MatchKeyDeps,
   shouldAutoPass,
   shouldAutoSubmitRoll,
+  stackSignature,
 } from './match';
 import { CardSnapshot, GameState, Match, PromptEnvelope } from '../../core/match/match.types';
 
@@ -203,6 +205,10 @@ function deps(over: Partial<AutoPassDeps> = {}): AutoPassDeps {
     selfPlayerIds: [ME],
     phaseStops: {},
     fullControl: false,
+    // Default: stack has never mutated (page just loaded); guard
+    // short-circuits the timing check and falls through to the rest.
+    lastStackMutatedAt: null,
+    nowMs: 1_000_000_000,
     ...over,
   };
 }
@@ -318,6 +324,119 @@ describe('shouldAutoPass — auto-pass guard', () => {
     const s = state({ activePlayer: 'opp', phase: 'Draw', hand: [land()] });
     expect(shouldAutoPass(PASS_ONLY_PROMPT, deps({ state: s, fullControl: false }))).toBe(true);
     expect(shouldAutoPass(PASS_ONLY_PROMPT, deps({ state: s, fullControl: true }))).toBe(false);
+  });
+
+  // -----------------------------------------------------------------
+  // Stack-mutation display window. When a triggered ability / spell
+  // lands on the stack the user needs a beat to see it before any
+  // auto-pass would resolve it. The guard reads lastStackMutatedAt +
+  // nowMs to enforce STACK_MUTATION_DISPLAY_MS. Bug repro: Dredger's
+  // Insight ETB trigger landed on stack, only legal action was Pass,
+  // both players auto-passed and the trigger resolved invisibly.
+  // -----------------------------------------------------------------
+
+  it('stack mutated <600ms ago → never auto-pass (minimum-display window)', () => {
+    // The repro: a triggered ability is mid-resolution so the stack is
+    // empty by the time this priority round lands, but the user hasn't
+    // had time to register the trigger yet. With the timer active,
+    // auto-pass is suppressed even though the empty-stack guard would
+    // otherwise let the pass through.
+    const s = state({ activePlayer: 'me', phase: 'PreCombatMain', hand: [] });
+    const now = 5_000;
+    const d = deps({
+      state: s,
+      lastStackMutatedAt: now - 200,
+      nowMs: now,
+    });
+    expect(shouldAutoPass(PASS_ONLY_PROMPT, d)).toBe(false);
+  });
+
+  it('stack mutated exactly at window boundary → still suppressed', () => {
+    const s = state({ activePlayer: 'me', phase: 'PreCombatMain', hand: [] });
+    const now = 5_000;
+    const d = deps({
+      state: s,
+      lastStackMutatedAt: now - (STACK_MUTATION_DISPLAY_MS - 1),
+      nowMs: now,
+    });
+    expect(shouldAutoPass(PASS_ONLY_PROMPT, d)).toBe(false);
+  });
+
+  it('stack mutated >600ms ago + pass-only prompt → auto-pass clears', () => {
+    // Window expired — guard falls through to the regular auto-pass
+    // path and the existing pass-only conditions take over.
+    const s = state({ activePlayer: 'me', phase: 'PreCombatMain', hand: [] });
+    const now = 5_000;
+    const d = deps({
+      state: s,
+      lastStackMutatedAt: now - (STACK_MUTATION_DISPLAY_MS + 50),
+      nowMs: now,
+    });
+    expect(shouldAutoPass(PASS_ONLY_PROMPT, d)).toBe(true);
+  });
+
+  it('lastStackMutatedAt null (page-load default) → no timer block', () => {
+    // Boot path — no stack changes have been observed yet so the
+    // display-window guard is inert and the other guards decide.
+    const s = state({ activePlayer: 'me', phase: 'PreCombatMain', hand: [] });
+    const d = deps({ state: s, lastStackMutatedAt: null, nowMs: 5_000 });
+    expect(shouldAutoPass(PASS_ONLY_PROMPT, d)).toBe(true);
+  });
+
+  it('stack mutation window suppresses even when stack is non-empty too', () => {
+    // Sanity: the stack-non-empty guard (4) is still the front-line
+    // for "the stack literally has stuff on it"; this case just
+    // confirms the timer doesn't somehow flip a non-empty stack into
+    // an auto-pass.
+    const s = state({ activePlayer: 'me', phase: 'PreCombatMain', hand: [] });
+    s.stack = [{ id: 's1', kind: 'TriggeredAbility', description: 'ETB trigger' }];
+    const now = 5_000;
+    const d = deps({
+      state: s,
+      lastStackMutatedAt: now - 100,
+      nowMs: now,
+    });
+    expect(shouldAutoPass(PASS_ONLY_PROMPT, d)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------
+// stackSignature — cheap "did the stack change?" hash
+// ---------------------------------------------------------------------
+
+describe('stackSignature', () => {
+  it('returns the same sentinel for null and empty stacks', () => {
+    expect(stackSignature(null)).toBe('0|');
+    expect(stackSignature(state())).toBe('0|');
+  });
+
+  it('differs when an item is added', () => {
+    const empty = state();
+    const oneItem = state();
+    oneItem.stack = [{ id: 's1', kind: 'TriggeredAbility', description: 't' }];
+    expect(stackSignature(empty)).not.toBe(stackSignature(oneItem));
+  });
+
+  it('differs when an item is replaced (resolve + new arrival)', () => {
+    const a = state();
+    a.stack = [{ id: 's1', kind: 'TriggeredAbility', description: 'a' }];
+    const b = state();
+    b.stack = [{ id: 's2', kind: 'TriggeredAbility', description: 'b' }];
+    expect(stackSignature(a)).not.toBe(stackSignature(b));
+  });
+
+  it('matches across re-renders of the same stack', () => {
+    const a = state();
+    a.stack = [
+      { id: 's1', kind: 'TriggeredAbility', description: 'a' },
+      { id: 's2', kind: 'Spell', description: 'b' },
+    ];
+    const b = state();
+    b.stack = [
+      { id: 's1', kind: 'TriggeredAbility', description: 'a' },
+      { id: 's2', kind: 'Spell', description: 'b' },
+    ];
+    expect(stackSignature(a)).toBe(stackSignature(b));
   });
 });
 
