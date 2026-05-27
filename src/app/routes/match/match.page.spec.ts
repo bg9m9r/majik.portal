@@ -56,6 +56,7 @@ describe('MatchPage — resilience wiring', () => {
   let sessionExpiredSig: ReturnType<typeof signal<boolean>>;
   let state$: Subject<unknown>;
 
+  let authExpiredSig: ReturnType<typeof signal<boolean>>;
   let matchSvc: any;
   let signalr: any;
   let game: any;
@@ -84,6 +85,7 @@ describe('MatchPage — resilience wiring', () => {
     stateSig = signal<ConnectionState>('idle');
     reconnectFailedSig = signal(false);
     sessionExpiredSig = signal(false);
+    authExpiredSig = signal(false);
     state$ = new Subject<unknown>();
 
     matchSvc = {
@@ -145,6 +147,7 @@ describe('MatchPage — resilience wiring', () => {
           useValue: {
             principal: signal({ sub: 'me' }),
             handle: signal('Me'),
+            sessionExpired: authExpiredSig.asReadonly(),
           },
         },
         {
@@ -242,11 +245,20 @@ describe('MatchPage — resilience wiring', () => {
 
   // --- session expiry recovery --------------------------------------
 
-  it('sessionExpired latch toasts and redirects to /login', () => {
+  it('SignalR sessionExpired latch toasts and redirects to /login', () => {
     const page = init();
     void page; // constructed; the effect is registered
     sessionExpiredSig.set(true);
     TestBed.tick(); // flush effect
+    expect(toast.current()?.message).toContain('Session expired');
+    expect(router.navigate).toHaveBeenCalledWith(['/login']);
+  });
+
+  it('AuthUserStore sessionExpired (forceRefresh failure) also toasts + redirects', () => {
+    const page = init();
+    void page;
+    authExpiredSig.set(true);
+    TestBed.tick();
     expect(toast.current()?.message).toContain('Session expired');
     expect(router.navigate).toHaveBeenCalledWith(['/login']);
   });

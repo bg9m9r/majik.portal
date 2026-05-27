@@ -228,6 +228,81 @@ describe('AuthUserStore token retrieval', () => {
     await expect(store.forceRefresh()).resolves.toBe('');
   });
 
+  it('forceRefresh() failure latches sessionExpired (refresh token dead → do not silently reuse)', async () => {
+    const store = configure([
+      { provide: MAJIK_AUTH_CONFIG, useValue: REAL_CFG },
+      {
+        provide: Auth0Service,
+        useValue: {
+          isAuthenticated$: new BehaviorSubject<boolean>(true),
+          idTokenClaims$: new BehaviorSubject<unknown>(null),
+          error$: new Subject<any>(),
+          getAccessTokenSilently: () => throwError(() => new Error('invalid_grant')),
+        },
+      },
+    ]);
+    expect(store.sessionExpired()).toBe(false);
+    await store.forceRefresh();
+    expect(store.sessionExpired()).toBe(true);
+  });
+
+  it('getAccessToken() failure does NOT latch sessionExpired (could be transient)', async () => {
+    const store = configure([
+      { provide: MAJIK_AUTH_CONFIG, useValue: REAL_CFG },
+      {
+        provide: Auth0Service,
+        useValue: {
+          isAuthenticated$: new BehaviorSubject<boolean>(true),
+          idTokenClaims$: new BehaviorSubject<unknown>(null),
+          error$: new Subject<any>(),
+          getAccessTokenSilently: () => throwError(() => new Error('blip')),
+        },
+      },
+    ]);
+    await store.getAccessToken();
+    expect(store.sessionExpired()).toBe(false);
+  });
+
+  it('a successful forceRefresh clears a previously-latched sessionExpired', async () => {
+    let fail = true;
+    const store = configure([
+      { provide: MAJIK_AUTH_CONFIG, useValue: REAL_CFG },
+      {
+        provide: Auth0Service,
+        useValue: {
+          isAuthenticated$: new BehaviorSubject<boolean>(true),
+          idTokenClaims$: new BehaviorSubject<unknown>(null),
+          error$: new Subject<any>(),
+          getAccessTokenSilently: () => (fail ? throwError(() => new Error('dead')) : of('fresh-jwt')),
+        },
+      },
+    ]);
+    await store.forceRefresh();
+    expect(store.sessionExpired()).toBe(true);
+    fail = false;
+    await store.forceRefresh();
+    expect(store.sessionExpired()).toBe(false);
+  });
+
+  it('clearSessionExpired() resets the latch', async () => {
+    const store = configure([
+      { provide: MAJIK_AUTH_CONFIG, useValue: REAL_CFG },
+      {
+        provide: Auth0Service,
+        useValue: {
+          isAuthenticated$: new BehaviorSubject<boolean>(true),
+          idTokenClaims$: new BehaviorSubject<unknown>(null),
+          error$: new Subject<any>(),
+          getAccessTokenSilently: () => throwError(() => new Error('dead')),
+        },
+      },
+    ]);
+    await store.forceRefresh();
+    expect(store.sessionExpired()).toBe(true);
+    store.clearSessionExpired();
+    expect(store.sessionExpired()).toBe(false);
+  });
+
   it('returns the cached signal in stub mode without invoking Auth0', async () => {
     const store = configure([
       { provide: MAJIK_AUTH_CONFIG, useValue: STUB_CFG },

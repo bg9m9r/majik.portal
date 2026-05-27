@@ -265,19 +265,21 @@ export class MatchPage implements OnInit, OnDestroy {
         this.botThinking.set(false);
       }
     });
-    // Session-expiry recovery. A 401 mid-session (or a forceRefresh that
-    // couldn't recover) leaves SignalR's sessionExpired latch set. Rather
-    // than silently spinning on a stale token, surface it once and bounce
-    // the user to /login so they re-authenticate. Guarded so it fires a
-    // single time per expiry.
+    // Session-expiry recovery. A 401 mid-session leaves SignalR's
+    // sessionExpired latch set; a forceRefresh that couldn't recover leaves
+    // AuthUserStore's sessionExpired latch set. Either means the session is
+    // dead — rather than silently spinning on a stale token, surface it
+    // once and bounce the user to /login so they re-authenticate. Guarded
+    // so it fires a single time per expiry.
     let sessionExpiredHandled = false;
     effect(() => {
-      if (this.signalr.sessionExpired() && !sessionExpiredHandled) {
+      const expired = this.signalr.sessionExpired() || this.auth.sessionExpired();
+      if (expired && !sessionExpiredHandled) {
         sessionExpiredHandled = true;
         this.toast.error('Session expired — please sign in again');
         void this.router.navigate(['/login']);
       }
-      if (!this.signalr.sessionExpired()) {
+      if (!expired) {
         sessionExpiredHandled = false;
       }
     });
