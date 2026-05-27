@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { HttpError } from '@microsoft/signalr';
-import { AuthService } from '../auth/auth.service';
+import { AuthUserStore } from '../auth/auth-user.store';
 import { SignalrService } from './signalr.service';
 
 // Pure tests for the static wire→DTO normaliser. Standing up a live
@@ -153,11 +153,11 @@ describe('SignalrService prompt$/event$ replay semantics', () => {
     TestBed.configureTestingModule({
       providers: [
         SignalrService,
-        // AuthService is only needed because SignalrService injects it
+        // AuthUserStore is only needed because SignalrService injects it
         // for the SignalR accessTokenFactory. We never call connect() in
         // these tests, so a hollow stub is sufficient.
         {
-          provide: AuthService,
+          provide: AuthUserStore,
           useValue: {
             getAccessToken: () => Promise.resolve(''),
             forceRefresh: () => Promise.resolve(''),
@@ -223,7 +223,7 @@ describe('SignalrService.isAuthError', () => {
 // dance. Standing up a real HubConnection would require a network
 // double, so we exercise the same code path through a thin helper: the
 // connect() builder is what wires accessTokenFactory, but the closure
-// captures `this.retryWithFreshToken` + the AuthService stub, so we can
+// captures `this.retryWithFreshToken` + the AuthUserStore stub, so we can
 // replicate it inline by reading the flag through the same Internal cast
 // the replay tests use.
 describe('SignalrService accessTokenFactory cache-vs-refresh', () => {
@@ -236,7 +236,7 @@ describe('SignalrService accessTokenFactory cache-vs-refresh', () => {
     // Mirror the closure logic in connect() so the unit test exercises
     // the exact same branch under test. If the production closure
     // diverges from this, the integration build will fail anyway because
-    // both paths read the same flag + AuthService surface.
+    // both paths read the same flag + AuthUserStore surface.
     const internal = svc as unknown as Internal;
     return () => {
       if (internal.retryWithFreshToken) {
@@ -254,7 +254,7 @@ describe('SignalrService accessTokenFactory cache-vs-refresh', () => {
       providers: [
         SignalrService,
         {
-          provide: AuthService,
+          provide: AuthUserStore,
           useValue: {
             getAccessToken: () => { calls.push('cached'); return Promise.resolve('cached-jwt'); },
             forceRefresh: () => { calls.push('forced'); return Promise.resolve('forced-jwt'); },
@@ -277,7 +277,7 @@ describe('SignalrService accessTokenFactory cache-vs-refresh', () => {
       providers: [
         SignalrService,
         {
-          provide: AuthService,
+          provide: AuthUserStore,
           useValue: {
             getAccessToken: () => { calls.push('cached'); return Promise.resolve('cached-jwt'); },
             forceRefresh: () => { calls.push('forced'); return Promise.resolve('forced-jwt'); },

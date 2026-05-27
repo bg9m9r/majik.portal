@@ -1,7 +1,7 @@
 import { Component, effect, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { AuthService as Auth0Service } from '@auth0/auth0-angular';
-import { AuthService } from '../../core/auth/auth.service';
+import { AuthUserStore } from '../../core/auth/auth-user.store';
 
 @Component({
   selector: 'app-login',
@@ -93,7 +93,7 @@ import { AuthService } from '../../core/auth/auth.service';
   `]
 })
 export class LoginPage {
-  readonly auth = inject(AuthService);
+  readonly auth = inject(AuthUserStore);
   private readonly auth0 = inject(Auth0Service, { optional: true });
   private readonly router = inject(Router);
 

@@ -2,7 +2,7 @@ import { HttpInterceptorFn } from '@angular/common/http';
 import { inject } from '@angular/core';
 import { AuthService as Auth0Service } from '@auth0/auth0-angular';
 import { switchMap } from 'rxjs';
-import { AuthService } from './auth.service';
+import { AuthUserStore } from './auth-user.store';
 import { environment } from '../../../environments/environment';
 
 /**
@@ -21,7 +21,7 @@ export function shouldAttachAuth(url: string, apiBase: string): boolean {
 }
 
 export const authInterceptor: HttpInterceptorFn = (req, next) => {
-  const auth = inject(AuthService);
+  const auth = inject(AuthUserStore);
 
   // Stub mode: no Auth0 SDK in DI, skip auth header injection
   if (auth.isStub) {

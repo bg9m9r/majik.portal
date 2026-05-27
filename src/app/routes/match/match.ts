@@ -14,8 +14,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { MatchService } from '../../core/match/match.service';
 import { SignalrService } from '../../core/signalr/signalr.service';
-import { AuthService } from '../../core/auth/auth.service';
-import { ProfileService } from '../../core/profile/profile.service';
+import { AuthUserStore } from '../../core/auth/auth-user.store';
 import { GameStore } from '../../core/match/game.store';
 import { WaitingStateComponent } from './components/waiting-state.component';
 import { RollingStateComponent } from './components/rolling-state.component';
@@ -144,8 +143,8 @@ export class MatchPage implements OnInit, OnDestroy {
   private readonly matchSvc = inject(MatchService);
   private readonly signalr = inject(SignalrService);
   private readonly destroyRef = inject(DestroyRef);
-  readonly auth = inject(AuthService);
-  readonly profile = inject(ProfileService);
+  readonly auth = inject(AuthUserStore);
+  readonly profile = this.auth;
   readonly game = inject(GameStore);
   private readonly toast = inject(ToastService);
 

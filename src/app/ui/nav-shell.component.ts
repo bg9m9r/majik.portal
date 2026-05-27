@@ -2,8 +2,7 @@ import { Component, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router, RouterLink, RouterLinkActive } from '@angular/router';
 import { filter, map, startWith } from 'rxjs';
-import { AuthService } from '../core/auth/auth.service';
-import { ProfileService } from '../core/profile/profile.service';
+import { AuthUserStore } from '../core/auth/auth-user.store';
 
 @Component({
   selector: 'app-nav-shell',
@@ -30,8 +29,8 @@ import { ProfileService } from '../core/profile/profile.service';
 })
 export class NavShellComponent {
   private readonly router = inject(Router);
-  private readonly auth = inject(AuthService);
-  private readonly profile = inject(ProfileService);
+  private readonly auth = inject(AuthUserStore);
+  private readonly profile = this.auth;
 
   onLogout(): void {
     this.auth.logout();

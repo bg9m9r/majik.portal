@@ -3,7 +3,7 @@ import { patchState, signalStore, withComputed, withHooks, withMethods, withStat
 import { NormalisedEventDto, normaliseEvent, pickBoolean, pickNumber, pickString, pickStringArray } from './event.types';
 import { patchGameState } from './event.reducer';
 import { AutoPassDeps, shouldAutoPass, stackSignature, autoPassPromptKey } from './match-session';
-import { AuthService } from '../auth/auth.service';
+import { AuthUserStore } from '../auth/auth-user.store';
 import { MatchService } from './match.service';
 import { BotDecision, GameCommand, GameState, Match, PromptEnvelope } from './match.types';
 
@@ -185,10 +185,10 @@ export const GameStore = signalStore(
     activePlayerId: computed(() => state()?.activePlayerId ?? null),
   })),
   // Clock + auto-pass derivations. These read the viewer sub
-  // (AuthService.principal), the live MatchDto (MatchService.current),
+  // (AuthUserStore.principal), the live MatchDto (MatchService.current),
   // and store-internal tick signals — injected here so the store is the
   // single source of truth and is unit-testable with fake providers.
-  withComputed((store, auth = inject(AuthService), matchSvc = inject(MatchService)) => ({
+  withComputed((store, auth = inject(AuthUserStore), matchSvc = inject(MatchService)) => ({
     selfTimerState: computed<TimerState | null>(() =>
       timerStateFor('self', matchSvc.current(), store.clockAnchor(), auth.principal()?.sub ?? null, store.tick())),
     opponentTimerState: computed<TimerState | null>(() =>
