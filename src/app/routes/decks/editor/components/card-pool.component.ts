@@ -29,7 +29,7 @@ import { CardFiltersComponent } from './card-filters.component';
           <p class="text-red-300/80 text-xs">Search failed.</p>
           <button type="button"
                   class="self-start rounded border border-[color:var(--majik-line)] px-2 py-1 text-xs"
-                  (click)="search.setQuery(search.query())">Retry</button>
+                  (click)="search.retry()">Retry</button>
         </div>
       } @else if (search.results().length === 0 && search.query().trim()) {
         <p class="text-xs opacity-50">— no matches —</p>

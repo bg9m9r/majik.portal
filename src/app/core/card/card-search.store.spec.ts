@@ -72,6 +72,40 @@ describe('CardSearchStore', () => {
     expect(store.error()).toBe('search-failed');
   });
 
+  it('retry() re-runs the current query even when unchanged (bypasses distinctUntilChanged)', () => {
+    // Reproduce the error path: search the query, it fails.
+    store.setQuery('bolt');
+    vi.advanceTimersByTime(400);
+    search$.error(new Error('boom'));
+    expect(store.error()).toBe('search-failed');
+
+    const callsBefore = searchSpy.mock.calls.length;
+    // A naive setQuery(query()) would be swallowed by distinctUntilChanged.
+    // retry() must fire a fresh search with the same query.
+    const retry$ = new Subject<Card[]>();
+    searchSpy.mockImplementationOnce(() => retry$);
+    store.retry();
+    expect(searchSpy.mock.calls.length).toBe(callsBefore + 1);
+    const lastCall = searchSpy.mock.calls[searchSpy.mock.calls.length - 1];
+    expect(lastCall[0]).toBe('bolt');
+
+    retry$.next([makeCard('Lightning Bolt')]);
+    expect(store.error()).toBeNull();
+    expect(store.results()).toHaveLength(1);
+  });
+
+  it('retry() sets loading and clears error before the re-run resolves', () => {
+    store.setQuery('x');
+    vi.advanceTimersByTime(400);
+    search$.error(new Error('boom'));
+
+    const retry$ = new Subject<Card[]>();
+    searchSpy.mockImplementationOnce(() => retry$);
+    store.retry();
+    expect(store.loading()).toBe(true);
+    expect(store.error()).toBeNull();
+  });
+
   it('setFilters triggers search with current query + new filters', () => {
     store.setFilters({ colors: ['R'] });
     expect(searchSpy).toHaveBeenCalledWith('', 50, 0, { colors: ['R'] });
