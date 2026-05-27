@@ -47,7 +47,7 @@ import {
       <header class="flex items-center justify-between border-b border-[color:var(--majik-line)] p-3">
         <div class="flex items-center gap-3">
           <h1 class="majik-h2">Match <code class="majik-code">{{ id }}</code></h1>
-          @if (myTimerState(); as t) {
+          @if (game.selfTimerState(); as t) {
             <span
               class="match-timer"
               [class.match-timer--active]="t.active"
@@ -59,7 +59,7 @@ import {
           }
         </div>
         <div class="flex items-center gap-3 text-xs">
-          @if (fullControl()) {
+          @if (game.fullControl()) {
             <span
               class="full-control-chip"
               role="status"
@@ -67,7 +67,7 @@ import {
               ⌃ FULL CONTROL
             </span>
           }
-          @if (opponentTimerState(); as t) {
+          @if (game.opponentTimerState(); as t) {
             <span
               class="match-timer"
               [class.match-timer--active]="t.active"
@@ -167,45 +167,13 @@ export class MatchPage implements OnInit, OnDestroy {
   // the template-ref ViewChild. Used by the Enter keyboard handler.
   @ViewChild('promptOverlay') promptOverlayRef?: PromptOverlayComponent;
 
-  // Local 1Hz heartbeat for the header timer chips. Server's
-  // clockUpdate$ resyncs the canonical countdown; this just smooths the
-  // display between syncs so it doesn't appear to freeze for a second.
-  // Stamped on every push of a fresh match snapshot so the local tick
-  // computes deltas off the most recently-confirmed clock value.
-  private readonly clockAnchor = signal<{
-    creatorMs: number;
-    opponentMs: number;
-    holderSub: string | null;
-    at: number;
-  } | null>(null);
-  private readonly nowMs = signal<number>(Date.now());
-
-  // Full Control mode — press-once toggle on the Ctrl / Meta key.
-  // While true the auto-pass effect short-circuits so the viewer
-  // keeps priority on every step, even after casting (mirrors MTGO's
-  // "Full Control" toggle). Press Ctrl again to release. The
-  // template binds an indicator chip off this signal too.
-  readonly fullControl = signal<boolean>(false);
-  private clockTickHandle: ReturnType<typeof setInterval> | null = null;
-  // Stack-mutation timer support. `lastStackSig` is a cheap signature
-  // (length + concatenated ids) of the last stack snapshot we saw;
-  // when it changes we stamp `lastStackMutatedAt` to the current
-  // wall-clock. The auto-pass guard reads both via `autoPassNow` to
-  // enforce STACK_MUTATION_DISPLAY_MS. A 1Hz heartbeat (`autoPassNow`)
-  // re-fires the auto-pass effect when the window expires so we don't
-  // sit pinned forever waiting for the next state change.
-  private lastStackSig: string | null = null;
-  private readonly lastStackMutatedAt = signal<number | null>(null);
-  private readonly autoPassNow = signal<number>(Date.now());
-  private autoPassTickHandle: ReturnType<typeof setInterval> | null = null;
-
-  // Timer chip view-model. `active` flips on for the player who
-  // currently holds priority (their clock is the one being burned).
-  // `low` triggers the pulsing err style at ≤30s.
-  readonly myTimerState = computed<{ text: string; active: boolean; low: boolean } | null>(() =>
-    this.timerStateFor('self'));
-  readonly opponentTimerState = computed<{ text: string; active: boolean; low: boolean } | null>(() =>
-    this.timerStateFor('opponent'));
+  // Match-session state (clock anchor, full control, stack-mutation
+  // tracking, the auto-pass loop + its heartbeats, and the header timer
+  // view-models) all live in GameStore now (Slice 2b). The component is
+  // a thin binding layer: SignalR clock updates feed
+  // game.setClockAnchor, state snapshots feed game.recordStackMutation,
+  // the Ctrl toggle calls game.toggleFullControl, and the template binds
+  // game.selfTimerState / game.opponentTimerState / game.fullControl.
 
   // Debounce overlapping re-fetches: every engine event currently
   // triggers a full /state pull. If two land in the same tick we don't
@@ -247,22 +215,13 @@ export class MatchPage implements OnInit, OnDestroy {
   });
 
   constructor() {
-    // Re-anchor the local clock whenever the canonical Match snapshot
-    // changes. The server pushes a fresh Match on each clock-update SignalR
-    // event (see refresh() in load()), so anchoring off matchSvc.current
-    // means we automatically resync every time the server speaks.
+    // Re-anchor the store's local clock whenever the canonical Match
+    // snapshot changes. The server pushes a fresh Match on each
+    // clock-update SignalR event (see refresh() in load()), so anchoring
+    // off matchSvc.current means the store auto-resyncs every time the
+    // server speaks. The store owns the 1Hz tick + countdown derivation.
     effect(() => {
-      const m = this.matchSvc.current();
-      if (!m) {
-        this.clockAnchor.set(null);
-        return;
-      }
-      this.clockAnchor.set({
-        creatorMs: m.creatorMillisRemaining,
-        opponentMs: m.opponentMillisRemaining,
-        holderSub: m.priorityHolderSub,
-        at: Date.now(),
-      });
+      this.game.setClockAnchor(this.matchSvc.current());
     });
     effect(() => {
       const m = this.matchSvc.current();
@@ -303,79 +262,30 @@ export class MatchPage implements OnInit, OnDestroy {
         bootstrapped = false;
       }
     });
-    // Stack-mutation tracker — every state snapshot we observe gets
-    // hashed into a cheap "len|id1,id2,…" signature; if it differs
-    // from the previous one, the stack changed (item added, item
-    // resolved, item countered, anything) and we stamp the timestamp
-    // the auto-pass guard reads to enforce its minimum-display window.
-    // Derived client-side so this slice doesn't block on the parallel
-    // backend PR that's adding a dedicated stack-changed event.
+    // Stack-mutation tracker — feed every observed state snapshot to the
+    // store, which hashes it into a cheap signature and stamps the
+    // minimum-display timestamp the auto-pass guard reads. The store
+    // ignores no-op snapshots (unchanged signature) itself.
     effect(() => {
-      const s = this.game.state();
-      const sig = stackSignature(s);
-      if (sig !== this.lastStackSig) {
-        this.lastStackSig = sig;
-        this.lastStackMutatedAt.set(Date.now());
-      }
+      this.game.recordStackMutation(this.game.state());
     });
-    // Auto-pass priority unless one of the guards trips. The signal
-    // graph fires this whenever a new prompt envelope lands; the
-    // `lastAutoPassedPrompt` identity check dedupes against re-runs
-    // triggered by unrelated state mutations on the same envelope.
-    effect(() => {
-      const p = this.game.prompt();
-      if (!p || !this.game.isMyTurnPrompt()) return;
-      // Read autoPassNow so the effect re-fires when the heartbeat tick
-      // advances past the stack-display window — otherwise the effect
-      // would only re-evaluate on prompt / state / phaseStops / control
-      // changes and could stay pinned past the window's natural expiry.
-      const now = this.autoPassNow();
-      if (p === this.lastAutoPassedPrompt) return;
-      const decision = shouldAutoPass(p, {
-        state: this.game.state(),
-        selfPlayerIds: this.game.selfPlayerIds(),
-        phaseStops: this.game.phaseStops(),
-        fullControl: this.fullControl(),
-        lastStackMutatedAt: this.lastStackMutatedAt(),
-        nowMs: now,
-      });
-      if (!decision) return;
-      this.lastAutoPassedPrompt = p;
-      void this.send({ $type: 'pass' });
-    });
+    // Auto-pass priority is now owned by the store (shouldAutoPassNow +
+    // the heartbeat-driven runAutoPass loop started in GameStore's
+    // onInit hook). No component effect required.
   }
-
-  // Identity-tracks the envelope we already auto-passed for. SignalR
-  // emits a fresh envelope object per prompt, so reference equality is
-  // sufficient — no need to derive a composite key.
-  private lastAutoPassedPrompt: PromptEnvelope | null = null;
 
   ngOnInit(): void {
     void this.load();
-    // 1Hz local tick for header timer chips. Stops on destroy. Uses
-    // setInterval — a single 1s cadence is plenty for MM:SS display
-    // and keeps things off the rAF hot path.
-    this.clockTickHandle = setInterval(() => this.nowMs.set(Date.now()), 1000);
-    // Faster heartbeat (~150ms) for the auto-pass guard's stack-
-    // mutation window. Coarse enough not to burn CPU, fine enough that
-    // a 600ms display window expires within roughly one tick of its
-    // actual deadline (worst case ~150ms late, which is imperceptible
-    // and still well inside the "user noticed the trigger" budget).
-    this.autoPassTickHandle = setInterval(() => this.autoPassNow.set(Date.now()), 150);
+    // Header-clock + auto-pass heartbeats live in GameStore's withHooks
+    // onInit/onDestroy now — the component no longer owns intervals.
   }
 
   ngOnDestroy(): void {
     this.botThinking.set(false);
+    // GameStore.reset() restores all match-session state; the store's
+    // own onDestroy hook clears its clock / auto-pass intervals.
     this.game.reset();
     void this.signalr.disconnect();
-    if (this.clockTickHandle) {
-      clearInterval(this.clockTickHandle);
-      this.clockTickHandle = null;
-    }
-    if (this.autoPassTickHandle) {
-      clearInterval(this.autoPassTickHandle);
-      this.autoPassTickHandle = null;
-    }
   }
 
   private async load(): Promise<void> {
@@ -559,32 +469,6 @@ export class MatchPage implements OnInit, OnDestroy {
     });
   }
 
-  /** View-model builder for the header timer chips. */
-  private timerStateFor(side: 'self' | 'opponent'): { text: string; active: boolean; low: boolean } | null {
-    const m = this.matchSvc.current();
-    const anchor = this.clockAnchor();
-    const mySub = this.auth.principal()?.sub;
-    if (!m || !anchor || !mySub) return null;
-    // Resolve which seat we're displaying. Creator/opponent in the
-    // MatchDto map directly onto the two clock fields.
-    const iAmCreator = mySub === m.creator.sub;
-    const targetIsCreator = side === 'self' ? iAmCreator : !iAmCreator;
-    const baseMs = targetIsCreator ? anchor.creatorMs : anchor.opponentMs;
-    const targetSub = targetIsCreator ? m.creator.sub : m.opponent?.sub ?? null;
-    if (targetSub == null) return null;
-    // Burn local time off whoever currently holds priority. The server
-    // resyncs this on every clock-update event so any drift caps at
-    // the next event boundary.
-    const holdsPriority = anchor.holderSub != null && anchor.holderSub === targetSub;
-    const elapsedSinceAnchor = holdsPriority ? this.nowMs() - anchor.at : 0;
-    const remaining = Math.max(0, baseMs - elapsedSinceAnchor);
-    return {
-      text: formatMmSs(remaining),
-      active: holdsPriority,
-      low: remaining <= 30_000,
-    };
-  }
-
   async onHandClicked(card: CardSnapshot): Promise<void> {
     // Hand-click semantics depend on the active prompt:
     //   * "Bottom" prompt → toggle is handled inside the overlay, this
@@ -648,7 +532,7 @@ export class MatchPage implements OnInit, OnDestroy {
     // behaviour because those keydowns surface as the OTHER key with
     // `ctrlKey` set, not as `evt.key === 'Control'`.
     if ((evt.key === 'Control' || evt.key === 'Meta') && !evt.repeat) {
-      this.fullControl.update(v => !v);
+      this.game.toggleFullControl();
     }
     dispatchMatchKey(evt, {
       hasActionPrompt: () => !!this.myPromptSummary(),
@@ -819,144 +703,6 @@ export function dispatchMatchKey(evt: KeyboardEvent, deps: MatchKeyDeps): void {
 }
 
 // ---------------------------------------------------------------------
-// Auto-pass guard.
-//
-// Decides whether an arriving "pass priority" prompt should be answered
-// silently with a Pass command, or surfaced to the user for them to
-// decide. Extracted as a pure function so it can be unit-tested in
-// isolation from the MatchPage component graph.
-//
-// Full Control (highest-priority guard): user is holding Ctrl. Suppress
-// auto-pass for every step, mirroring MTGO's Full Control toggle.
-//
-// Primary gate (CR 117.3a — priority is the player's right to act):
-//   Auto-pass ONLY when the engine signals that PassPriority is the
-//   sole legal action — i.e. expectedKinds is exactly
-//   `['PassPriorityCommand']`. Any time the engine surfaces additional
-//   command kinds (PlayLand, CastSpell, ActivateAbility, …) the viewer
-//   has a real choice and must see the prompt. This subsumes the prior
-//   land-in-hand / stack-non-empty heuristics: if the user can play a
-//   land or cast a spell, the engine includes those kinds and the gate
-//   trips before any of the secondary guards run. The secondary guards
-//   remain as defence-in-depth for the day the engine narrows kinds.
-//
-// Defence-in-depth (only consulted once primary gate has matched a
-// pass-only round):
-//
-//   - No GameState snapshot yet → never auto-pass.
-//   - selfPlayerIds is empty (race: prompt arrived before /state
-//     populated the viewer's seat) → never auto-pass.
-//   - Stack non-empty → never auto-pass (CR 117.3b response window).
-//   - Phase-stop registered for the active turn's side → never
-//     auto-pass (the user explicitly asked to pause here).
-//   - Opponent's combat phase AND the viewer has a non-land in hand
-//     → never auto-pass (instant-speed response window). Mana isn't
-//     checked client-side, so this is intentionally conservative.
-// ---------------------------------------------------------------------
-
-export interface AutoPassDeps {
-  state: GameState | null;
-  selfPlayerIds: readonly string[];
-  phaseStops: Record<string, 'mine' | 'theirs'>;
-  // When true (user holding Ctrl), auto-pass is suppressed for every
-  // step — even after casting a spell, even on phases that would
-  // otherwise be safe to skip. Mirrors MTGO's "Full Control" toggle.
-  fullControl: boolean;
-  // Wall-clock timestamp (ms since epoch) of the last observed stack
-  // mutation — see MatchPage's stack-snapshot effect. Used to enforce a
-  // minimum-display window after triggered abilities / spells land on
-  // the stack so the user actually sees them before any auto-pass
-  // resolves them invisibly. Null when the stack hasn't mutated since
-  // the page loaded.
-  lastStackMutatedAt: number | null;
-  // Current wall-clock time (ms since epoch). Passed in (not read from
-  // Date.now()) so the guard stays pure / testable.
-  nowMs: number;
-}
-
-// Minimum-display window (ms) for stack mutations. While the timer is
-// active, auto-pass is suppressed even when PassPriority is the only
-// legal kind — gives the user (and a watching bot) a beat to register
-// a freshly-landed trigger or spell before it resolves silently.
-export const STACK_MUTATION_DISPLAY_MS = 600;
-
-// Combat phases on the opponent's turn — auto-pass is suppressed if
-// the viewer has any non-land card in hand so they don't unknowingly
-// skip an instant-speed response window into / through combat.
-const OPP_COMBAT_PHASES = new Set([
-  'BeginningOfCombat',
-  'DeclareAttackers',
-  'DeclareBlockers',
-  'CombatDamage',
-  'EndOfCombat',
-]);
-
-/**
- * Primary gate — does the engine signal "PassPriority is your only
- * legal action"? Today `Majik.Core.Api/RemoteAgent.cs#ChoosePriorityActionAsync`
- * always sends the full set `[PassPriorityCommand, PlayLandCommand,
- * CastSpellCommand]` regardless of legality, so this gate only matches
- * once the engine starts narrowing. Until then auto-pass is effectively
- * disabled for priority rounds, which is the safe direction — the user
- * sees the prompt and explicitly passes.
- */
-function isPassOnlyPriorityPrompt(kinds: readonly string[] | undefined): boolean {
-  if (!kinds || kinds.length !== 1) return false;
-  return kinds[0] === 'PassPriorityCommand';
-}
-
-export function shouldAutoPass(p: PromptEnvelope, deps: AutoPassDeps): boolean {
-  // (0) — Full Control: user is holding Ctrl. Suppress auto-pass for
-  // every step, including the priority pass that normally follows a
-  // spell resolution. Highest-priority guard so it wins over any
-  // other rule.
-  if (deps.fullControl) return false;
-  // (1) primary gate — only auto-pass when PassPriority is the engine's
-  // single offered action. Multi-kind prompts (`[PassPriorityCommand,
-  // PlayLandCommand, …]`) mean the viewer has choices to make.
-  if (!isPassOnlyPriorityPrompt(p.expectedKinds)) return false;
-  // (1a) — minimum-display window after a stack mutation. When a
-  // triggered ability / spell has just landed on the stack, we want
-  // the user to actually see it before any auto-pass resolves it. The
-  // page stamps lastStackMutatedAt on every stack-snapshot change; if
-  // we're still inside the display window, suppress. The full-stack
-  // guard below (4) catches the non-empty case, but a trigger can
-  // resolve in the same priority-round it appeared in (the engine fires
-  // the resolution event and the stack drops back to empty), so a pure
-  // "is stack empty?" check isn't enough — we need a timer that
-  // persists across the resolution.
-  if (deps.lastStackMutatedAt != null
-    && deps.nowMs - deps.lastStackMutatedAt < STACK_MUTATION_DISPLAY_MS) {
-    return false;
-  }
-  // (2) — no snapshot yet.
-  const s = deps.state;
-  if (!s) return false;
-  // (3) — empty selfPlayerIds (race: prompt before /state). Without
-  // knowing which seat is the viewer's, we can't classify the active
-  // side for the remaining defence-in-depth checks — bias toward
-  // surfacing the prompt.
-  if (deps.selfPlayerIds.length === 0) return false;
-  // (4) — stack non-empty (CR 117.3b response window).
-  if (s.stack.length > 0) return false;
-  const phase = s.phase;
-  const selfIds = deps.selfPlayerIds;
-  const activeSide: 'mine' | 'theirs' =
-    selfIds.includes(s.activePlayerId) ? 'mine' : 'theirs';
-  // (5) — phase stop set for the active side.
-  const stop = deps.phaseStops[phase];
-  if (stop === activeSide) return false;
-  // (6) — opponent's combat phase + the viewer has a non-land in hand.
-  if (activeSide === 'theirs' && OPP_COMBAT_PHASES.has(phase)) {
-    const me = s.players.find(pl => selfIds.includes(pl.id));
-    const hasNonLand = (me?.hand.cards ?? []).some(c =>
-      !(c.types ?? []).map(t => t.toLowerCase()).includes('land'));
-    if (hasNonLand) return false;
-  }
-  return true;
-}
-
-// ---------------------------------------------------------------------
 // Auto-roll guard.
 //
 // Decides whether the Rolling-state effect should fire `submitRoll` on
@@ -988,30 +734,5 @@ export function shouldAutoSubmitRoll(
   if (submitted) return false;
   if (m.roll?.winnerSub) return false;
   return true;
-}
-
-/**
- * Cheap deterministic signature for a GameState's stack. Identity is
- * what we care about — same length AND same ids in the same order
- * means "nothing changed", anything else means a mutation. Returns
- * "0|" for null / empty so a freshly-cleared stack still differs from
- * a never-populated one (which is also "0|" — that's fine, no spurious
- * mutation event before the first real change).
- */
-export function stackSignature(state: GameState | null): string {
-  if (!state) return '0|';
-  const items = state.stack;
-  if (items.length === 0) return '0|';
-  return `${items.length}|${items.map(i => i.id).join(',')}`;
-}
-
-// MM:SS string for header chip — caps at 99:59 because anything beyond
-// that means the server hasn't started counting yet and the leading
-// digits would shove other header content offscreen.
-function formatMmSs(ms: number): string {
-  const totalSec = Math.max(0, Math.floor(ms / 1000));
-  const mins = Math.min(99, Math.floor(totalSec / 60));
-  const secs = totalSec % 60;
-  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 }
 
