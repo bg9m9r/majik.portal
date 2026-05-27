@@ -69,7 +69,9 @@ interface AuthUserState {
   // the refresh token is genuinely dead, so silently reusing the stale
   // cached token would just keep 401ing. Consumers (e.g. the match page)
   // surface "session expired" + redirect to login rather than spinning.
-  // Cleared by a successful getAccessToken/forceRefresh.
+  // Cleared by a successful getAccessToken/forceRefresh, by an
+  // isAuthenticated$ flip to true (silent re-auth / fresh login recovery),
+  // and on logout.
   sessionExpired: boolean;
 }
 
@@ -148,8 +150,16 @@ export const AuthUserStore = signalStore(
       auth0.isAuthenticated$
         .pipe(takeUntilDestroyed(destroyRef))
         .subscribe(isAuthed => {
+          // On a flip to authed=true, also clear the session-expiry latch.
+          // A prior dead forceRefresh latches `sessionExpired`, but nothing
+          // in production ever cleared it on recovery: real-mode logout()
+          // doesn't, and clearSessionExpired() was never called. A silent
+          // re-auth / fresh login that the SDK reports via isAuthenticated$
+          // is exactly the recovery signal — clear the latch here so the
+          // match page's recovery effect doesn't bounce a healthy,
+          // recovered session to /login.
           patchState(store, isAuthed
-            ? { authed: true }
+            ? { authed: true, sessionExpired: false }
             : { authed: false, principal: null, token: null });
         });
 
@@ -316,6 +326,10 @@ export const AuthUserStore = signalStore(
           patchState(store, { authed: false, principal: null, sessionExpired: false });
           return;
         }
+        // Clear the expiry latch on an explicit logout too — the full-page
+        // Auth0 redirect resets app state regardless, but a deliberate
+        // sign-out should never leave the latch hot for the next session.
+        patchState(store, { sessionExpired: false });
         auth0?.logout({
           logoutParams: { returnTo: window.location.origin }
         }).subscribe();

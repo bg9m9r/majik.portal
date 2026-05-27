@@ -2,9 +2,9 @@ import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ScryfallImageCache } from './scryfall-image-cache.service';
 
-function flush(ms = 200): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+// DEBOUNCE_MS = 50, BATCH_SPACING_MS = 120 (must match the service constants)
+const DEBOUNCE_MS = 50;
+const BATCH_SPACING_MS = 120;
 
 function jsonResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -18,7 +18,7 @@ describe('ScryfallImageCache', () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
-    vi.useRealTimers();
+    vi.useFakeTimers();
     try { localStorage.clear(); } catch { /* ignore */ }
     fetchMock = vi.fn();
     // jsdom exposes fetch on globalThis; assign our mock.
@@ -28,6 +28,8 @@ describe('ScryfallImageCache', () => {
   });
 
   afterEach(() => {
+    vi.clearAllTimers();
+    vi.useRealTimers();
     vi.restoreAllMocks();
     try { localStorage.clear(); } catch { /* ignore */ }
   });
@@ -46,7 +48,9 @@ describe('ScryfallImageCache', () => {
 
     const v0 = svc.version();
     svc.request(['Lightning Bolt']);
-    await flush();
+
+    // Advance past the debounce so the setTimeout fires and flush() starts.
+    await vi.advanceTimersByTimeAsync(DEBOUNCE_MS + 10);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
@@ -72,7 +76,7 @@ describe('ScryfallImageCache', () => {
     }));
 
     svc.request(['Delver of Secrets']);
-    await flush();
+    await vi.advanceTimersByTimeAsync(DEBOUNCE_MS + 10);
 
     expect(svc.get('Delver of Secrets')).toBe('https://img/delver-front.png');
   });
@@ -86,7 +90,7 @@ describe('ScryfallImageCache', () => {
     }));
 
     svc.request(['Sketchy Card']);
-    await flush();
+    await vi.advanceTimersByTimeAsync(DEBOUNCE_MS + 10);
 
     expect(svc.get('Sketchy Card')).toBeNull();
   });
@@ -146,7 +150,11 @@ describe('ScryfallImageCache', () => {
 
     const names = Array.from({ length: 80 }, (_, i) => `Card ${i}`);
     svc.request(names);
-    await flush(500);
+
+    // Advance past debounce → first batch fires.
+    await vi.advanceTimersByTimeAsync(DEBOUNCE_MS + 10);
+    // Advance past BATCH_SPACING_MS → second batch fires.
+    await vi.advanceTimersByTimeAsync(BATCH_SPACING_MS + 10);
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const firstBatch = JSON.parse((fetchMock.mock.calls[0] as [string, RequestInit])[1].body as string);

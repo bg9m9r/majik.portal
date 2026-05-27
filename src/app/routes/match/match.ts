@@ -217,6 +217,21 @@ export class MatchPage implements OnInit, OnDestroy {
   // marking a single pending request.
   private statePending = false;
 
+  // Single-writer reconnect guard (Important 3). On the INITIAL hub join
+  // the server pushes an authoritative GameState on the "state" channel
+  // (snapshot-on-join, Slice 4b) which seeds the board. But SignalR's
+  // withAutomaticReconnect() does NOT re-invoke JoinMatch on auto-reconnect
+  // (the client's onreconnected handler only resets latches), so the
+  // server never re-pushes that snapshot on reconnect — the authoritative
+  // reconnect resync is the connecting→open /state REST refetch below.
+  //
+  // To avoid a dual-writer race (a stale buffered "state" snapshot landing
+  // after the fresher /state refetch, flapping the board backward), we
+  // collapse to ONE writer: once a reconnect has occurred, the /state
+  // refetch owns resync and state$ is no longer fed into setState. state$
+  // still seeds the initial join (when this flag is false).
+  private reconnectResyncOwnsState = false;
+
   // Trimmed-down view of the prompt for the action-bar's `currentPrompt`
   // input. The board's <app-action-bar> only cares about the kinds and
   // a description; the full envelope is consumed by the overlay.
@@ -283,18 +298,23 @@ export class MatchPage implements OnInit, OnDestroy {
         sessionExpiredHandled = false;
       }
     });
-    // Reconnect resync. The page bootstraps /state once on entering
-    // Playing; a mid-game transport drop + automatic reconnect would
-    // otherwise leave the board frozen on the pre-drop snapshot until the
-    // next engine event. Re-fetch /state on every connecting→open
-    // transition (a reconnect) so authoritative state catches up even if
-    // the server's "state" push is missed — belt-and-braces with the
-    // state$ channel subscription wired in load().
+    // Reconnect resync (SINGLE authoritative writer — Important 3). The
+    // page bootstraps /state once on entering Playing; a mid-game transport
+    // drop + automatic reconnect would otherwise leave the board frozen on
+    // the pre-drop snapshot. JoinMatch is NOT re-invoked on auto-reconnect,
+    // so the server's "state" snapshot push does NOT arrive on reconnect —
+    // the /state REST refetch on the connecting→open transition is the one
+    // and only reconnect resync. We flip `reconnectResyncOwnsState` the
+    // moment we enter the reconnect window so the state$ subscription (which
+    // seeds the initial join) stops writing setState and can't flap the
+    // board backward with a stale buffered snapshot.
     let wasConnecting = false;
     effect(() => {
       const st = this.signalr.state();
       if (st === 'connecting') {
         wasConnecting = true;
+        // Reconnect window opened: /state refetch now owns resync.
+        this.reconnectResyncOwnsState = true;
       } else if (st === 'open' && wasConnecting) {
         wasConnecting = false;
         // Only resync once we're actually playing — earlier states are
@@ -446,14 +466,30 @@ export class MatchPage implements OnInit, OnDestroy {
         this.game.setPrompt(envelope);
       });
     // Authoritative snapshot pushed on the "state" channel — the server's
-    // snapshot-on-join (Slice 4b). Fired synchronously after JoinMatch on
-    // both the initial connect AND every reconnect, so feeding it straight
-    // into GameStore.setState re-syncs the board on reconnect without a
-    // REST round-trip. ReplaySubject(1) on the service hands the buffered
-    // snapshot to this late subscriber.
+    // snapshot-on-join (Slice 4b). The server pushes this synchronously in
+    // response to JoinMatch, which the client invokes ONLY on the initial
+    // connect (SignalR's auto-reconnect does NOT re-invoke JoinMatch), so
+    // this realistically fires once: the initial-join seed. ReplaySubject(1)
+    // on the service hands the buffered snapshot to this late subscriber.
+    //
+    // Single-writer guard (Important 3): once a reconnect window has opened,
+    // the connecting→open /state REST refetch is the sole authoritative
+    // resync. Suppress state$ writes from that point so a stale buffered
+    // snapshot can't land after the fresher refetch and flap the board
+    // backward.
+    //
+    // TODO(reconnect-seq): the ideal long-term fix is a monotonic sequence
+    //   gate on GameStore.setState (drop any snapshot whose tick <= the last
+    //   applied tick), which would make ordering robust regardless of how
+    //   many writers feed it. The server doesn't expose a per-snapshot tick
+    //   yet; add one to GameState and gate setState on it, then this
+    //   reconnect-window flag can go away.
     this.signalr.state$
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe(s => this.game.setState(normaliseStateSnapshot(s)));
+      .subscribe(s => {
+        if (this.reconnectResyncOwnsState) return;
+        this.game.setState(normaliseStateSnapshot(s));
+      });
   }
 
   private async refresh(): Promise<void> {

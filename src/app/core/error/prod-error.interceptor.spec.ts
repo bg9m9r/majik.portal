@@ -39,11 +39,12 @@ describe('prodErrorInterceptor', () => {
 
   it('surfaces a generic toast on a failed response and rethrows', async () => {
     let rejected: unknown = null;
-    http.get('/api/matches/abc').subscribe({
+    // A non-match endpoint: the interceptor owns the surface here.
+    http.get('/api/decks/abc').subscribe({
       next: () => {},
       error: e => { rejected = e; },
     });
-    ctrl.expectOne('/api/matches/abc').flush(
+    ctrl.expectOne('/api/decks/abc').flush(
       { error: 'boom', detail: 'db password hunter2' },
       { status: 500, statusText: 'Server Error' },
     );
@@ -68,6 +69,57 @@ describe('prodErrorInterceptor', () => {
     );
     await Promise.resolve();
     expect(toast.current()?.message).not.toContain('secret-token-xyz');
+    expect(toast.current()?.message).toBe(PROD_ERROR_MESSAGE);
+  });
+
+  // --- Important 1: do not double-toast for match command/state paths ---
+  // MatchPage surfaces a more-useful, engine-specific message at the call
+  // site for these endpoints (refresh / fetchState / send / onConcede). The
+  // interceptor must stay silent there so the call-site message wins instead
+  // of being overwritten by the generic toast.
+
+  it.each([
+    'http://api.test/matches/abc',          // refresh()       — GET  /matches/{id}
+    'http://api.test/matches/abc/state',    // fetchState()    — GET  /matches/{id}/state
+    'http://api.test/matches/abc/commands', // send()          — POST /matches/{id}/commands
+    'http://api.test/matches/abc/concede',  // onConcede()     — POST /matches/{id}/concede
+  ])('does NOT toast for the call-site-handled match endpoint %s', async (url) => {
+    let rejected: unknown = null;
+    http.get(url).subscribe({ next: () => {}, error: e => { rejected = e; } });
+    ctrl.expectOne(url).flush(
+      { error: 'engine-rejected', detail: 'not your turn' },
+      { status: 409, statusText: 'Conflict' },
+    );
+    await Promise.resolve();
+    // No generic toast — the page's own toast carries the engine reason.
+    expect(toast.current()).toBeNull();
+    // But the error still propagates so the call site can surface it.
+    expect(rejected).not.toBeNull();
+  });
+
+  it.each([
+    'http://api.test/matches?visibility=public', // lobby list — no call-site toast
+    'http://api.test/matches',                   // create     — no call-site toast
+    'http://api.test/me',                         // profile
+    'http://api.test/decks',                      // decks
+    'http://api.test/cards?q=bolt',               // card search
+  ])('STILL toasts the generic message for non-surfaced endpoint %s', async (url) => {
+    http.get(url).subscribe({ next: () => {}, error: () => {} });
+    ctrl.expectOne(url).flush(
+      { error: 'boom' },
+      { status: 500, statusText: 'Server Error' },
+    );
+    await Promise.resolve();
+    expect(toast.current()?.message).toBe(PROD_ERROR_MESSAGE);
+  });
+
+  it('still toasts for non-surfaced match lifecycle endpoints (play-draw / roll / join)', async () => {
+    http.post('http://api.test/matches/abc/play-draw', {}).subscribe({ next: () => {}, error: () => {} });
+    ctrl.expectOne('http://api.test/matches/abc/play-draw').flush(
+      { error: 'boom' },
+      { status: 500, statusText: 'Server Error' },
+    );
+    await Promise.resolve();
     expect(toast.current()?.message).toBe(PROD_ERROR_MESSAGE);
   });
 });
