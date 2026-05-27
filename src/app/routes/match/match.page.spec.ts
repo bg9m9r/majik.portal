@@ -210,20 +210,29 @@ describe('MatchPage — resilience wiring', () => {
     expect(toast.current()?.message).toContain('concede');
   });
 
-  // --- "state" channel feeds GameStore ------------------------------
+  // --- "state" channel feeds GameStore (INITIAL join only) ----------
 
-  it('a "state" channel snapshot updates GameStore.setState', async () => {
+  it('the FIRST "state" channel snapshot seeds GameStore.setState (initial join)', async () => {
     const page = init();
     page.ngOnInit();
     await vi.runOnlyPendingTimersAsync();
-    // load() awaited connect + initial get; now push a snapshot on the
-    // "state" channel and assert it reaches the store.
+    // load() awaited connect + initial get; the server's snapshot-on-join
+    // arrives on the "state" channel and seeds the board exactly once.
     state$.next({ gameId: 'g-1', YouPlayerId: 'p9' });
     const lastCall = game.setState.mock.calls.at(-1);
     expect(lastCall?.[0]?.youPlayerId).toBe('p9');
   });
 
-  // --- reconnect resync ---------------------------------------------
+  // --- Important 3: single-writer reconnect resync ------------------
+  //
+  // JoinMatch is NOT re-invoked on SignalR auto-reconnect (the client's
+  // onreconnected handler only resets latches; withAutomaticReconnect()
+  // does not replay hub invocations). The server pushes the "state"
+  // snapshot only in response to JoinMatch — so on reconnect the snapshot
+  // does NOT arrive. The single authoritative reconnect resync is the
+  // connecting→open /state refetch; state$ must NOT also write setState
+  // during the reconnect window (it would let a stale buffered snapshot
+  // flap the board backward). state$ still seeds the INITIAL join.
 
   it('a connecting→open transition while Playing re-fetches /state', async () => {
     const page = init();
@@ -241,6 +250,37 @@ describe('MatchPage — resilience wiring', () => {
     await vi.runOnlyPendingTimersAsync();
 
     expect(matchSvc.getState.mock.calls.length).toBeGreaterThan(before);
+  });
+
+  it('reconnect resync uses a SINGLE writer — state$ does not also flap setState', async () => {
+    const page = init();
+    page.ngOnInit();
+    await vi.runOnlyPendingTimersAsync();
+    currentSig.set(playingMatch());
+    TestBed.tick();
+
+    // Initial join snapshot seeds the board once.
+    state$.next({ gameId: 'g-1', YouPlayerId: 'p1' });
+    const setStateAfterInitial = game.setState.mock.calls.length;
+    const getStateBefore = matchSvc.getState.mock.calls.length;
+
+    // Reconnect: connecting → open. The /state refetch is the ONE writer.
+    stateSig.set('connecting');
+    TestBed.tick();
+    // A late/stale buffered snapshot lands on state$ DURING the reconnect
+    // window — it must NOT reach setState (no backward flap).
+    state$.next({ gameId: 'g-1', YouPlayerId: 'STALE' });
+    stateSig.set('open');
+    TestBed.tick();
+    await vi.runOnlyPendingTimersAsync();
+
+    // Exactly one resync writer fired on reconnect: the /state refetch.
+    expect(matchSvc.getState.mock.calls.length).toBe(getStateBefore + 1);
+    // The stale state$ push did NOT write setState.
+    const staleWrites = (game.setState.mock.calls as any[])
+      .slice(setStateAfterInitial)
+      .filter((c: any[]) => c[0]?.youPlayerId === 'STALE');
+    expect(staleWrites).toHaveLength(0);
   });
 
   // --- session expiry recovery --------------------------------------

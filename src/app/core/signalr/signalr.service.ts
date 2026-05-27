@@ -85,10 +85,14 @@ export class SignalrService {
   private _prompt$ = new ReplaySubject<unknown>(1);
   // Authoritative game-state snapshot pushed on the "state" channel. The
   // server streams this synchronously after JoinMatch (snapshot-on-join,
-  // Slice 4b) so a (re)connecting client re-syncs without a separate REST
-  // hop. Buffered with ReplaySubject(1) for the same late-subscriber race
-  // as prompt$/event$: the .on('state', …) handler fires during the
-  // awaited connect() before MatchPage wires up its subscription.
+  // Slice 4b) so the INITIAL-joining client re-syncs without a separate
+  // REST hop. NOTE: JoinMatch is only invoked on the initial connect — not
+  // on auto-reconnect (withAutomaticReconnect doesn't replay invocations) —
+  // so this snapshot does NOT arrive on reconnect; the page's /state
+  // refetch handles reconnect resync (see match.ts, Important 3). Buffered
+  // with ReplaySubject(1) for the same late-subscriber race as
+  // prompt$/event$: the .on('state', …) handler fires during the awaited
+  // connect() before MatchPage wires up its subscription.
   private _state$ = new ReplaySubject<unknown>(1);
   readonly event$: Observable<unknown> = defer(() => this._event$);
   readonly prompt$: Observable<unknown> = defer(() => this._prompt$);
@@ -184,8 +188,11 @@ export class SignalrService {
     });
     this.connection.onreconnected(() => {
       // A successful reconnect clears the transient error/expiry latches.
-      // The server re-streams a snapshot on the "state" channel after the
-      // re-JoinMatch so GameStore re-syncs authoritative state.
+      // NOTE: SignalR's withAutomaticReconnect() re-establishes the
+      // transport but does NOT replay hub invocations — we do NOT re-invoke
+      // JoinMatch here, so the server does NOT re-push a "state" snapshot on
+      // reconnect. MatchPage's connecting→open /state REST refetch is the
+      // authoritative reconnect resync (see match.ts, Important 3).
       this._state.set('open');
       this._error.set(null);
       this._reconnectFailed.set(false);
