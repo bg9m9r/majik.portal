@@ -1,9 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  commandRejectionMessage,
+  connectionIndicatorFor,
   dispatchMatchKey,
+  fetchFailureMessage,
   MatchKeyDeps,
+  normaliseStateSnapshot,
   shouldAutoSubmitRoll,
 } from './match';
+import { MatchError } from '../../core/match/match.types';
 // The auto-pass guard moved to core/match/match-session (Slice 2b); the
 // Slice 0 wire-contract block below still pins it as a consumer-side
 // regression guard. Its full unit coverage lives in match-session.spec.ts.
@@ -365,5 +370,87 @@ describe('shouldAutoSubmitRoll — bot-match auto-roll guard', () => {
       roll: { creatorRoll: 6, opponentRoll: 1, winnerSub: null },
     });
     expect(shouldAutoSubmitRoll(m, false)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------
+// Resilience helpers (Slice 4c)
+// ---------------------------------------------------------------------
+
+describe('normaliseStateSnapshot', () => {
+  it('lifts a camelCase youPlayerId', () => {
+    const s = normaliseStateSnapshot({ gameId: 'g', youPlayerId: 'p1' });
+    expect(s.youPlayerId).toBe('p1');
+  });
+
+  it('lifts a PascalCase YouPlayerId', () => {
+    const s = normaliseStateSnapshot({ gameId: 'g', YouPlayerId: 'p2' });
+    expect(s.youPlayerId).toBe('p2');
+  });
+
+  it('defaults youPlayerId to null when absent (spectator / older server)', () => {
+    const s = normaliseStateSnapshot({ gameId: 'g' });
+    expect(s.youPlayerId).toBeNull();
+  });
+});
+
+describe('fetchFailureMessage', () => {
+  it('reads as a connectivity hint for a network error', () => {
+    expect(fetchFailureMessage({ code: 'network' })).toContain('Connection problem');
+  });
+
+  it('is generic for non-network errors (no raw code leak)', () => {
+    const msg = fetchFailureMessage({ code: 'match-not-found' });
+    expect(msg).not.toContain('match-not-found');
+    expect(msg.toLowerCase()).toContain('refresh');
+  });
+});
+
+describe('commandRejectionMessage', () => {
+  it('surfaces the engine rejection reason (detail) when present', () => {
+    const err: MatchError = { code: 'invalid-request', detail: 'target is not legal' };
+    expect(commandRejectionMessage(err, 'Move rejected')).toBe('Move rejected: target is not legal');
+  });
+
+  it('falls back to a humanised code when no detail', () => {
+    const err: MatchError = { code: 'cannot-concede' };
+    expect(commandRejectionMessage(err, 'Could not concede')).toBe('Could not concede: cannot concede');
+  });
+
+  it('reads as connectivity for a network error', () => {
+    expect(commandRejectionMessage({ code: 'network' }, 'Move rejected'))
+      .toBe('Move rejected — connection problem');
+  });
+
+  it('uses the bare prefix for an unknown code with no detail', () => {
+    expect(commandRejectionMessage({ code: 'unknown' }, 'Move rejected')).toBe('Move rejected');
+  });
+});
+
+describe('connectionIndicatorFor', () => {
+  it('is null when open (healthy — header stays clean)', () => {
+    expect(connectionIndicatorFor('open', false, false)).toBeNull();
+  });
+
+  it('is null when idle', () => {
+    expect(connectionIndicatorFor('idle', false, false)).toBeNull();
+  });
+
+  it('shows a reconnecting warn chip while connecting', () => {
+    expect(connectionIndicatorFor('connecting', false, false))
+      .toEqual({ label: 'Reconnecting…', tone: 'warn' });
+  });
+
+  it('shows a connection-lost error chip when errored', () => {
+    expect(connectionIndicatorFor('error', false, false)?.tone).toBe('error');
+  });
+
+  it('shows connection-lost when automatic reconnect gave up, even mid-connecting', () => {
+    expect(connectionIndicatorFor('connecting', true, false))
+      .toEqual({ label: 'Connection lost', tone: 'error' });
+  });
+
+  it('renders no chip on session expiry (handled by toast + redirect)', () => {
+    expect(connectionIndicatorFor('error', true, true)).toBeNull();
   });
 });
