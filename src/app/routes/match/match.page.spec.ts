@@ -262,4 +262,17 @@ describe('MatchPage — resilience wiring', () => {
     expect(toast.current()?.message).toContain('Session expired');
     expect(router.navigate).toHaveBeenCalledWith(['/login']);
   });
+
+  it('a healthy (recovered) session does NOT redirect to /login', async () => {
+    // Both latches start cleared — this is what a recovered session looks
+    // like once AuthUserStore clears sessionExpired on re-auth. The page's
+    // recovery effect must stay quiet.
+    const page = init();
+    page.ngOnInit();
+    await vi.runOnlyPendingTimersAsync();
+    currentSig.set(playingMatch());
+    TestBed.tick();
+    expect(router.navigate).not.toHaveBeenCalled();
+    expect(toast.current()?.message ?? '').not.toContain('Session expired');
+  });
 });

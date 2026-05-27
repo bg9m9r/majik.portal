@@ -284,6 +284,64 @@ describe('AuthUserStore token retrieval', () => {
     expect(store.sessionExpired()).toBe(false);
   });
 
+  it('re-authentication (isAuthenticated$ → true) clears a latched sessionExpired', async () => {
+    const authed$ = new BehaviorSubject<boolean>(false);
+    const claims$ = new BehaviorSubject<unknown>(null);
+    const store = configure([
+      { provide: MAJIK_AUTH_CONFIG, useValue: REAL_CFG },
+      {
+        provide: Auth0Service,
+        useValue: makeFakeAuth0({
+          authed$,
+          claims$,
+          // forceRefresh fails → latches sessionExpired.
+          getAccessTokenSilently: () => throwError(() => new Error('dead')),
+        }),
+      },
+    ]);
+    const http = TestBed.inject(HttpTestingController);
+    // Wire up the isAuthenticated$ subscription via bootstrap().
+    await store.bootstrap();
+    http.expectNone(r => r.url.endsWith('/me'));
+
+    // A dead forced refresh latches the session-expiry flag.
+    await store.forceRefresh();
+    expect(store.sessionExpired()).toBe(true);
+
+    // The session recovers (e.g. silent re-auth / new login): the SDK's
+    // isAuthenticated$ flips back to true. That MUST clear the latch so a
+    // healthy recovered MatchPage isn't bounced to /login.
+    authed$.next(true);
+    expect(store.sessionExpired()).toBe(false);
+    expect(store.isAuthenticated()).toBe(true);
+    // Authenticated → profile bootstrap is NOT re-fired by this subscription;
+    // no stray GET /me.
+    http.expectNone(r => r.url.endsWith('/me'));
+  });
+
+  it('isAuthenticated$ → false does NOT spuriously latch sessionExpired', async () => {
+    const authed$ = new BehaviorSubject<boolean>(true);
+    const claims$ = new BehaviorSubject<unknown>(null);
+    const store = configure([
+      { provide: MAJIK_AUTH_CONFIG, useValue: REAL_CFG },
+      {
+        provide: Auth0Service,
+        useValue: makeFakeAuth0({ authed$, claims$ }),
+      },
+    ]);
+    const http = TestBed.inject(HttpTestingController);
+    const promise = store.bootstrap();
+    await tick();
+    http.match(r => r.url.endsWith('/me')).forEach(r =>
+      r.flush({ sub: 'auth0|x', handle: 'X', createdAt: 't', updatedAt: 't' }));
+    await promise;
+    expect(store.sessionExpired()).toBe(false);
+    // Going unauthenticated is not an expiry latch (the latch is reserved
+    // for a dead forceRefresh); the flag stays false.
+    authed$.next(false);
+    expect(store.sessionExpired()).toBe(false);
+  });
+
   it('clearSessionExpired() resets the latch', async () => {
     const store = configure([
       { provide: MAJIK_AUTH_CONFIG, useValue: REAL_CFG },
