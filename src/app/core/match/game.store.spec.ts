@@ -652,9 +652,14 @@ describe('GameStore — Task 6 auto-pass', () => {
     };
   }
 
-  function armCleanPassPrompt(store: InstanceType<typeof GameStore>): void {
+  function armCleanPassPrompt(store: InstanceType<typeof GameStore>, match?: FakeMatch): void {
     store.setState(playingState());
     store.setPrompt(passOnlyPrompt());
+    // Arm the matching current match so the gameId guard passes when the
+    // caller intends to trigger a send. Callers that only test
+    // shouldAutoPassNow (a pure computed) or expect no-send behaviour
+    // omit `match`.
+    match?.setCurrent(matchDto({ gameId: 'g-1' }));
   }
 
   it('shouldAutoPassNow is true for a clean my-turn pass-only prompt', () => {
@@ -715,8 +720,8 @@ describe('GameStore — Task 6 auto-pass', () => {
   it('runAutoPass sends a single pass for a clean prompt and dedupes within the same window', () => {
     // Same live prompt — interval tick fires twice without any prompt
     // change → pass sent only once (dedupe within window still works).
-    const { store, sender } = configureStore();
-    armCleanPassPrompt(store);
+    const { store, match, sender } = configureStore();
+    armCleanPassPrompt(store, match);
     store.runAutoPass(); // first tick → pass sent
     expect(sender.sent).toHaveLength(1);
     expect(sender.sent[0]).toEqual({ $type: 'pass' });
@@ -730,8 +735,8 @@ describe('GameStore — Task 6 auto-pass', () => {
   it('runAutoPass passes again after clearPrompt (per-window auto-pass restored)', () => {
     // Regression test for C1: dedupe key must be cleared when the prompt
     // changes so each distinct priority window is eligible for auto-pass.
-    const { store, sender } = configureStore();
-    armCleanPassPrompt(store);
+    const { store, match, sender } = configureStore();
+    armCleanPassPrompt(store, match);
     store.runAutoPass(); // first window → 1 pass
     expect(sender.sent).toHaveLength(1);
     // Simulate the server clearing the old prompt and issuing a fresh
@@ -745,8 +750,8 @@ describe('GameStore — Task 6 auto-pass', () => {
   });
 
   it('runAutoPass does not pass when fullControl suppresses', () => {
-    const { store, sender } = configureStore();
-    armCleanPassPrompt(store);
+    const { store, match, sender } = configureStore();
+    armCleanPassPrompt(store, match);
     store.toggleFullControl();
     store.runAutoPass();
     expect(sender.sent).toHaveLength(0);
@@ -767,5 +772,34 @@ describe('GameStore — Task 6 auto-pass', () => {
     store.setPrompt(passOnlyPrompt());
     store.runAutoPass();
     expect(sender.sent).toHaveLength(0);
+  });
+
+  // ----------------------------------------------------------------
+  // M2 defense-in-depth: gameId mismatch guard
+  // ----------------------------------------------------------------
+  it('runAutoPass does NOT send when MatchService.current().gameId does not match the prompt gameId', () => {
+    // Arm a clean pass-only prompt for game 'g-1', but load a match that
+    // has already advanced to game 'g-2'. The store's prompt is stale
+    // relative to the active match — the guard must suppress the pass.
+    const { store, match, sender } = configureStore();
+    store.setState(playingState());          // youPlayerId = ALICE → selfPlayerIds
+    store.setPrompt(passOnlyPrompt());       // prompt.gameId = 'g-1'
+    // Current match points to a different game.
+    match.setCurrent(matchDto({ id: 'm-2', gameId: 'g-2' }));
+    store.runAutoPass();
+    expect(sender.sent).toHaveLength(0);
+  });
+
+  it('runAutoPass DOES send when MatchService.current().gameId matches the prompt gameId (happy path)', () => {
+    // Coherent state: match.gameId === prompt.gameId — normal operation
+    // must not be broken by the guard.
+    const { store, match, sender } = configureStore();
+    store.setState(playingState());          // youPlayerId = ALICE → selfPlayerIds
+    store.setPrompt(passOnlyPrompt());       // prompt.gameId = 'g-1'
+    // Current match has the same gameId.
+    match.setCurrent(matchDto({ gameId: 'g-1' }));
+    store.runAutoPass();
+    expect(sender.sent).toHaveLength(1);
+    expect(sender.sent[0]).toEqual({ $type: 'pass' });
   });
 });

@@ -213,7 +213,7 @@ export const GameStore = signalStore(
       return shouldAutoPass(p, deps);
     }),
   })),
-  withMethods((store, sender = inject(GAME_COMMAND_SENDER)) => ({
+  withMethods((store, sender = inject(GAME_COMMAND_SENDER), matchSvc = inject(MatchService)) => ({
     setState(next: GameState | null): void {
       patchState(store, s => ({
         state: next,
@@ -355,10 +355,21 @@ export const GameStore = signalStore(
     // prompt (the key, not object identity, dedupes) within a single
     // window. Exposed as a plain method so it's directly unit-testable;
     // a setInterval in onInit drives it on the ~150ms heartbeat.
+    //
+    // Defense-in-depth guard: only dispatch when the loaded match's
+    // gameId matches the prompt's gameId. GameStore is providedIn:'root'
+    // and outlives any single match; a rapid match switch could leave a
+    // stale prompt in the store while MatchService.current() has already
+    // advanced to a different game. In that window the store's prompt is
+    // stale relative to the active match — sending a pass would route it
+    // to the wrong game. Correspondence: Match.gameId ↔ PromptEnvelope.gameId.
     runAutoPass(): void {
       if (!store.shouldAutoPassNow()) return;
       const p = store.prompt();
       if (!p) return;
+      // Skip if the loaded match's gameId does not match the prompt's gameId.
+      const currentGameId = matchSvc.current()?.gameId ?? null;
+      if (currentGameId !== p.gameId) return;
       const key = autoPassPromptKey(p);
       if (key === store.lastAutoPassedPromptKey()) return;
       patchState(store, { lastAutoPassedPromptKey: key });
