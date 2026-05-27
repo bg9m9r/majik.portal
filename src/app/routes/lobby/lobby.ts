@@ -18,8 +18,13 @@ import { CreateMatchWizardComponent } from '../match/components/create-match-wiz
         <h2 class="majik-h3 opacity-60">Public matches</h2>
         @if (store.loading()) {
           <p class="opacity-60 text-sm">Loading…</p>
-        } @else if (store.error(); as e) {
-          <p class="text-red-300/80 text-sm">{{ e.code }}</p>
+        } @else if (store.error()) {
+          <div class="flex flex-col gap-2">
+            <p class="text-red-300/80 text-sm">Couldn’t load matches.</p>
+            <button type="button"
+                    class="self-start rounded border border-[color:var(--majik-line)] px-2 py-1 text-xs hover:border-[color:var(--majik-accent)]"
+                    (click)="store.load()">Retry</button>
+          </div>
         } @else if (store.matches().length === 0) {
           <p class="opacity-30 text-sm">— no public matches —</p>
         } @else {

@@ -85,6 +85,25 @@ describe('LobbyStore', () => {
     expect(store.loading()).toBe(false);
   });
 
+  it('load() retries after an error: clears error + repopulates on success', async () => {
+    // onInit load fails, then an explicit load() (the error-state Retry
+    // button) succeeds and clears the error.
+    const listFn = vi.fn()
+      .mockResolvedValueOnce({ ok: false, error: { code: 'network' as const } })
+      .mockResolvedValue({ ok: true, value: [m('a')] });
+    const store = init({ list: listFn });
+    await flushMicrotasks();
+    expect(store.error()?.code).toBe('network');
+
+    store.load(); // Retry
+    // tap() clears the error synchronously before the request resolves.
+    expect(store.error()).toBeNull();
+    expect(store.loading()).toBe(true);
+    await flushMicrotasks();
+    expect(store.error()).toBeNull();
+    expect(store.matches().map(x => x.id)).toEqual(['a']);
+  });
+
   it('load sets loading=true while request is in flight', async () => {
     let resolve!: (v: unknown) => void;
     const deferred = new Promise(r => { resolve = r; });

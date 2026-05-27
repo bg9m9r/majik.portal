@@ -105,5 +105,21 @@ export const CardSearchStore = signalStore(
         );
       })
     )),
+    // Retry the current query + filters from offset 0. Unlike setQuery,
+    // this bypasses the debounce + distinctUntilChanged — re-issuing the
+    // SAME query after a failure (the common case behind the error-state
+    // Retry button) would otherwise be swallowed by distinctUntilChanged
+    // and never refire. Clears the error and sets loading immediately so
+    // the UI flips out of the error state.
+    retry: rxMethod<void>(pipe(
+      tap(() => patchState(store, { loading: true, error: null, results: [], nextOffset: 0 })),
+      switchMap(() => api.search(store.query(), 50, 0, store.filters()).pipe(
+        take(1),
+        tapResponse({
+          next: cards => patchState(store, s => mergeResults(s, cards, 0)),
+          error: () => patchState(store, { loading: false, error: 'search-failed' as const }),
+        })
+      ))
+    )),
   }))
 );

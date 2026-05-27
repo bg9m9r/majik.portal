@@ -23,10 +23,12 @@ import { CompletedStateComponent } from './components/completed-state.component'
 import { BoardComponent } from './components/board.component';
 import { BotDecisionsPanelComponent } from './components/bot-decisions-panel.component';
 import { PromptOverlayComponent, PromptDecision } from './components/prompt-overlay.component';
+import { Router } from '@angular/router';
 import { ToastService } from '../../ui/toast.service';
 import {
-  BotDecision, CardSnapshot, GameCommand, GameState, Match, PromptEnvelope
+  BotDecision, CardSnapshot, GameCommand, GameState, Match, MatchError, PromptEnvelope
 } from '../../core/match/match.types';
+import { ConnectionState } from '../../core/signalr/signalr.service';
 
 @Component({
   selector: 'app-match',
@@ -76,6 +78,16 @@ import {
               <span>{{ t.text }}</span>
             </span>
           }
+          @if (connectionIndicator(); as c) {
+            <span
+              class="rounded border px-2 py-0.5"
+              [class.border-amber-400]="c.tone === 'warn'"
+              [class.text-amber-200]="c.tone === 'warn'"
+              [class.border-red-400]="c.tone === 'error'"
+              [class.text-red-200]="c.tone === 'error'"
+              role="status"
+              [attr.aria-label]="c.label">{{ c.label }}</span>
+          }
           <span class="opacity-70">{{ profile.handle() ?? auth.principal()?.sub }}</span>
           <a routerLink="/lobby" class="text-[color:var(--majik-accent)] underline">Back</a>
         </div>
@@ -85,6 +97,15 @@ import {
           <div class="flex items-center gap-2 border-b border-[color:var(--majik-line)] px-3 py-1 text-sm text-[color:var(--majik-accent)] animate-pulse">
             <span class="inline-block h-2 w-2 rounded-full bg-[color:var(--majik-accent)]"></span>
             Bot is thinking…
+          </div>
+        }
+        @if (fetchError()) {
+          <div class="flex items-center justify-between gap-2 border-b border-red-400/40 bg-red-950/40 px-3 py-2 text-sm text-red-200">
+            <span>{{ fetchError() }}</span>
+            <button
+              type="button"
+              class="rounded border border-red-400 px-2 py-0.5 text-xs text-red-100 hover:bg-red-400/10"
+              (click)="onManualRefresh()">Refresh</button>
           </div>
         }
         @if (loadError()) {
@@ -140,6 +161,7 @@ import {
 })
 export class MatchPage implements OnInit, OnDestroy {
   private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   private readonly matchSvc = inject(MatchService);
   private readonly signalr = inject(SignalrService);
   private readonly destroyRef = inject(DestroyRef);
@@ -152,6 +174,21 @@ export class MatchPage implements OnInit, OnDestroy {
   readonly loadError = signal<string | null>(null);
   readonly current = this.matchSvc.current;
   readonly botThinking = signal(false);
+
+  // Transient fetch-failure surface. Set when refresh()/fetchState() hit a
+  // !ok result so the board doesn't silently go stale; cleared on the next
+  // successful fetch. Drives the in-page error banner + its Refresh button.
+  readonly fetchError = signal<string | null>(null);
+
+  // Minimal connection-status indicator view-model. Derived from the
+  // SignalR connection state + the permanent-failure / session-expiry
+  // latches. Null while healthy (open / idle) so the header stays clean.
+  readonly connectionIndicator = computed<{ label: string; tone: 'warn' | 'error' } | null>(() =>
+    connectionIndicatorFor(
+      this.signalr.state(),
+      this.signalr.reconnectFailed(),
+      this.signalr.sessionExpired(),
+    ));
 
   // Combat-assignment relay. The prompt overlay emits this whenever
   // the user toggles an attacker / blocker; we hold it here so the
@@ -226,6 +263,45 @@ export class MatchPage implements OnInit, OnDestroy {
       const m = this.matchSvc.current();
       if (m && (m.state === 'Completed' || m.state === 'Abandoned')) {
         this.botThinking.set(false);
+      }
+    });
+    // Session-expiry recovery. A 401 mid-session leaves SignalR's
+    // sessionExpired latch set; a forceRefresh that couldn't recover leaves
+    // AuthUserStore's sessionExpired latch set. Either means the session is
+    // dead — rather than silently spinning on a stale token, surface it
+    // once and bounce the user to /login so they re-authenticate. Guarded
+    // so it fires a single time per expiry.
+    let sessionExpiredHandled = false;
+    effect(() => {
+      const expired = this.signalr.sessionExpired() || this.auth.sessionExpired();
+      if (expired && !sessionExpiredHandled) {
+        sessionExpiredHandled = true;
+        this.toast.error('Session expired — please sign in again');
+        void this.router.navigate(['/login']);
+      }
+      if (!expired) {
+        sessionExpiredHandled = false;
+      }
+    });
+    // Reconnect resync. The page bootstraps /state once on entering
+    // Playing; a mid-game transport drop + automatic reconnect would
+    // otherwise leave the board frozen on the pre-drop snapshot until the
+    // next engine event. Re-fetch /state on every connecting→open
+    // transition (a reconnect) so authoritative state catches up even if
+    // the server's "state" push is missed — belt-and-braces with the
+    // state$ channel subscription wired in load().
+    let wasConnecting = false;
+    effect(() => {
+      const st = this.signalr.state();
+      if (st === 'connecting') {
+        wasConnecting = true;
+      } else if (st === 'open' && wasConnecting) {
+        wasConnecting = false;
+        // Only resync once we're actually playing — earlier states are
+        // driven by the match-lifecycle refresh() subscriptions.
+        if (this.matchSvc.current()?.state === 'Playing') {
+          void this.fetchState();
+        }
       }
     });
     // Auto-roll on Rolling state. We deliberately do NOT gate on
@@ -369,11 +445,26 @@ export class MatchPage implements OnInit, OnDestroy {
         };
         this.game.setPrompt(envelope);
       });
+    // Authoritative snapshot pushed on the "state" channel — the server's
+    // snapshot-on-join (Slice 4b). Fired synchronously after JoinMatch on
+    // both the initial connect AND every reconnect, so feeding it straight
+    // into GameStore.setState re-syncs the board on reconnect without a
+    // REST round-trip. ReplaySubject(1) on the service hands the buffered
+    // snapshot to this late subscriber.
+    this.signalr.state$
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(s => this.game.setState(normaliseStateSnapshot(s)));
   }
 
   private async refresh(): Promise<void> {
     const r = await this.matchSvc.get(this.id);
-    if (r.ok) this.matchSvc.setCurrent(r.value);
+    if (r.ok) {
+      this.matchSvc.setCurrent(r.value);
+      this.fetchError.set(null);
+    } else {
+      this.fetchError.set(fetchFailureMessage(r.error));
+      this.toast.error(fetchFailureMessage(r.error));
+    }
   }
 
   // Coalesced state fetch. If a request is already in flight, mark a
@@ -395,16 +486,26 @@ export class MatchPage implements OnInit, OnDestroy {
           // Tolerate PascalCase or camelCase from the server (mirrors the
           // prompt-envelope mapping above). The server stamps youPlayerId
           // since Slice 2a; older builds or spectator views leave it absent.
-          const raw = r.value as unknown as Record<string, unknown>;
-          const snapshot: GameState = {
-            ...r.value,
-            youPlayerId: (raw['youPlayerId'] ?? raw['YouPlayerId'] ?? null) as string | null,
-          };
-          this.game.setState(snapshot);
+          this.game.setState(normaliseStateSnapshot(r.value));
+          this.fetchError.set(null);
+        } else {
+          // Don't drop the failure silently → stale board. Surface a
+          // banner + toast + a manual Refresh affordance.
+          this.fetchError.set(fetchFailureMessage(r.error));
+          this.toast.error(fetchFailureMessage(r.error));
         }
       } while (this.stateDirty);
     } finally {
       this.statePending = false;
+    }
+  }
+
+  // Manual recovery affordance behind the fetch-error banner's Refresh
+  // button. Re-pull the match snapshot and, when playing, the game state.
+  async onManualRefresh(): Promise<void> {
+    await this.refresh();
+    if (this.matchSvc.current()?.state === 'Playing') {
+      await this.fetchState();
     }
   }
 
@@ -428,7 +529,10 @@ export class MatchPage implements OnInit, OnDestroy {
   // effects will take it from there.
   async onConcede(): Promise<void> {
     const r = await this.matchSvc.concede(this.id);
-    if (!r.ok) console.warn('concede failed', r.error);
+    if (!r.ok) {
+      console.warn('concede failed', r.error);
+      this.toast.error(commandRejectionMessage(r.error, 'Could not concede'));
+    }
   }
 
   // Undo — UI stub. The engine doesn't expose an undo command today;
@@ -584,10 +688,10 @@ export class MatchPage implements OnInit, OnDestroy {
   private async send(cmd: GameCommand): Promise<void> {
     const r = await this.matchSvc.submitCommand(this.id, cmd);
     if (!r.ok) {
-      // The toast service would be the right home for this, but the
-      // user-visible error path for engine-rejects is unspecified.
-      // Log instead so we don't swallow silently.
       console.warn('submitCommand failed', cmd, r.error);
+      // Surface the engine rejection so the user knows the action didn't
+      // land — including the engine's reason when the API returns one.
+      this.toast.error(commandRejectionMessage(r.error, 'Move rejected'));
     }
   }
 }
@@ -733,5 +837,85 @@ export function shouldAutoSubmitRoll(
   if (submitted) return false;
   if (m.roll?.winnerSub) return false;
   return true;
+}
+
+// ---------------------------------------------------------------------
+// Resilience helpers (Slice 4c). Pure functions so they're unit-testable
+// without mounting MatchPage's DI graph.
+// ---------------------------------------------------------------------
+
+/**
+ * Tolerate PascalCase or camelCase `youPlayerId` from the server (the
+ * /state REST endpoint and the SignalR "state" channel both deliver a
+ * GameState; the casing depends on System.Text.Json options). The server
+ * has stamped youPlayerId since Slice 2a; older builds / spectator views
+ * leave it absent → null.
+ */
+export function normaliseStateSnapshot(raw: unknown): GameState {
+  const r = raw as Record<string, unknown>;
+  return {
+    ...(raw as GameState),
+    youPlayerId: (r['youPlayerId'] ?? r['YouPlayerId'] ?? null) as string | null,
+  };
+}
+
+/**
+ * User-facing message for a failed match/state fetch. Network failures
+ * read as a connectivity hint; everything else gets a generic "couldn't
+ * refresh" so we never leak a raw server code/detail that wasn't meant
+ * for users. The Refresh affordance is offered separately by the banner.
+ */
+export function fetchFailureMessage(error: MatchError): string {
+  if (error.code === 'network') {
+    return 'Connection problem — couldn’t refresh the board';
+  }
+  return 'Couldn’t refresh the board — retry';
+}
+
+/**
+ * User-facing message for a rejected game command (submitCommand) or a
+ * rejected concede. Surfaces the engine's rejection reason when the API
+ * returns a meaningful one (error.detail), falling back to the error code
+ * and finally a generic prefix. Network errors read as connectivity.
+ */
+export function commandRejectionMessage(error: MatchError, prefix: string): string {
+  if (error.code === 'network') {
+    return `${prefix} — connection problem`;
+  }
+  const reason = (error.detail && error.detail.trim()) || humaniseCode(error.code);
+  return reason ? `${prefix}: ${reason}` : prefix;
+}
+
+function humaniseCode(code: string): string {
+  if (!code || code === 'unknown') return '';
+  // "cannot-concede" → "cannot concede"
+  return code.replace(/-/g, ' ');
+}
+
+/**
+ * Minimal connection-status indicator view-model. Returns null while the
+ * connection is healthy (open / idle) so the header stays clean; a
+ * "reconnecting…" warn chip while connecting; and a "connection lost"
+ * error chip when the connection errored or automatic reconnect gave up.
+ * Session-expiry is handled separately (toast + redirect), so it doesn't
+ * also render a chip here.
+ */
+export function connectionIndicatorFor(
+  state: ConnectionState,
+  reconnectFailed: boolean,
+  sessionExpired: boolean,
+): { label: string; tone: 'warn' | 'error' } | null {
+  if (sessionExpired) return null; // handled via toast + redirect
+  if (reconnectFailed) return { label: 'Connection lost', tone: 'error' };
+  switch (state) {
+    case 'connecting':
+      return { label: 'Reconnecting…', tone: 'warn' };
+    case 'error':
+      return { label: 'Connection lost', tone: 'error' };
+    case 'closed':
+      return { label: 'Disconnected', tone: 'warn' };
+    default:
+      return null; // open / idle
+  }
 }
 

@@ -18,6 +18,17 @@ import {
 
 export type ConnectionState = 'idle' | 'connecting' | 'open' | 'closed' | 'error';
 
+// Bounded reconnect backoff (ms between attempts). The SignalR default
+// for `withAutomaticReconnect()` with no args is [0, 2000, 10000, 30000]
+// then it gives up — but the FIRST retry is immediate, which means a
+// revoked session (every reconnect 401s) hammers Auth0 / the negotiate
+// endpoint the instant the transport drops. Give it an explicit, bounded
+// schedule with a non-zero first delay so a permanently-dead session
+// backs off instead of spinning. After the last entry the connection
+// transitions to a permanent-failure state (onclose with an error) which
+// the UI surfaces as "connection lost".
+export const RECONNECT_BACKOFF_MS = [2_000, 5_000, 10_000, 30_000];
+
 @Injectable({ providedIn: 'root' })
 export class SignalrService {
   private readonly auth = inject(AuthUserStore);
@@ -34,9 +45,22 @@ export class SignalrService {
 
   private readonly _state = signal<ConnectionState>('idle');
   private readonly _error = signal<string | null>(null);
+  // Permanent-failure latch: set when automatic reconnect exhausts the
+  // backoff schedule (or a non-recoverable close happens). The UI reads
+  // this to show a manual-recovery affordance instead of a perpetual
+  // "reconnecting" spinner. Cleared on a fresh connect().
+  private readonly _reconnectFailed = signal<boolean>(false);
+  // Session-expiry latch: set when a reconnect / negotiate fails because
+  // the session's token was rejected (401) and a forced refresh could not
+  // recover it. The UI surfaces "session expired" (toast / redirect to
+  // login) rather than silently spinning on a stale token. Cleared on a
+  // fresh connect().
+  private readonly _sessionExpired = signal<boolean>(false);
 
   readonly state = this._state.asReadonly();
   readonly error = this._error.asReadonly();
+  readonly reconnectFailed = this._reconnectFailed.asReadonly();
+  readonly sessionExpired = this._sessionExpired.asReadonly();
 
   // Engine events (scoped to a match's underlying game).
   //
@@ -59,8 +83,16 @@ export class SignalrService {
   // sees the *current* subject at the moment they subscribe.
   private _event$ = new ReplaySubject<unknown>(1);
   private _prompt$ = new ReplaySubject<unknown>(1);
+  // Authoritative game-state snapshot pushed on the "state" channel. The
+  // server streams this synchronously after JoinMatch (snapshot-on-join,
+  // Slice 4b) so a (re)connecting client re-syncs without a separate REST
+  // hop. Buffered with ReplaySubject(1) for the same late-subscriber race
+  // as prompt$/event$: the .on('state', …) handler fires during the
+  // awaited connect() before MatchPage wires up its subscription.
+  private _state$ = new ReplaySubject<unknown>(1);
   readonly event$: Observable<unknown> = defer(() => this._event$);
   readonly prompt$: Observable<unknown> = defer(() => this._prompt$);
+  readonly state$: Observable<unknown> = defer(() => this._state$);
 
   // Match lifecycle event streams
   readonly opponentJoined$ = new Subject<OpponentJoinedPayload>();
@@ -88,6 +120,8 @@ export class SignalrService {
     await this.disconnect();
     this._state.set('connecting');
     this._error.set(null);
+    this._reconnectFailed.set(false);
+    this._sessionExpired.set(false);
     this.currentMatchId = matchId;
 
     this.connection = new HubConnectionBuilder()
@@ -110,12 +144,20 @@ export class SignalrService {
           return this.auth.getAccessToken();
         }
       })
-      .withAutomaticReconnect()
+      // Bounded backoff (see RECONNECT_BACKOFF_MS) — non-zero first delay
+      // so a revoked session doesn't hammer Auth0/the negotiate endpoint
+      // the instant the transport drops. When the schedule is exhausted
+      // the connection closes with an error → onclose surfaces the
+      // permanent-failure state below.
+      .withAutomaticReconnect([...RECONNECT_BACKOFF_MS])
       .configureLogging(LogLevel.Warning)
       .build();
 
     this.connection.on('event', (evt: unknown) => this._event$.next(evt));
     this.connection.on('prompt', (p: unknown) => this._prompt$.next(p));
+    // Snapshot-on-join (Slice 4b): authoritative GameState pushed after
+    // (re)joining. Feed into GameStore.setState so a reconnect re-syncs.
+    this.connection.on('state', (s: unknown) => this._state$.next(s));
     this.connection.on('match.opponent-joined', (p: OpponentJoinedPayload) => this.opponentJoined$.next(p));
     this.connection.on('match.state-changed', (p: StateChangedPayload) => this.stateChanged$.next(p));
     this.connection.on('match.rolled', (p: RolledPayload) => this.rolled$.next(p));
@@ -129,10 +171,7 @@ export class SignalrService {
       if (normalised) this.botDecisions$.next(normalised);
     });
 
-    this.connection.onclose(err => {
-      this._state.set(err ? 'error' : 'closed');
-      if (err) this._error.set(err.message);
-    });
+    this.connection.onclose(err => this.handleClose(err));
     this.connection.onreconnecting(err => {
       // If the previous transport dropped because the server rejected our
       // token, arm a one-shot force-refresh so the upcoming reconnect's
@@ -143,7 +182,15 @@ export class SignalrService {
       }
       this._state.set('connecting');
     });
-    this.connection.onreconnected(() => this._state.set('open'));
+    this.connection.onreconnected(() => {
+      // A successful reconnect clears the transient error/expiry latches.
+      // The server re-streams a snapshot on the "state" channel after the
+      // re-JoinMatch so GameStore re-syncs authoritative state.
+      this._state.set('open');
+      this._error.set(null);
+      this._reconnectFailed.set(false);
+      this._sessionExpired.set(false);
+    });
 
     try {
       await this.connection.start();
@@ -163,12 +210,44 @@ export class SignalrService {
         } catch (retryErr: unknown) {
           this._state.set('error');
           this._error.set(retryErr instanceof Error ? retryErr.message : String(retryErr));
+          // Second negotiate still rejected: the session is dead even
+          // after a forced token refresh — surface "session expired".
+          if (SignalrService.isAuthError(retryErr)) {
+            this._sessionExpired.set(true);
+          }
           throw retryErr;
         }
       }
       this._state.set('error');
       this._error.set(err instanceof Error ? err.message : String(err));
+      if (SignalrService.isAuthError(err)) {
+        this._sessionExpired.set(true);
+      }
       throw err;
+    }
+  }
+
+  /**
+   * Handle a connection close. Extracted from the `onclose` callback so
+   * it's directly unit-testable without a live HubConnection.
+   *
+   * A close WITHOUT an error is a clean stop (disconnect()). A close WITH
+   * an error means automatic-reconnect exhausted its backoff schedule (or
+   * the close was otherwise non-recoverable): the client is permanently
+   * disconnected until a manual recovery. We latch `reconnectFailed` so
+   * the UI offers a reconnect/refresh affordance rather than a perpetual
+   * "reconnecting" spinner; and if the cause was a 401 we latch
+   * `sessionExpired` so the user re-authenticates instead of the client
+   * silently retrying a stale token.
+   */
+  private handleClose(err?: Error): void {
+    this._state.set(err ? 'error' : 'closed');
+    if (err) {
+      this._error.set(err.message);
+      this._reconnectFailed.set(true);
+      if (SignalrService.isAuthError(err)) {
+        this._sessionExpired.set(true);
+      }
     }
   }
 
@@ -243,15 +322,19 @@ export class SignalrService {
     this.connection = null;
     this.currentMatchId = null;
     this._state.set('idle');
-    // Replace replay buffers so a stale prompt/event from the previous
-    // match doesn't leak into the next match's subscribers. The public
-    // `prompt$` / `event$` observables defer() to these fields, so any
-    // subscription wired up after the next connect() will see the fresh
-    // buffer (and any prompts/events replayed by JoinMatch on the new
-    // connection).
+    this._reconnectFailed.set(false);
+    this._sessionExpired.set(false);
+    // Replace replay buffers so a stale prompt/event/state from the
+    // previous match doesn't leak into the next match's subscribers. The
+    // public `prompt$` / `event$` / `state$` observables defer() to these
+    // fields, so any subscription wired up after the next connect() will
+    // see the fresh buffer (and any prompts/events/state replayed by
+    // JoinMatch on the new connection).
     this._event$.complete();
     this._prompt$.complete();
+    this._state$.complete();
     this._event$ = new ReplaySubject<unknown>(1);
     this._prompt$ = new ReplaySubject<unknown>(1);
+    this._state$ = new ReplaySubject<unknown>(1);
   }
 }

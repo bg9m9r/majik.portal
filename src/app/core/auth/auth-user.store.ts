@@ -64,6 +64,13 @@ interface AuthUserState {
   authed: boolean;
   profile: Profile | null;
   ready: boolean;
+  // Session-expiry latch. Set when a forced token refresh
+  // (`getAccessTokenSilently({ cacheMode: 'off' })`) is rejected — i.e.
+  // the refresh token is genuinely dead, so silently reusing the stale
+  // cached token would just keep 401ing. Consumers (e.g. the match page)
+  // surface "session expired" + redirect to login rather than spinning.
+  // Cleared by a successful getAccessToken/forceRefresh.
+  sessionExpired: boolean;
 }
 
 const initial: AuthUserState = {
@@ -72,6 +79,7 @@ const initial: AuthUserState = {
   authed: false,
   profile: null,
   ready: false,
+  sessionExpired: false,
 };
 
 /**
@@ -263,9 +271,13 @@ export const AuthUserStore = signalStore(
         }
         try {
           const token = await firstValueFrom(auth0.getAccessTokenSilently());
-          if (token) patchState(store, { token });
+          if (token) patchState(store, { token, sessionExpired: false });
           return token ?? store.token() ?? '';
         } catch {
+          // The cached-token path failing is not, on its own, proof the
+          // session is dead (could be a transient SDK hiccup). Don't latch
+          // sessionExpired here — that's forceRefresh's job. Fall back to
+          // whatever cached token we have.
           return store.token() ?? '';
         }
       },
@@ -285,21 +297,33 @@ export const AuthUserStore = signalStore(
           const fresh = await firstValueFrom(
             auth0.getAccessTokenSilently({ cacheMode: 'off' })
           );
-          if (fresh) patchState(store, { token: fresh });
+          if (fresh) patchState(store, { token: fresh, sessionExpired: false });
           return fresh ?? store.token() ?? '';
         } catch {
+          // A forced (cacheMode:'off') refresh failing means Auth0 rejected
+          // the refresh token — the session is genuinely dead. Latch
+          // sessionExpired so consumers surface "session expired" + redirect
+          // to login rather than silently reusing the stale cached token
+          // (which would just keep 401ing). Still return the cached value so
+          // the immediate caller's contract is unchanged.
+          patchState(store, { sessionExpired: true });
           return store.token() ?? '';
         }
       },
 
       logout(): void {
         if (store.isStub) {
-          patchState(store, { authed: false, principal: null });
+          patchState(store, { authed: false, principal: null, sessionExpired: false });
           return;
         }
         auth0?.logout({
           logoutParams: { returnTo: window.location.origin }
         }).subscribe();
+      },
+
+      /** Clear the session-expiry latch (e.g. after re-authenticating). */
+      clearSessionExpired(): void {
+        patchState(store, { sessionExpired: false });
       },
 
       async update(handle: string): Promise<{ ok: true; profile: Profile } | { ok: false; error: ProfileError }> {
