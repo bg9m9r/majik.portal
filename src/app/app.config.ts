@@ -6,9 +6,8 @@ import { routes } from './app.routes';
 import { environment } from '../environments/environment';
 import { provideMajikAuth } from './core/auth/provide-majik-auth';
 import { authInterceptor } from './core/auth/auth.interceptor';
-import { AuthService } from './core/auth/auth.service';
+import { AuthUserStore } from './core/auth/auth-user.store';
 import { provideApiConfiguration } from './core/api/api-configuration';
-import { ProfileService } from './core/profile/profile.service';
 import { devErrorInterceptor } from './core/dev-error/dev-error.interceptor';
 import { DevToastErrorHandler } from './core/dev-error/dev-toast-error-handler';
 
@@ -23,19 +22,19 @@ export const appConfig: ApplicationConfig = {
     { provide: ErrorHandler, useClass: DevToastErrorHandler },
     ...provideMajikAuth(),
     provideAppInitializer(async () => {
-      // Resolve injections synchronously up-front. Calling `inject()`
+      // Resolve the injection synchronously up-front. Calling `inject()`
       // after an `await` throws NG0203 because the synchronous Angular
       // injection context is lost across microtask boundaries.
       //
-      // Order still matters at await time: AuthService.bootstrap() must
-      // resolve before ProfileService.bootstrap() fires `GET /me`,
-      // otherwise the request races the Auth0 redirect-callback token
-      // exchange and 401s — which the onboarding guard misreads as
-      // "no profile" and bounces the user to /onboarding on every login.
-      const auth = inject(AuthService);
-      const profile = inject(ProfileService);
-      await auth.bootstrap();
-      await profile.bootstrap();
+      // AuthUserStore.bootstrap() internally settles the Auth0/Descope
+      // session BEFORE firing `GET /me` — the order still matters because
+      // the profile request must not race the Auth0 redirect-callback
+      // token exchange (a 401 there used to make the onboarding guard
+      // misread "no profile" and bounce returning users to /onboarding on
+      // every login). Consolidating both into one store keeps that
+      // ordering internal to bootstrap().
+      const store = inject(AuthUserStore);
+      await store.bootstrap();
     })
   ]
 };

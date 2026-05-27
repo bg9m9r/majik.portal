@@ -1,6 +1,6 @@
 import { Component, computed, inject, input } from '@angular/core';
 import { Match } from '../../../core/match/match.types';
-import { AuthService } from '../../../core/auth/auth.service';
+import { AuthUserStore } from '../../../core/auth/auth-user.store';
 
 @Component({
   selector: 'app-rolling-state',
@@ -38,7 +38,7 @@ import { AuthService } from '../../../core/auth/auth.service';
   `,
 })
 export class RollingStateComponent {
-  private readonly auth = inject(AuthService);
+  private readonly auth = inject(AuthUserStore);
 
   readonly match = input.required<Match>();
 

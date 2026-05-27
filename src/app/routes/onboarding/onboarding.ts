@@ -1,7 +1,7 @@
 import { Component, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
-import { ProfileService } from '../../core/profile/profile.service';
+import { AuthUserStore } from '../../core/auth/auth-user.store';
 
 const HANDLE_REGEX = /^[A-Za-z0-9_-]{3,20}$/;
 
@@ -40,7 +40,7 @@ const HANDLE_REGEX = /^[A-Za-z0-9_-]{3,20}$/;
   `,
 })
 export class OnboardingPage {
-  private readonly profile = inject(ProfileService);
+  private readonly profile = inject(AuthUserStore);
   private readonly router = inject(Router);
 
   handle = this.profile.handle() ?? '';

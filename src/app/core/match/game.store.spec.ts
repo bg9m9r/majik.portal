@@ -2,7 +2,7 @@ import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { GameStore, GAME_COMMAND_SENDER, GameCommandSender } from './game.store';
-import { AuthService } from '../auth/auth.service';
+import { AuthUserStore } from '../auth/auth-user.store';
 import { MatchService } from './match.service';
 import { STACK_MUTATION_DISPLAY_MS } from './match-session';
 import { BotDecision, CardSnapshot, GameCommand, GameState, Match } from './match.types';
@@ -13,7 +13,7 @@ const BOB = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
 // ----------------------------------------------------------------
 // Fakes for the store's injected collaborators. These let the store
 // be exercised without standing up Auth0 / HttpClient / SignalR — the
-// store reads only the viewer `sub` (AuthService.principal), the live
+// store reads only the viewer `sub` (AuthUserStore.principal), the live
 // MatchDto (MatchService.current), and a command sender.
 // ----------------------------------------------------------------
 class FakeAuth {
@@ -44,7 +44,7 @@ class FakeSender implements GameCommandSender {
 // that only need the plain store reuse this via `storeProviders()`.
 function storeProviders() {
   return [
-    { provide: AuthService, useValue: new FakeAuth() },
+    { provide: AuthUserStore, useValue: new FakeAuth() },
     { provide: MatchService, useValue: new FakeMatch() },
     { provide: GAME_COMMAND_SENDER, useValue: new FakeSender() },
   ];
@@ -61,7 +61,7 @@ function configureStore(): {
   const sender = new FakeSender();
   TestBed.configureTestingModule({
     providers: [
-      { provide: AuthService, useValue: auth },
+      { provide: AuthUserStore, useValue: auth },
       { provide: MatchService, useValue: match },
       { provide: GAME_COMMAND_SENDER, useValue: sender },
     ],

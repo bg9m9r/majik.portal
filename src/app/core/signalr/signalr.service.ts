@@ -2,7 +2,7 @@ import { Injectable, inject, signal } from '@angular/core';
 import { HttpError, HubConnection, HubConnectionBuilder, HubConnectionState, LogLevel } from '@microsoft/signalr';
 import { Observable, ReplaySubject, Subject, defer } from 'rxjs';
 import { environment } from '../../../environments/environment';
-import { AuthService } from '../auth/auth.service';
+import { AuthUserStore } from '../auth/auth-user.store';
 import {
   BotDecision,
   BotDecisionAlternative,
@@ -20,7 +20,7 @@ export type ConnectionState = 'idle' | 'connecting' | 'open' | 'closed' | 'error
 
 @Injectable({ providedIn: 'root' })
 export class SignalrService {
-  private readonly auth = inject(AuthService);
+  private readonly auth = inject(AuthUserStore);
 
   private connection: HubConnection | null = null;
   private currentMatchId: string | null = null;

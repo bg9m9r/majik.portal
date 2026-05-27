@@ -2,8 +2,7 @@ import { ApplicationInitStatus } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { appConfig } from './app.config';
-import { AuthService } from './core/auth/auth.service';
-import { ProfileService } from './core/profile/profile.service';
+import { AuthUserStore } from './core/auth/auth-user.store';
 
 /**
  * Regression coverage for NG0203 ("inject() must be called from an injection
@@ -16,20 +15,20 @@ import { ProfileService } from './core/profile/profile.service';
  * The fix in app.config.ts must resolve ALL `inject(...)` calls synchronously
  * before the first `await`. We exercise the real `appConfig.providers` via
  * `ApplicationInitStatus.donePromise`, which rejects iff any initializer
- * throws. The stubs use a microtask-yielding `bootstrap()` so the buggy
+ * throws. The stub uses a microtask-yielding `bootstrap()` so the buggy
  * "inject after await" pattern would fail this test.
+ *
+ * Since the store-sweep, identity is bootstrapped by a single
+ * AuthUserStore.bootstrap() (which internally settles auth then loads the
+ * profile) rather than the prior AuthService + ProfileService two-step.
  */
 describe('appConfig app initializer', () => {
-  let authBootstrap: ReturnType<typeof vi.fn>;
-  let profileBootstrap: ReturnType<typeof vi.fn>;
+  let storeBootstrap: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     // Force a real microtask boundary inside the initializer; this is what
     // surfaces NG0203 when inject() is called after await.
-    authBootstrap = vi.fn(async () => {
-      await Promise.resolve();
-    });
-    profileBootstrap = vi.fn(async () => {
+    storeBootstrap = vi.fn(async () => {
       await Promise.resolve();
     });
 
@@ -37,9 +36,8 @@ describe('appConfig app initializer', () => {
     TestBed.configureTestingModule({
       providers: [
         ...appConfig.providers,
-        // Override the real services AFTER appConfig.providers so these win.
-        { provide: AuthService, useValue: { bootstrap: authBootstrap } },
-        { provide: ProfileService, useValue: { bootstrap: profileBootstrap } },
+        // Override the real store AFTER appConfig.providers so this wins.
+        { provide: AuthUserStore, useValue: { bootstrap: storeBootstrap } },
       ],
     });
   });
@@ -53,11 +51,10 @@ describe('appConfig app initializer', () => {
     expect(initStatus.done).toBe(true);
   });
 
-  it('bootstraps both AuthService and ProfileService', async () => {
+  it('bootstraps the AuthUserStore once', async () => {
     const initStatus = TestBed.inject(ApplicationInitStatus);
     await initStatus.donePromise;
 
-    expect(authBootstrap).toHaveBeenCalledTimes(1);
-    expect(profileBootstrap).toHaveBeenCalledTimes(1);
+    expect(storeBootstrap).toHaveBeenCalledTimes(1);
   });
 });
