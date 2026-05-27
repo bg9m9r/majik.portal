@@ -120,6 +120,11 @@ export interface GameState {
   activePlayerId: string;
   players: GamePlayer[];
   stack: StackItem[];
+  // Authoritative seat id stamped by the server on the /state DTO.
+  // When present, the store derives selfPlayerIds from this field
+  // instead of the client-side name-match heuristic. Null for
+  // spectators and for snapshots fetched from older server versions.
+  youPlayerId: string | null;
 }
 
 // Prompt envelope as sent by MatchFacadeBridge on the "prompt" SignalR

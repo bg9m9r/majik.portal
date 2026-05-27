@@ -195,6 +195,7 @@ function state(over: Partial<GameState> & {
       },
     ],
     stack: [],
+    youPlayerId: null,
     ...rest,
   };
 }
@@ -407,10 +408,13 @@ describe('shouldAutoPass — auto-pass guard', () => {
 // regressions surface as test failures before they hit production.
 //
 // Spec 1 & 2 exercise the shouldAutoPass gate in isolation, proving the
-// pure logic is correct when selfPlayerIds is already resolved.  The live
-// bug (seat-identity derivation) is in resolveSelfPlayerIds(), which is a
-// private method on MatchPage and not directly unit-testable here.
-// TODO(Slice 2): make seat-identity derivation unit-testable.
+// pure logic is correct when selfPlayerIds is already resolved.
+//
+// Seat-identity derivation is now covered in game.store.spec.ts:
+// GameStore.setState — seat identity from youPlayerId. The prior
+// resolveSelfPlayerIds() private method has been replaced by
+// GameStore.setState reading youPlayerId from the /state snapshot
+// (Slice 2a fix), making it directly unit-testable in the store spec.
 //
 // Spec 3 locks the phase-bar's phase vocabulary against a raw-string
 // regression (#758 PostCombatMain / Main mixup).
@@ -447,6 +451,7 @@ describe('wire contract (Slice 0)', () => {
         },
       ],
       stack: [],
+      youPlayerId: null,
     };
 
     const passOnlyPrompt: PromptEnvelope = {
@@ -465,7 +470,8 @@ describe('wire contract (Slice 0)', () => {
     });
 
     // The gate logic is sound when selfPlayerIds is correctly populated.
-    // (The live bug isolates to seat-identity derivation in Slice 2.)
+    // Seat-identity derivation via setState(youPlayerId) is covered in
+    // game.store.spec.ts: 'GameStore.setState — seat identity from youPlayerId'.
     expect(result).toBe(true);
   });
 
@@ -494,6 +500,7 @@ describe('wire contract (Slice 0)', () => {
         },
       ],
       stack: [],
+      youPlayerId: null,
     };
 
     const passOnlyPrompt: PromptEnvelope = {
