@@ -2,7 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { HttpError } from '@microsoft/signalr';
 import { AuthUserStore } from '../auth/auth-user.store';
-import { SignalrService } from './signalr.service';
+import { RECONNECT_BACKOFF_MS, SignalrService } from './signalr.service';
 
 // Pure tests for the static wire→DTO normaliser. Standing up a live
 // HubConnection in vitest would require a network double; the routing
@@ -194,6 +194,119 @@ describe('SignalrService prompt$/event$ replay semantics', () => {
 
     expect(received).not.toBeNull();
     expect((received as { type: string }).type).toBe('PhaseStarted');
+  });
+
+  // Snapshot-on-join (Slice 4b): the server pushes an authoritative
+  // GameState on the "state" channel synchronously after JoinMatch, which
+  // fires during connect() — before MatchPage subscribes. ReplaySubject(1)
+  // hands the buffered snapshot to the late subscriber so a (re)connect
+  // re-syncs the board.
+  it('replays the most recent state snapshot to late subscribers', () => {
+    type Internal = { _state$: { next: (v: unknown) => void } };
+    const internal = svc as unknown as Internal;
+    internal._state$.next({ gameId: 'g1', phase: 'Upkeep', youPlayerId: 'p1' });
+
+    let received: unknown = null;
+    svc.state$.subscribe(s => { received = s; });
+
+    expect(received).not.toBeNull();
+    expect((received as { gameId: string }).gameId).toBe('g1');
+    expect((received as { youPlayerId: string }).youPlayerId).toBe('p1');
+  });
+});
+
+// Reconnect backoff + permanent-failure / session-expiry latches. We
+// can't stand up a live HubConnection in vitest, so we exercise the
+// constant + the latch signals via the same Internal cast the other
+// suites use (the production onclose/onreconnected handlers flip exactly
+// these fields).
+describe('SignalrService reconnect resilience', () => {
+  it('exposes a bounded, non-zero-first reconnect backoff schedule', () => {
+    // A zero-delay first retry (the withAutomaticReconnect() default)
+    // hammers Auth0/negotiate the instant the transport drops. The first
+    // entry must be a real delay, and the schedule must be bounded.
+    expect(RECONNECT_BACKOFF_MS.length).toBeGreaterThan(0);
+    expect(RECONNECT_BACKOFF_MS[0]).toBeGreaterThan(0);
+    // Monotonically non-decreasing — a sane backoff.
+    for (let i = 1; i < RECONNECT_BACKOFF_MS.length; i++) {
+      expect(RECONNECT_BACKOFF_MS[i]).toBeGreaterThanOrEqual(RECONNECT_BACKOFF_MS[i - 1]);
+    }
+  });
+
+  it('reconnectFailed / sessionExpired start clear', () => {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        SignalrService,
+        {
+          provide: AuthUserStore,
+          useValue: { getAccessToken: () => Promise.resolve(''), forceRefresh: () => Promise.resolve('') },
+        },
+      ],
+    });
+    const svc = TestBed.inject(SignalrService);
+    expect(svc.reconnectFailed()).toBe(false);
+    expect(svc.sessionExpired()).toBe(false);
+  });
+
+  it('an errored close latches reconnectFailed; a 401 close also latches sessionExpired', () => {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        SignalrService,
+        {
+          provide: AuthUserStore,
+          useValue: { getAccessToken: () => Promise.resolve(''), forceRefresh: () => Promise.resolve('') },
+        },
+      ],
+    });
+    const svc = TestBed.inject(SignalrService);
+
+    // Drive the REAL onclose handler (handleClose) — the production
+    // onclose callback delegates straight to it.
+    type Internal = { handleClose: (err?: Error) => void };
+    (svc as unknown as Internal).handleClose(new HttpError('Unauthorized', 401));
+
+    expect(svc.reconnectFailed()).toBe(true);
+    expect(svc.sessionExpired()).toBe(true);
+  });
+
+  it('a non-auth errored close latches reconnectFailed but not sessionExpired', () => {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        SignalrService,
+        {
+          provide: AuthUserStore,
+          useValue: { getAccessToken: () => Promise.resolve(''), forceRefresh: () => Promise.resolve('') },
+        },
+      ],
+    });
+    const svc = TestBed.inject(SignalrService);
+    type Internal = { handleClose: (err?: Error) => void };
+    (svc as unknown as Internal).handleClose(new Error('transport dropped'));
+
+    expect(svc.reconnectFailed()).toBe(true);
+    expect(svc.sessionExpired()).toBe(false);
+  });
+
+  it('a clean close (no error) does not latch failure or expiry', () => {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        SignalrService,
+        {
+          provide: AuthUserStore,
+          useValue: { getAccessToken: () => Promise.resolve(''), forceRefresh: () => Promise.resolve('') },
+        },
+      ],
+    });
+    const svc = TestBed.inject(SignalrService);
+    type Internal = { handleClose: (err?: Error) => void };
+    (svc as unknown as Internal).handleClose(undefined);
+
+    expect(svc.reconnectFailed()).toBe(false);
+    expect(svc.sessionExpired()).toBe(false);
   });
 });
 
