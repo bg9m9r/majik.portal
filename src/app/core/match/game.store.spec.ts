@@ -1,10 +1,108 @@
+import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { beforeEach, describe, expect, it } from 'vitest';
-import { GameStore } from './game.store';
-import { BotDecision, GameState } from './match.types';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { GameStore, GAME_COMMAND_SENDER, GameCommandSender } from './game.store';
+import { AuthService } from '../auth/auth.service';
+import { MatchService } from './match.service';
+import { STACK_MUTATION_DISPLAY_MS } from './match-session';
+import { BotDecision, CardSnapshot, GameCommand, GameState, Match } from './match.types';
 
 const ALICE = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const BOB = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+
+// ----------------------------------------------------------------
+// Fakes for the store's injected collaborators. These let the store
+// be exercised without standing up Auth0 / HttpClient / SignalR — the
+// store reads only the viewer `sub` (AuthService.principal), the live
+// MatchDto (MatchService.current), and a command sender.
+// ----------------------------------------------------------------
+class FakeAuth {
+  readonly _principal = signal<{ sub: string } | null>(null);
+  readonly principal = this._principal.asReadonly();
+  setSub(sub: string | null): void {
+    this._principal.set(sub ? { sub } : null);
+  }
+}
+
+class FakeMatch {
+  readonly _current = signal<Match | null>(null);
+  readonly current = this._current.asReadonly();
+  setCurrent(m: Match | null): void {
+    this._current.set(m);
+  }
+}
+
+class FakeSender implements GameCommandSender {
+  readonly sent: GameCommand[] = [];
+  send(cmd: GameCommand): void {
+    this.sent.push(cmd);
+  }
+}
+
+// Default fake providers so the store's injected collaborators resolve
+// without standing up Auth0 / HttpClient. The existing describe blocks
+// that only need the plain store reuse this via `storeProviders()`.
+function storeProviders() {
+  return [
+    { provide: AuthService, useValue: new FakeAuth() },
+    { provide: MatchService, useValue: new FakeMatch() },
+    { provide: GAME_COMMAND_SENDER, useValue: new FakeSender() },
+  ];
+}
+
+function configureStore(): {
+  store: InstanceType<typeof GameStore>;
+  auth: FakeAuth;
+  match: FakeMatch;
+  sender: FakeSender;
+} {
+  const auth = new FakeAuth();
+  const match = new FakeMatch();
+  const sender = new FakeSender();
+  TestBed.configureTestingModule({
+    providers: [
+      { provide: AuthService, useValue: auth },
+      { provide: MatchService, useValue: match },
+      { provide: GAME_COMMAND_SENDER, useValue: sender },
+    ],
+  });
+  const store = TestBed.inject(GameStore);
+  store.reset();
+  return { store, auth, match, sender };
+}
+
+function matchDto(over: Partial<Match> = {}): Match {
+  return {
+    id: 'm-1',
+    state: 'Playing',
+    visibility: 'Public',
+    format: 'constructed',
+    clockMinutes: 25,
+    creator: { sub: ALICE, handle: 'Alice', deckId: 'd-a' },
+    opponent: { sub: BOB, handle: 'Bob', deckId: 'd-b' },
+    roll: null,
+    firstChoice: null,
+    gameId: 'g-1',
+    creatorMillisRemaining: 1_500_000,
+    opponentMillisRemaining: 1_500_000,
+    priorityHolderSub: null,
+    priorityStartedAt: null,
+    winnerSub: null,
+    timeoutLoserSub: null,
+    createdAt: '2026-05-25T00:00:00Z',
+    updatedAt: '2026-05-25T00:00:00Z',
+    ...over,
+  };
+}
+
+function passOnlyPrompt(over: Partial<import('./match.types').PromptEnvelope> = {}) {
+  return {
+    gameId: 'g-1',
+    playerId: ALICE,
+    expectedKinds: ['PassPriorityCommand'],
+    ...over,
+  };
+}
 
 function snapshot(): GameState {
   return {
@@ -35,7 +133,7 @@ describe('GameStore.setState — seat identity from youPlayerId', () => {
   let store: InstanceType<typeof GameStore>;
 
   beforeEach(() => {
-    TestBed.configureTestingModule({});
+    TestBed.configureTestingModule({ providers: storeProviders() });
     store = TestBed.inject(GameStore);
     store.reset();
   });
@@ -79,7 +177,7 @@ describe('GameStore.applyEvent', () => {
   let store: InstanceType<typeof GameStore>;
 
   beforeEach(() => {
-    TestBed.configureTestingModule({});
+    TestBed.configureTestingModule({ providers: storeProviders() });
     store = TestBed.inject(GameStore);
     store.reset();
   });
@@ -132,7 +230,7 @@ describe('GameStore.recentDecisions', () => {
   let store: InstanceType<typeof GameStore>;
 
   beforeEach(() => {
-    TestBed.configureTestingModule({});
+    TestBed.configureTestingModule({ providers: storeProviders() });
     store = TestBed.inject(GameStore);
     // Re-entrant: signalStore is providedIn:'root', so reset to
     // initial between specs to avoid bleed.
@@ -195,7 +293,7 @@ describe('GameStore.phaseStops', () => {
   let store: InstanceType<typeof GameStore>;
 
   beforeEach(() => {
-    TestBed.configureTestingModule({});
+    TestBed.configureTestingModule({ providers: storeProviders() });
     store = TestBed.inject(GameStore);
     store.reset();
   });
@@ -242,7 +340,7 @@ describe('GameStore.landsPlayedThisTurn — CR 305.2 land-drop tracker (client-d
   let store: InstanceType<typeof GameStore>;
 
   beforeEach(() => {
-    TestBed.configureTestingModule({});
+    TestBed.configureTestingModule({ providers: storeProviders() });
     store = TestBed.inject(GameStore);
     store.reset();
     store.setState(snapshot());
@@ -329,5 +427,327 @@ describe('GameStore.landsPlayedThisTurn — CR 305.2 land-drop tracker (client-d
     expect(store.landsPlayedThisTurn()).toBe(1);
     store.reset();
     expect(store.landsPlayedThisTurn()).toBe(0);
+  });
+});
+
+// ----------------------------------------------------------------
+// Card factories for the auto-pass / timer specs (mirror match.spec.ts).
+// ----------------------------------------------------------------
+function land(id = 'forest'): CardSnapshot {
+  return {
+    instanceId: id, name: 'Forest', manaCost: '', types: ['Land', 'Basic'],
+    power: null, toughness: null, tapped: false, summoningSickness: false,
+    producedManaColors: '',
+  };
+}
+
+function spell(id = 'bolt'): CardSnapshot {
+  return {
+    instanceId: id, name: 'Lightning Bolt', manaCost: '{R}', types: ['Instant'],
+    power: null, toughness: null, tapped: false, summoningSickness: false,
+    producedManaColors: '',
+  };
+}
+
+// ----------------------------------------------------------------
+// Task 4 — fullControl / clockAnchor / recordStackMutation
+// ----------------------------------------------------------------
+describe('GameStore — Task 4 session state + methods', () => {
+  it('fullControl starts false and toggleFullControl flips it', () => {
+    const { store } = configureStore();
+    expect(store.fullControl()).toBe(false);
+    store.toggleFullControl();
+    expect(store.fullControl()).toBe(true);
+    store.toggleFullControl();
+    expect(store.fullControl()).toBe(false);
+  });
+
+  it('reset clears fullControl', () => {
+    const { store } = configureStore();
+    store.toggleFullControl();
+    store.reset();
+    expect(store.fullControl()).toBe(false);
+  });
+
+  it('clockAnchor starts null', () => {
+    const { store } = configureStore();
+    expect(store.clockAnchor()).toBeNull();
+  });
+
+  it('setClockAnchor records ms / holder / a timestamp from a Match', () => {
+    const { store } = configureStore();
+    const m = matchDto({
+      creatorMillisRemaining: 900_000,
+      opponentMillisRemaining: 800_000,
+      priorityHolderSub: ALICE,
+    });
+    store.setClockAnchor(m);
+    const a = store.clockAnchor()!;
+    expect(a.creatorMs).toBe(900_000);
+    expect(a.opponentMs).toBe(800_000);
+    expect(a.holderSub).toBe(ALICE);
+    expect(typeof a.at).toBe('number');
+  });
+
+  it('setClockAnchor(null) clears the anchor', () => {
+    const { store } = configureStore();
+    store.setClockAnchor(matchDto());
+    store.setClockAnchor(null);
+    expect(store.clockAnchor()).toBeNull();
+  });
+
+  it('recordStackMutation stamps lastStackMutatedAt only when the signature changes', () => {
+    const { store } = configureStore();
+    expect(store.lastStackMutatedAt()).toBeNull();
+
+    const withItem: GameState = {
+      ...snapshot(),
+      stack: [{ id: 's1', kind: 'Spell', description: 'Bolt' }],
+    };
+    store.recordStackMutation(withItem);
+    const first = store.lastStackMutatedAt();
+    expect(first).not.toBeNull();
+    expect(store.lastStackSig()).toBe('1|s1');
+
+    // Same stack again → no new stamp.
+    const beforeSecond = store.lastStackMutatedAt();
+    store.recordStackMutation({
+      ...snapshot(),
+      stack: [{ id: 's1', kind: 'Spell', description: 'Bolt' }],
+    });
+    expect(store.lastStackMutatedAt()).toBe(beforeSecond);
+
+    // Different stack → new stamp.
+    store.recordStackMutation({
+      ...snapshot(),
+      stack: [{ id: 's2', kind: 'Spell', description: 'Other' }],
+    });
+    expect(store.lastStackSig()).toBe('1|s2');
+  });
+
+  it('lastStackSig defaults to "0|" and reset restores it', () => {
+    const { store } = configureStore();
+    expect(store.lastStackSig()).toBe('0|');
+    store.recordStackMutation({
+      ...snapshot(),
+      stack: [{ id: 's1', kind: 'Spell', description: 'Bolt' }],
+    });
+    expect(store.lastStackSig()).toBe('1|s1');
+    store.reset();
+    expect(store.lastStackSig()).toBe('0|');
+    expect(store.lastStackMutatedAt()).toBeNull();
+  });
+});
+
+// ----------------------------------------------------------------
+// Task 5 — clock derivation (selfTimerState / opponentTimerState)
+// ----------------------------------------------------------------
+describe('GameStore — Task 5 clock derivation', () => {
+  it('returns null when match / anchor / viewer sub are missing', () => {
+    const { store } = configureStore();
+    expect(store.selfTimerState()).toBeNull();
+    expect(store.opponentTimerState()).toBeNull();
+  });
+
+  it('formats self / opponent clocks from the anchor (viewer = creator)', () => {
+    const { store, auth, match } = configureStore();
+    auth.setSub(ALICE);
+    const m = matchDto({
+      creatorMillisRemaining: 605_000, // 10:05
+      opponentMillisRemaining: 120_000, // 02:00
+      priorityHolderSub: null,
+    });
+    match.setCurrent(m);
+    store.setClockAnchor(m);
+    store.setTick(m.updatedAt ? Date.now() : Date.now());
+
+    const self = store.selfTimerState()!;
+    const opp = store.opponentTimerState()!;
+    expect(self.text).toBe('10:05');
+    expect(opp.text).toBe('02:00');
+    expect(self.active).toBe(false);
+    expect(opp.active).toBe(false);
+  });
+
+  it('viewer = opponent maps self → opponentMs', () => {
+    const { store, auth, match } = configureStore();
+    auth.setSub(BOB);
+    const m = matchDto({
+      creatorMillisRemaining: 605_000,
+      opponentMillisRemaining: 120_000,
+    });
+    match.setCurrent(m);
+    store.setClockAnchor(m);
+    expect(store.selfTimerState()!.text).toBe('02:00');
+    expect(store.opponentTimerState()!.text).toBe('10:05');
+  });
+
+  it('burns local time off the priority holder and flips active', () => {
+    const { store, auth, match } = configureStore();
+    auth.setSub(ALICE);
+    const anchorAt = 1_000_000;
+    const m = matchDto({
+      creatorMillisRemaining: 600_000,
+      opponentMillisRemaining: 600_000,
+      priorityHolderSub: ALICE,
+    });
+    match.setCurrent(m);
+    // Stamp the anchor at a deterministic time, then advance the tick.
+    store.setClockAnchorAt(m, anchorAt);
+    store.setTick(anchorAt + 5_000); // 5s elapsed
+
+    const self = store.selfTimerState()!;
+    const opp = store.opponentTimerState()!;
+    expect(self.active).toBe(true);
+    expect(self.text).toBe('09:55'); // 600s - 5s
+    // Opponent doesn't hold priority — no burn.
+    expect(opp.active).toBe(false);
+    expect(opp.text).toBe('10:00');
+  });
+
+  it('flags low (<=30s) on the burning clock', () => {
+    const { store, auth, match } = configureStore();
+    auth.setSub(ALICE);
+    const at = 2_000_000;
+    const m = matchDto({
+      creatorMillisRemaining: 31_000,
+      opponentMillisRemaining: 600_000,
+      priorityHolderSub: ALICE,
+    });
+    match.setCurrent(m);
+    store.setClockAnchorAt(m, at);
+    store.setTick(at + 2_000); // → 29s remaining
+    const self = store.selfTimerState()!;
+    expect(self.low).toBe(true);
+    expect(self.text).toBe('00:29');
+  });
+});
+
+// ----------------------------------------------------------------
+// Task 6 — store-owned auto-pass via rxMethod + shouldAutoPassNow
+// ----------------------------------------------------------------
+describe('GameStore — Task 6 auto-pass', () => {
+  function playingState(over: Partial<GameState> & { hand?: CardSnapshot[] } = {}): GameState {
+    const { hand = [], ...rest } = over;
+    return {
+      ...snapshot(),
+      phase: 'BeginningOfCombat',
+      activePlayerId: ALICE,
+      players: [
+        {
+          id: ALICE, name: 'Alice', life: 20,
+          mana: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0, generic: 0 },
+          hand: { cards: hand }, library: { cards: [] }, graveyard: { cards: [] },
+          exile: { cards: [] }, battlefield: { cards: [] },
+        },
+        {
+          id: BOB, name: 'Bob', life: 20,
+          mana: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0, generic: 0 },
+          hand: { cards: [] }, library: { cards: [] }, graveyard: { cards: [] },
+          exile: { cards: [] }, battlefield: { cards: [] },
+        },
+      ],
+      youPlayerId: ALICE,
+      ...rest,
+    };
+  }
+
+  function armCleanPassPrompt(store: InstanceType<typeof GameStore>): void {
+    store.setState(playingState());
+    store.setPrompt(passOnlyPrompt());
+  }
+
+  it('shouldAutoPassNow is true for a clean my-turn pass-only prompt', () => {
+    const { store } = configureStore();
+    armCleanPassPrompt(store);
+    expect(store.shouldAutoPassNow()).toBe(true);
+  });
+
+  it('shouldAutoPassNow is false when fullControl is on', () => {
+    const { store } = configureStore();
+    armCleanPassPrompt(store);
+    store.toggleFullControl();
+    expect(store.shouldAutoPassNow()).toBe(false);
+  });
+
+  it('shouldAutoPassNow is false with a phase stop on the active side', () => {
+    const { store } = configureStore();
+    store.setState(playingState({ phase: 'Untap' }));
+    store.setPrompt(passOnlyPrompt());
+    store.togglePhaseStop('Untap'); // → mine
+    expect(store.shouldAutoPassNow()).toBe(false);
+  });
+
+  it('shouldAutoPassNow is false with a non-empty stack', () => {
+    const { store } = configureStore();
+    store.setState(playingState({ stack: [{ id: 's1', kind: 'Spell', description: 'x' }] }));
+    store.setPrompt(passOnlyPrompt());
+    expect(store.shouldAutoPassNow()).toBe(false);
+  });
+
+  it('shouldAutoPassNow is false within the stack-mutation display window', () => {
+    const { store } = configureStore();
+    armCleanPassPrompt(store);
+    store.recordStackMutation({
+      ...playingState(),
+      stack: [{ id: 's1', kind: 'Spell', description: 'x' }],
+    });
+    // Tick set to just after the mutation but inside the window. The
+    // guard reads autoPassTick for nowMs.
+    const at = store.lastStackMutatedAt()!;
+    store.setAutoPassTick(at + (STACK_MUTATION_DISPLAY_MS - 100));
+    expect(store.shouldAutoPassNow()).toBe(false);
+    // After the window expires the guard clears (stack back to empty via
+    // a fresh state snapshot).
+    store.setState(playingState());
+    store.setAutoPassTick(at + STACK_MUTATION_DISPLAY_MS + 10);
+    expect(store.shouldAutoPassNow()).toBe(true);
+  });
+
+  it('shouldAutoPassNow is false with empty selfPlayerIds', () => {
+    const { store } = configureStore();
+    store.setState({ ...playingState(), youPlayerId: null });
+    store.setSelfPlayerIds([]);
+    store.setPrompt(passOnlyPrompt());
+    expect(store.shouldAutoPassNow()).toBe(false);
+  });
+
+  it('runAutoPass sends a single pass for a clean prompt and dedupes on re-emit', () => {
+    const { store, sender } = configureStore();
+    armCleanPassPrompt(store);
+    store.runAutoPass();
+    expect(sender.sent).toHaveLength(1);
+    expect(sender.sent[0]).toEqual({ $type: 'pass' });
+    // Re-emit the same logical prompt (fresh object, same key) → no
+    // second pass.
+    store.setPrompt(passOnlyPrompt());
+    store.runAutoPass();
+    expect(sender.sent).toHaveLength(1);
+    expect(store.lastAutoPassedPromptKey()).not.toBeNull();
+  });
+
+  it('runAutoPass does not pass when fullControl suppresses', () => {
+    const { store, sender } = configureStore();
+    armCleanPassPrompt(store);
+    store.toggleFullControl();
+    store.runAutoPass();
+    expect(sender.sent).toHaveLength(0);
+  });
+
+  it('runAutoPass does not pass with a non-empty stack', () => {
+    const { store, sender } = configureStore();
+    store.setState(playingState({ stack: [{ id: 's1', kind: 'Spell', description: 'x' }] }));
+    store.setPrompt(passOnlyPrompt());
+    store.runAutoPass();
+    expect(sender.sent).toHaveLength(0);
+  });
+
+  it('runAutoPass does not pass with empty selfPlayerIds', () => {
+    const { store, sender } = configureStore();
+    store.setState({ ...playingState(), youPlayerId: null });
+    store.setSelfPlayerIds([]);
+    store.setPrompt(passOnlyPrompt());
+    store.runAutoPass();
+    expect(sender.sent).toHaveLength(0);
   });
 });

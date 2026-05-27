@@ -1,8 +1,61 @@
-import { computed } from '@angular/core';
-import { patchState, signalStore, withComputed, withMethods, withState } from '@ngrx/signals';
+import { InjectionToken, computed, inject } from '@angular/core';
+import { patchState, signalStore, withComputed, withHooks, withMethods, withState } from '@ngrx/signals';
+import { rxMethod } from '@ngrx/signals/rxjs-interop';
+import { pipe, tap } from 'rxjs';
 import { NormalisedEventDto, normaliseEvent, pickBoolean, pickNumber, pickString, pickStringArray } from './event.types';
 import { patchGameState } from './event.reducer';
-import { BotDecision, GameState, PromptEnvelope } from './match.types';
+import { AutoPassDeps, shouldAutoPass, stackSignature, autoPassPromptKey } from './match-session';
+import { AuthService } from '../auth/auth.service';
+import { MatchService } from './match.service';
+import { BotDecision, GameCommand, GameState, Match, PromptEnvelope } from './match.types';
+
+// Re-export so existing consumers (and the component) can keep a single
+// import surface; STACK_MUTATION_DISPLAY_MS lives in match-session.
+export { STACK_MUTATION_DISPLAY_MS } from './match-session';
+
+// Cadence of the auto-pass heartbeat tick (ms). Coarse enough not to
+// burn CPU, fine enough that the STACK_MUTATION_DISPLAY_MS window
+// expires within roughly one tick of its actual deadline.
+const AUTO_PASS_TICK_MS = 150;
+// 1Hz heartbeat for the header clock chips. The server's clockUpdate$
+// resyncs the canonical countdown; this just smooths the display
+// between syncs.
+const CLOCK_TICK_MS = 1000;
+
+/**
+ * Abstraction over "send a GameCommand to the active match". The store
+ * owns auto-pass, which needs to fire a `pass` command, but must not
+ * depend on the page's HTTP plumbing — so command dispatch is injected.
+ * The default factory resolves the match id from MatchService.current
+ * and posts via MatchService.submitCommand.
+ */
+export interface GameCommandSender {
+  send(cmd: GameCommand): void;
+}
+
+export const GAME_COMMAND_SENDER = new InjectionToken<GameCommandSender>('GAME_COMMAND_SENDER', {
+  providedIn: 'root',
+  factory: () => {
+    const matchSvc = inject(MatchService);
+    return {
+      send(cmd: GameCommand): void {
+        const id = matchSvc.current()?.id;
+        if (!id) return;
+        void matchSvc.submitCommand(id, cmd).then(r => {
+          if (!r.ok) console.warn('submitCommand failed', cmd, r.error);
+        });
+      },
+    };
+  },
+});
+
+export interface TimerState { text: string; active: boolean; low: boolean }
+export interface ClockAnchor {
+  creatorMs: number;
+  opponentMs: number;
+  holderSub: string | null;
+  at: number;
+}
 
 // Cap on the bot-decision ring buffer rendered by the diagnostics panel.
 // Ten is enough to cover a single bot turn (mulligan + priority pumps +
@@ -72,6 +125,32 @@ type GameStoreState = {
   // keep transitions audible).
   lastAnnouncement: string;
   lastAnnouncementSeq: number;
+  // ---- Match-session state (Slice 2b — moved out of MatchPage) ----
+  // Full Control mode — press-once toggle on the Ctrl / Meta key.
+  // While true the auto-pass guard short-circuits so the viewer keeps
+  // priority on every step (mirrors MTGO's Full Control toggle).
+  fullControl: boolean;
+  // Local clock anchor. Re-stamped on every fresh Match snapshot
+  // (clockUpdate$ + match-state refresh) so the local 1Hz tick computes
+  // the countdown off the most recently-confirmed clock value.
+  clockAnchor: ClockAnchor | null;
+  // Wall-clock timestamp (ms) of the last observed stack mutation. The
+  // auto-pass guard reads this to enforce STACK_MUTATION_DISPLAY_MS.
+  lastStackMutatedAt: number | null;
+  // Cheap signature ("len|id1,id2,…") of the last stack snapshot seen;
+  // a change stamps lastStackMutatedAt. "0|" = empty / never-populated.
+  lastStackSig: string;
+  // Stable de-dupe key of the prompt we last auto-passed. Replaces the
+  // old reference-identity check so re-emitted (fresh-object) prompts
+  // with the same logical key don't get passed twice.
+  lastAutoPassedPromptKey: string | null;
+  // Internal heartbeat signals (driven by withHooks intervals; settable
+  // in tests for determinism):
+  //   * tick     — 1Hz wall-clock for the header timer chips.
+  //   * autoPassTick — ~150ms wall-clock so the auto-pass guard
+  //     re-evaluates when the stack-display window expires.
+  tick: number;
+  autoPassTick: number;
 };
 
 const initial: GameStoreState = {
@@ -84,6 +163,13 @@ const initial: GameStoreState = {
   landsPlayedThisTurn: 0,
   lastAnnouncement: '',
   lastAnnouncementSeq: 0,
+  fullControl: false,
+  clockAnchor: null,
+  lastStackMutatedAt: null,
+  lastStackSig: '0|',
+  lastAutoPassedPromptKey: null,
+  tick: Date.now(),
+  autoPassTick: Date.now(),
 };
 
 export const GameStore = signalStore(
@@ -100,7 +186,36 @@ export const GameStore = signalStore(
     }),
     activePlayerId: computed(() => state()?.activePlayerId ?? null),
   })),
-  withMethods(store => ({
+  // Clock + auto-pass derivations. These read the viewer sub
+  // (AuthService.principal), the live MatchDto (MatchService.current),
+  // and store-internal tick signals — injected here so the store is the
+  // single source of truth and is unit-testable with fake providers.
+  withComputed((store, auth = inject(AuthService), matchSvc = inject(MatchService)) => ({
+    selfTimerState: computed<TimerState | null>(() =>
+      timerStateFor('self', matchSvc.current(), store.clockAnchor(), auth.principal()?.sub ?? null, store.tick())),
+    opponentTimerState: computed<TimerState | null>(() =>
+      timerStateFor('opponent', matchSvc.current(), store.clockAnchor(), auth.principal()?.sub ?? null, store.tick())),
+    // Pure auto-pass decision wrapping shouldAutoPass(prompt, deps). Reads
+    // autoPassTick so it re-evaluates when the stack-display window
+    // expires (otherwise it would only recompute on prompt / state /
+    // phaseStops / control changes and could stay pinned past the
+    // window's natural expiry).
+    shouldAutoPassNow: computed<boolean>(() => {
+      const p = store.prompt();
+      const ids = store.selfPlayerIds();
+      if (!p || !ids.includes(p.playerId)) return false;
+      const deps: AutoPassDeps = {
+        state: store.state(),
+        selfPlayerIds: ids,
+        phaseStops: store.phaseStops(),
+        fullControl: store.fullControl(),
+        lastStackMutatedAt: store.lastStackMutatedAt(),
+        nowMs: store.autoPassTick(),
+      };
+      return shouldAutoPass(p, deps);
+    }),
+  })),
+  withMethods((store, sender = inject(GAME_COMMAND_SENDER)) => ({
     setState(next: GameState | null): void {
       patchState(store, s => ({
         state: next,
@@ -203,11 +318,141 @@ export const GameStore = signalStore(
     clearPhaseStops(): void {
       patchState(store, { phaseStops: {} });
     },
+    // ---- Match-session methods (Slice 2b) ----
+    // Full Control press-once toggle (Ctrl / Meta in the page).
+    toggleFullControl(): void {
+      patchState(store, s => ({ fullControl: !s.fullControl }));
+    },
+    // Re-anchor the local clock off a fresh Match snapshot. Pass null to
+    // clear (no current match). Stamps `at` from Date.now() so the local
+    // tick can compute deltas off the most recently-confirmed value.
+    setClockAnchor(m: Match | null): void {
+      patchState(store, anchorPatch(m, Date.now()));
+    },
+    // Test seam — anchor at an explicit timestamp for deterministic
+    // countdown assertions.
+    setClockAnchorAt(m: Match | null, at: number): void {
+      patchState(store, anchorPatch(m, at));
+    },
+    // Stack-mutation tracker. Hash the snapshot's stack into a cheap
+    // signature; when it differs from the last seen one, the stack
+    // changed and we stamp lastStackMutatedAt to enforce the
+    // minimum-display window. No-op when unchanged.
+    recordStackMutation(next: GameState | null): void {
+      const sig = stackSignature(next);
+      if (sig === store.lastStackSig()) return;
+      patchState(store, { lastStackSig: sig, lastStackMutatedAt: Date.now() });
+    },
+    // Test seam — drive the 1Hz header-clock tick deterministically.
+    setTick(now: number): void {
+      patchState(store, { tick: now });
+    },
+    // Test seam — drive the ~150ms auto-pass heartbeat deterministically.
+    setAutoPassTick(now: number): void {
+      patchState(store, { autoPassTick: now });
+    },
+    // Auto-pass driver. When shouldAutoPassNow is true and the prompt's
+    // stable key differs from the last one we auto-passed, send a pass
+    // and record the key. Idempotent on re-emit of the same logical
+    // prompt (the key, not object identity, dedupes). Exposed as a plain
+    // method so it's directly unit-testable; the rxMethod below wires it
+    // to the heartbeat in onInit.
+    runAutoPass(): void {
+      if (!store.shouldAutoPassNow()) return;
+      const p = store.prompt();
+      if (!p) return;
+      const key = autoPassPromptKey(p);
+      if (key === store.lastAutoPassedPromptKey()) return;
+      patchState(store, { lastAutoPassedPromptKey: key });
+      sender.send({ $type: 'pass' });
+    },
     reset(): void {
       patchState(store, initial);
     },
-  }))
+  })),
+  // rxMethod that re-runs the auto-pass driver on each heartbeat tick.
+  // The tick is the trigger; runAutoPass re-reads the live store state
+  // and self-dedupes, so a flood of ticks costs at most one pass per
+  // logical prompt.
+  withMethods(store => ({
+    autoPassLoop: rxMethod<number>(pipe(
+      tap(() => store.runAutoPass()),
+    )),
+  })),
+  withHooks({
+    onInit(store) {
+      // ~150ms auto-pass heartbeat: advances autoPassTick (so the
+      // shouldAutoPassNow computed re-evaluates past the stack-display
+      // window) and re-runs the auto-pass driver.
+      const autoPassHandle = setInterval(() => {
+        store.setAutoPassTick(Date.now());
+        store.runAutoPass();
+      }, AUTO_PASS_TICK_MS);
+      // 1Hz clock heartbeat for the header timer chips.
+      const clockHandle = setInterval(() => store.setTick(Date.now()), CLOCK_TICK_MS);
+      intervalHandles.set(store, [autoPassHandle, clockHandle]);
+    },
+    onDestroy(store) {
+      const handles = intervalHandles.get(store);
+      if (handles) {
+        for (const h of handles) clearInterval(h);
+        intervalHandles.delete(store);
+      }
+    },
+  })
 );
+
+// Per-store interval handles for the withHooks lifecycle. A WeakMap so
+// the handles are GC'd with the store instance (the root store lives for
+// the app lifetime; this is here for symmetry + future per-instance use).
+const intervalHandles = new WeakMap<object, ReturnType<typeof setInterval>[]>();
+
+// Build the clockAnchor patch from a Match snapshot (or clear it).
+function anchorPatch(m: Match | null, at: number): Partial<GameStoreState> {
+  if (!m) return { clockAnchor: null };
+  return {
+    clockAnchor: {
+      creatorMs: m.creatorMillisRemaining,
+      opponentMs: m.opponentMillisRemaining,
+      holderSub: m.priorityHolderSub,
+      at,
+    },
+  };
+}
+
+// View-model builder for the header timer chips. Ported verbatim from
+// MatchPage.timerStateFor — `active` flips on for the priority holder
+// (their clock burns), `low` triggers at ≤30s.
+function timerStateFor(
+  side: 'self' | 'opponent',
+  m: Match | null,
+  anchor: ClockAnchor | null,
+  mySub: string | null,
+  nowMs: number,
+): TimerState | null {
+  if (!m || !anchor || !mySub) return null;
+  const iAmCreator = mySub === m.creator.sub;
+  const targetIsCreator = side === 'self' ? iAmCreator : !iAmCreator;
+  const baseMs = targetIsCreator ? anchor.creatorMs : anchor.opponentMs;
+  const targetSub = targetIsCreator ? m.creator.sub : m.opponent?.sub ?? null;
+  if (targetSub == null) return null;
+  const holdsPriority = anchor.holderSub != null && anchor.holderSub === targetSub;
+  const elapsedSinceAnchor = holdsPriority ? nowMs - anchor.at : 0;
+  const remaining = Math.max(0, baseMs - elapsedSinceAnchor);
+  return {
+    text: formatMmSs(remaining),
+    active: holdsPriority,
+    low: remaining <= 30_000,
+  };
+}
+
+// MM:SS string for the header chip — caps at 99:59.
+function formatMmSs(ms: number): string {
+  const totalSec = Math.max(0, Math.floor(ms / 1000));
+  const mins = Math.min(99, Math.floor(totalSec / 60));
+  const secs = totalSec % 60;
+  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+}
 
 // -----------------------------------------------------------------
 // Track the viewer's lands played this turn.
