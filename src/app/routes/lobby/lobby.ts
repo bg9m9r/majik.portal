@@ -1,7 +1,7 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, inject } from '@angular/core';
 import { Router } from '@angular/router';
-import { Match } from '../../core/match/match.types';
-import { MatchService } from '../../core/match/match.service';
+import { Match, CreateMatchRequest } from '../../core/match/match.types';
+import { LobbyStore } from '../../core/lobby/lobby.store';
 import { CreateMatchWizardComponent } from '../match/components/create-match-wizard.component';
 
 @Component({
@@ -16,15 +16,15 @@ import { CreateMatchWizardComponent } from '../match/components/create-match-wiz
 
       <section class="rounded border border-[color:var(--majik-line)] p-4">
         <h2 class="majik-h3 opacity-60">Public matches</h2>
-        @if (loading()) {
+        @if (store.loading()) {
           <p class="opacity-60 text-sm">Loading…</p>
-        } @else if (error()) {
-          <p class="text-red-300/80 text-sm">{{ error() }}</p>
-        } @else if (matches().length === 0) {
+        } @else if (store.error(); as e) {
+          <p class="text-red-300/80 text-sm">{{ e.code }}</p>
+        } @else if (store.matches().length === 0) {
           <p class="opacity-30 text-sm">— no public matches —</p>
         } @else {
           <ul class="flex flex-col gap-2">
-            @for (m of matches(); track m.id) {
+            @for (m of store.matches(); track m.id) {
               <li class="flex items-center justify-between rounded border border-[color:var(--majik-line)] p-3">
                 <div>
                   <div class="font-medium">{{ m.creator.handle }}</div>
@@ -41,38 +41,20 @@ import { CreateMatchWizardComponent } from '../match/components/create-match-wiz
       <section class="rounded border border-[color:var(--majik-line)] p-4">
         <h2 class="majik-h3 opacity-60">New match</h2>
         <app-create-match-wizard (create)="onCreate($event)" />
-        @if (createError(); as e) { <p class="text-red-300/80 text-xs mt-2">{{ e }}</p> }
+        @if (store.createError(); as e) { <p class="text-red-300/80 text-xs mt-2">{{ e.code }}</p> }
       </section>
     </main>
   `,
 })
-export class LobbyPage implements OnInit {
-  private readonly matchSvc = inject(MatchService);
+export class LobbyPage {
+  readonly store = inject(LobbyStore);
   private readonly router = inject(Router);
-
-  readonly matches = signal<Match[]>([]);
-  readonly loading = signal(true);
-  readonly error = signal<string | null>(null);
-  readonly createError = signal<string | null>(null);
-
-  ngOnInit(): void { void this.load(); }
-
-  async load(): Promise<void> {
-    this.loading.set(true);
-    const r = await this.matchSvc.list();
-    this.loading.set(false);
-    if (!r.ok) { this.error.set(r.error.code); return; }
-    this.matches.set(r.value);
-  }
 
   open(m: Match): void {
     this.router.navigate(['/match', m.id]);
   }
 
-  async onCreate(body: import('../../core/match/match.types').CreateMatchRequest): Promise<void> {
-    this.createError.set(null);
-    const r = await this.matchSvc.create(body);
-    if (!r.ok) { this.createError.set(r.error.code); return; }
-    this.router.navigate(['/match', r.value.id]);
+  onCreate(body: CreateMatchRequest): void {
+    this.store.create(body);
   }
 }
