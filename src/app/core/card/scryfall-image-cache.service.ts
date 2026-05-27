@@ -1,4 +1,4 @@
-import { Injectable, PLATFORM_ID, inject, signal } from '@angular/core';
+import { DestroyRef, Injectable, PLATFORM_ID, inject, signal } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
 
 const STORAGE_KEY = 'majik:scryfall-img-cache:v1';
@@ -32,16 +32,39 @@ interface ScryfallCollectionResponse {
 @Injectable({ providedIn: 'root' })
 export class ScryfallImageCache {
   private readonly platformId = inject(PLATFORM_ID);
+  private readonly destroyRef = inject(DestroyRef);
   private readonly isBrowser = isPlatformBrowser(this.platformId);
   private readonly cache = new Map<string, string>();
   private readonly inFlight = new Set<string>();
   private pending = new Set<string>();
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
+  private destroyed = false;
+
+  // Capture the `fetch` reference at construction time. The debounce below
+  // calls `fetch` from inside a `setTimeout`, which can fire long after the
+  // request that scheduled it. Binding the global `fetch` *now* (rather than
+  // reading `globalThis.fetch` lazily when the timer fires) ensures a stale
+  // or torn-down instance never reaches whatever `fetch` happens to be global
+  // at fire time — e.g. a per-test `fetchMock` a spec swapped in. This kills
+  // the cross-instance global-`fetch` coupling that lets a leaked debounce
+  // timer from one test land an extra call on another test's mock.
+  private readonly fetchFn: typeof fetch =
+    typeof globalThis.fetch === 'function' ? globalThis.fetch.bind(globalThis) : globalThis.fetch;
 
   readonly version = signal(0);
 
   constructor() {
     this.load();
+    // Cancel any pending debounce when the injector that owns this singleton
+    // is destroyed (e.g. TestBed teardown between specs). A torn-down instance
+    // must not fire its timer and issue a `fetch` into a later test's world.
+    this.destroyRef.onDestroy(() => {
+      this.destroyed = true;
+      if (this.flushTimer !== null) {
+        clearTimeout(this.flushTimer);
+        this.flushTimer = null;
+      }
+    });
   }
 
   get(name: string): string | null {
@@ -50,6 +73,7 @@ export class ScryfallImageCache {
 
   request(names: string[]): void {
     if (!this.isBrowser) return;
+    if (this.destroyed) return;
     for (const raw of names) {
       const name = this.key(raw);
       if (!name) continue;
@@ -62,6 +86,7 @@ export class ScryfallImageCache {
     if (this.flushTimer !== null) return;
     this.flushTimer = setTimeout(() => {
       this.flushTimer = null;
+      if (this.destroyed) return;
       void this.flush();
     }, DEBOUNCE_MS);
   }
@@ -86,7 +111,7 @@ export class ScryfallImageCache {
       if (i > 0) await this.sleep(BATCH_SPACING_MS);
       try {
         const batch = batches[i];
-        const res = await fetch(COLLECTION_URL, {
+        const res = await this.fetchFn(COLLECTION_URL, {
           method: 'POST',
           headers: {
             'Accept': 'application/json',
