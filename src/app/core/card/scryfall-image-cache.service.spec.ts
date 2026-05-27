@@ -136,6 +136,49 @@ describe('ScryfallImageCache', () => {
     }
   });
 
+  // --- Cross-file flake regression coverage ----------------------------
+  //
+  // ScryfallImageCache is `providedIn: 'root'` and used by CardTile/CardView.
+  // Component specs that render a real (non-stubbed) card trigger
+  // `request()`, which schedules a `setTimeout` debounce that calls `fetch`.
+  // Under the Angular unit-test builder (vitest `isolate: false`,
+  // `fileParallelism: false`), all specs share one process and one
+  // `globalThis`. A leaked debounce timer from another spec used to fire into
+  // THIS spec's `fetchMock` (reading `globalThis.fetch` lazily at fire time),
+  // producing the intermittent "expected 1 call, got 2". The two tests below
+  // pin the source-level guarantees that make that impossible.
+
+  it('does not fire its debounced fetch after the instance is destroyed', async () => {
+    svc.request(['Lightning Bolt']);
+    // Tear the owning injector down before the debounce elapses, exactly as
+    // Angular's TestBed does between specs (destroyAfterEach: true).
+    TestBed.resetTestingModule();
+
+    await vi.advanceTimersByTimeAsync(DEBOUNCE_MS + 10);
+
+    // The pending timer must have been cancelled on destroy — no fetch.
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('uses the fetch bound at construction, not whatever fetch is global later', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({
+      data: [{ name: 'Lightning Bolt', image_uris: { normal: 'https://img/bolt.png' } }],
+      not_found: [],
+    }));
+
+    // Simulate another spec swapping in its own mock AFTER this service was
+    // constructed (the cross-file pollution shape). The captured reference
+    // must win so the late mock is never touched.
+    const lateMock = vi.fn();
+    (globalThis as unknown as { fetch: typeof fetch }).fetch = lateMock as unknown as typeof fetch;
+
+    svc.request(['Lightning Bolt']);
+    await vi.advanceTimersByTimeAsync(DEBOUNCE_MS + 10);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(lateMock).not.toHaveBeenCalled();
+  });
+
   it('splits batches larger than 75 into multiple requests', async () => {
     fetchMock.mockImplementation(async (_url: string, init: RequestInit) => {
       const body = JSON.parse(init.body as string) as { identifiers: Array<{ name: string }> };
