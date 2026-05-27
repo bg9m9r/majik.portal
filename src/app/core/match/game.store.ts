@@ -1,7 +1,5 @@
 import { InjectionToken, computed, inject } from '@angular/core';
 import { patchState, signalStore, withComputed, withHooks, withMethods, withState } from '@ngrx/signals';
-import { rxMethod } from '@ngrx/signals/rxjs-interop';
-import { pipe, tap } from 'rxjs';
 import { NormalisedEventDto, normaliseEvent, pickBoolean, pickNumber, pickString, pickStringArray } from './event.types';
 import { patchGameState } from './event.reducer';
 import { AutoPassDeps, shouldAutoPass, stackSignature, autoPassPromptKey } from './match-session';
@@ -232,10 +230,10 @@ export const GameStore = signalStore(
       patchState(store, { selfPlayerIds: ids });
     },
     setPrompt(p: PromptEnvelope | null): void {
-      patchState(store, { prompt: p });
+      patchState(store, { prompt: p, lastAutoPassedPromptKey: null });
     },
     clearPrompt(): void {
-      patchState(store, { prompt: null });
+      patchState(store, { prompt: null, lastAutoPassedPromptKey: null });
     },
     /**
      * Attempt to apply a SignalR engine event as an in-place patch on
@@ -354,9 +352,9 @@ export const GameStore = signalStore(
     // Auto-pass driver. When shouldAutoPassNow is true and the prompt's
     // stable key differs from the last one we auto-passed, send a pass
     // and record the key. Idempotent on re-emit of the same logical
-    // prompt (the key, not object identity, dedupes). Exposed as a plain
-    // method so it's directly unit-testable; the rxMethod below wires it
-    // to the heartbeat in onInit.
+    // prompt (the key, not object identity, dedupes) within a single
+    // window. Exposed as a plain method so it's directly unit-testable;
+    // a setInterval in onInit drives it on the ~150ms heartbeat.
     runAutoPass(): void {
       if (!store.shouldAutoPassNow()) return;
       const p = store.prompt();
@@ -369,15 +367,6 @@ export const GameStore = signalStore(
     reset(): void {
       patchState(store, initial);
     },
-  })),
-  // rxMethod that re-runs the auto-pass driver on each heartbeat tick.
-  // The tick is the trigger; runAutoPass re-reads the live store state
-  // and self-dedupes, so a flood of ticks costs at most one pass per
-  // logical prompt.
-  withMethods(store => ({
-    autoPassLoop: rxMethod<number>(pipe(
-      tap(() => store.runAutoPass()),
-    )),
   })),
   withHooks({
     onInit(store) {

@@ -559,7 +559,7 @@ describe('GameStore — Task 5 clock derivation', () => {
     });
     match.setCurrent(m);
     store.setClockAnchor(m);
-    store.setTick(m.updatedAt ? Date.now() : Date.now());
+    store.setTick(Date.now());
 
     const self = store.selfTimerState()!;
     const opp = store.opponentTimerState()!;
@@ -624,7 +624,7 @@ describe('GameStore — Task 5 clock derivation', () => {
 });
 
 // ----------------------------------------------------------------
-// Task 6 — store-owned auto-pass via rxMethod + shouldAutoPassNow
+// Task 6 — store-owned auto-pass (interval-driven) + shouldAutoPassNow
 // ----------------------------------------------------------------
 describe('GameStore — Task 6 auto-pass', () => {
   function playingState(over: Partial<GameState> & { hand?: CardSnapshot[] } = {}): GameState {
@@ -712,18 +712,36 @@ describe('GameStore — Task 6 auto-pass', () => {
     expect(store.shouldAutoPassNow()).toBe(false);
   });
 
-  it('runAutoPass sends a single pass for a clean prompt and dedupes on re-emit', () => {
+  it('runAutoPass sends a single pass for a clean prompt and dedupes within the same window', () => {
+    // Same live prompt — interval tick fires twice without any prompt
+    // change → pass sent only once (dedupe within window still works).
     const { store, sender } = configureStore();
     armCleanPassPrompt(store);
-    store.runAutoPass();
+    store.runAutoPass(); // first tick → pass sent
     expect(sender.sent).toHaveLength(1);
     expect(sender.sent[0]).toEqual({ $type: 'pass' });
-    // Re-emit the same logical prompt (fresh object, same key) → no
+    // Second tick with no prompt change → dedupe key still set → no
     // second pass.
-    store.setPrompt(passOnlyPrompt());
     store.runAutoPass();
     expect(sender.sent).toHaveLength(1);
     expect(store.lastAutoPassedPromptKey()).not.toBeNull();
+  });
+
+  it('runAutoPass passes again after clearPrompt (per-window auto-pass restored)', () => {
+    // Regression test for C1: dedupe key must be cleared when the prompt
+    // changes so each distinct priority window is eligible for auto-pass.
+    const { store, sender } = configureStore();
+    armCleanPassPrompt(store);
+    store.runAutoPass(); // first window → 1 pass
+    expect(sender.sent).toHaveLength(1);
+    // Simulate the server clearing the old prompt and issuing a fresh
+    // pass-only window (e.g. next priority cycle).
+    store.clearPrompt();
+    expect(store.lastAutoPassedPromptKey()).toBeNull(); // key cleared
+    store.setState(playingState());
+    store.setPrompt(passOnlyPrompt()); // fresh window, same logical key
+    store.runAutoPass(); // second window → must fire again
+    expect(sender.sent).toHaveLength(2); // would be 1 before the fix
   });
 
   it('runAutoPass does not pass when fullControl suppresses', () => {
