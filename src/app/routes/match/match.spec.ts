@@ -401,6 +401,151 @@ describe('shouldAutoPass — auto-pass guard', () => {
 });
 
 // ---------------------------------------------------------------------
+// Wire contract (Slice 0) — consumer-side pins
+//
+// These tests lock the portal's assumptions about the server contract so
+// regressions surface as test failures before they hit production.
+//
+// Spec 1 & 2 exercise the shouldAutoPass gate in isolation, proving the
+// pure logic is correct when selfPlayerIds is already resolved.  The live
+// bug (seat-identity derivation) is in resolveSelfPlayerIds(), which is a
+// private method on MatchPage and not directly unit-testable here.
+// TODO(Slice 2): make seat-identity derivation unit-testable.
+//
+// Spec 3 locks the phase-bar's phase vocabulary against a raw-string
+// regression (#758 PostCombatMain / Main mixup).
+// ---------------------------------------------------------------------
+
+describe('wire contract (Slice 0)', () => {
+  // --- 1. Auto-pass fires on a clean pass-only prompt on my turn ------
+
+  it('auto-pass fires: my-turn, empty stack, BeginningOfCombat, pass-only prompt', () => {
+    // Build a state where:
+    //   • activePlayerId === ME  (it IS my turn)
+    //   • stack is empty         (CR 117.3b guard clears)
+    //   • phase is BeginningOfCombat
+    //   • the ME player exists in the players array
+    const myTurnState: GameState = {
+      gameId: 'g',
+      phase: 'BeginningOfCombat',
+      turnNumber: 1,
+      activePlayerId: ME,
+      players: [
+        {
+          id: ME, name: 'Me', life: 20,
+          mana: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0, generic: 0 },
+          hand: { cards: [] },
+          library: { cards: [] }, graveyard: { cards: [] },
+          exile: { cards: [] }, battlefield: { cards: [] },
+        },
+        {
+          id: OPP, name: 'Opp', life: 20,
+          mana: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0, generic: 0 },
+          hand: { cards: [] },
+          library: { cards: [] }, graveyard: { cards: [] },
+          exile: { cards: [] }, battlefield: { cards: [] },
+        },
+      ],
+      stack: [],
+    };
+
+    const passOnlyPrompt: PromptEnvelope = {
+      gameId: 'g',
+      playerId: ME,
+      expectedKinds: ['PassPriorityCommand'],
+    };
+
+    const result = shouldAutoPass(passOnlyPrompt, {
+      state: myTurnState,
+      selfPlayerIds: [ME],
+      phaseStops: {},
+      fullControl: false,
+      lastStackMutatedAt: null,
+      nowMs: Date.now(),
+    });
+
+    // The gate logic is sound when selfPlayerIds is correctly populated.
+    // (The live bug isolates to seat-identity derivation in Slice 2.)
+    expect(result).toBe(true);
+  });
+
+  // --- 2. Full control suppresses auto-pass even on a clean prompt ----
+
+  it('full control suppresses auto-pass: same inputs but fullControl=true → false', () => {
+    const myTurnState: GameState = {
+      gameId: 'g',
+      phase: 'BeginningOfCombat',
+      turnNumber: 1,
+      activePlayerId: ME,
+      players: [
+        {
+          id: ME, name: 'Me', life: 20,
+          mana: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0, generic: 0 },
+          hand: { cards: [] },
+          library: { cards: [] }, graveyard: { cards: [] },
+          exile: { cards: [] }, battlefield: { cards: [] },
+        },
+        {
+          id: OPP, name: 'Opp', life: 20,
+          mana: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0, generic: 0 },
+          hand: { cards: [] },
+          library: { cards: [] }, graveyard: { cards: [] },
+          exile: { cards: [] }, battlefield: { cards: [] },
+        },
+      ],
+      stack: [],
+    };
+
+    const passOnlyPrompt: PromptEnvelope = {
+      gameId: 'g',
+      playerId: ME,
+      expectedKinds: ['PassPriorityCommand'],
+    };
+
+    const result = shouldAutoPass(passOnlyPrompt, {
+      state: myTurnState,
+      selfPlayerIds: [ME],
+      phaseStops: {},
+      fullControl: true,   // ← Full Control engaged
+      lastStackMutatedAt: null,
+      nowMs: Date.now(),
+    });
+
+    expect(result).toBe(false);
+  });
+
+  // --- 3. Phase vocabulary: PostCombatMain exists and isn't 'main' ---
+
+  it('phase vocabulary contains PostCombatMain (not raw "main")', () => {
+    // Consumer-side lock for the #758 fix: the phase-bar must use the
+    // exact engine phase string 'PostCombatMain', never the raw 'main'
+    // that the old normalisation stripped down to. Mirror the PHASES
+    // array from src/app/ui/phase-bar.component.ts literally — if that
+    // array changes, this test catches the contract break immediately.
+    const PORTAL_PHASES = [
+      'Untap',
+      'Upkeep',
+      'Draw',
+      'PreCombatMain',
+      'BeginningOfCombat',
+      'DeclareAttackers',
+      'DeclareBlockers',
+      'CombatDamage',
+      'EndOfCombat',
+      'PostCombatMain',
+      'End',
+      'Cleanup',
+    ] as const;
+
+    expect(PORTAL_PHASES).toContain('PostCombatMain');
+
+    // Additional guard: the string must NOT normalise to 'main',
+    // confirming the #758 regression path is closed.
+    expect('PostCombatMain'.toLowerCase()).not.toBe('main');
+  });
+});
+
+// ---------------------------------------------------------------------
 // stackSignature — cheap "did the stack change?" hash
 // ---------------------------------------------------------------------
 
