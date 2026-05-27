@@ -1,5 +1,5 @@
 import { inject } from '@angular/core';
-import { patchState, signalStore, withMethods, withState } from '@ngrx/signals';
+import { patchState, signalStore, withHooks, withMethods, withState } from '@ngrx/signals';
 import { rxMethod } from '@ngrx/signals/rxjs-interop';
 import { tapResponse } from '@ngrx/operators';
 import { from, pipe, switchMap, tap } from 'rxjs';
@@ -61,5 +61,8 @@ export const LobbyStore = signalStore(
         })
       ))
     )),
-  }))
+  })),
+  withHooks({
+    onInit(store) { store.load(); },
+  })
 );
