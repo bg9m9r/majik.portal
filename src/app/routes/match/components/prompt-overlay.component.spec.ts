@@ -64,7 +64,7 @@ describe('PromptOverlayComponent — combat prompts', () => {
   it('detects attackers kind from server "DeclareAttackersCommand" envelope', () => {
     const me = player({ id: 'me', name: 'Alice' });
     const opp = player({ id: 'opp', name: 'Bob' });
-    const state: GameState = { phase: 'DeclareAttackers', turnNumber: 1, activePlayerId: 'me', players: [me, opp], stack: [] };
+    const state: GameState = { phase: 'DeclareAttackers', turnNumber: 1, activePlayerId: 'me', players: [me, opp], stack: [], youPlayerId: null };
 
     const { component } = mountOverlay(state, ['DeclareAttackersCommand'], ['me']);
 
@@ -75,7 +75,7 @@ describe('PromptOverlayComponent — combat prompts', () => {
   it('detects blockers kind from server "DeclareBlockersCommand" envelope', () => {
     const me = player({ id: 'me', name: 'Alice' });
     const opp = player({ id: 'opp', name: 'Bob' });
-    const state: GameState = { phase: 'DeclareBlockers', turnNumber: 1, activePlayerId: 'opp', players: [me, opp], stack: [] };
+    const state: GameState = { phase: 'DeclareBlockers', turnNumber: 1, activePlayerId: 'opp', players: [me, opp], stack: [], youPlayerId: null };
 
     const { component } = mountOverlay(state, ['DeclareBlockersCommand'], ['me']);
 
@@ -88,7 +88,7 @@ describe('PromptOverlayComponent — combat prompts', () => {
     const goblin = card({ instanceId: 'goblin-2', name: 'Goblin' });
     const me = player({ id: 'me', name: 'Alice', battlefield: { cards: [bear, goblin] } });
     const opp = player({ id: 'opp', name: 'Bob' });
-    const state: GameState = { phase: 'DeclareAttackers', turnNumber: 1, activePlayerId: 'me', players: [me, opp], stack: [] };
+    const state: GameState = { phase: 'DeclareAttackers', turnNumber: 1, activePlayerId: 'me', players: [me, opp], stack: [], youPlayerId: null };
 
     const { component } = mountOverlay(state, ['DeclareAttackersCommand'], ['me']);
     const captured: PromptDecision[] = [];
@@ -114,7 +114,7 @@ describe('PromptOverlayComponent — combat prompts', () => {
     // declaring no attackers is a legal plan that just advances combat.
     const me = player({ id: 'me', name: 'Alice', battlefield: { cards: [card({ instanceId: 'bear' })] } });
     const opp = player({ id: 'opp', name: 'Bob' });
-    const state: GameState = { phase: 'DeclareAttackers', turnNumber: 1, activePlayerId: 'me', players: [me, opp], stack: [] };
+    const state: GameState = { phase: 'DeclareAttackers', turnNumber: 1, activePlayerId: 'me', players: [me, opp], stack: [], youPlayerId: null };
 
     const { component } = mountOverlay(state, ['DeclareAttackersCommand'], ['me']);
     const captured: PromptDecision[] = [];
@@ -131,7 +131,7 @@ describe('PromptOverlayComponent — combat prompts', () => {
     const myBlocker = card({ instanceId: 'block-1', name: 'Goblin' });
     const me = player({ id: 'me', name: 'Alice', battlefield: { cards: [myBlocker] } });
     const opp = player({ id: 'opp', name: 'Bob', battlefield: { cards: [oppAtk] } });
-    const state: GameState = { phase: 'DeclareBlockers', turnNumber: 1, activePlayerId: 'opp', players: [me, opp], stack: [] };
+    const state: GameState = { phase: 'DeclareBlockers', turnNumber: 1, activePlayerId: 'opp', players: [me, opp], stack: [], youPlayerId: null };
 
     const { component } = mountOverlay(state, ['DeclareBlockersCommand'], ['me']);
     const captured: PromptDecision[] = [];
@@ -157,7 +157,7 @@ describe('PromptOverlayComponent — combat prompts', () => {
     const b2 = card({ instanceId: 'block-2', name: 'Scout' });
     const me = player({ id: 'me', name: 'Alice', battlefield: { cards: [b1, b2] } });
     const opp = player({ id: 'opp', name: 'Bob', battlefield: { cards: [oppAtk] } });
-    const state: GameState = { phase: 'DeclareBlockers', turnNumber: 1, activePlayerId: 'opp', players: [me, opp], stack: [] };
+    const state: GameState = { phase: 'DeclareBlockers', turnNumber: 1, activePlayerId: 'opp', players: [me, opp], stack: [], youPlayerId: null };
 
     const { component } = mountOverlay(state, ['DeclareBlockersCommand'], ['me']);
     const captured: PromptDecision[] = [];
@@ -186,7 +186,7 @@ describe('PromptOverlayComponent — combat prompts', () => {
     const b1 = card({ instanceId: 'block-1', name: 'Goblin' });
     const me = player({ id: 'me', name: 'Alice', battlefield: { cards: [b1] } });
     const opp = player({ id: 'opp', name: 'Bob', battlefield: { cards: [atkA, atkB] } });
-    const state: GameState = { phase: 'DeclareBlockers', turnNumber: 1, activePlayerId: 'opp', players: [me, opp], stack: [] };
+    const state: GameState = { phase: 'DeclareBlockers', turnNumber: 1, activePlayerId: 'opp', players: [me, opp], stack: [], youPlayerId: null };
 
     const { component } = mountOverlay(state, ['DeclareBlockersCommand'], ['me']);
     const captured: PromptDecision[] = [];
@@ -215,7 +215,7 @@ describe('PromptOverlayComponent — combat prompts', () => {
     const b1 = card({ instanceId: 'block-1', name: 'Goblin' });
     const me = player({ id: 'me', name: 'Alice', battlefield: { cards: [b1] } });
     const opp = player({ id: 'opp', name: 'Bob', battlefield: { cards: [atk] } });
-    const state: GameState = { phase: 'DeclareBlockers', turnNumber: 1, activePlayerId: 'opp', players: [me, opp], stack: [] };
+    const state: GameState = { phase: 'DeclareBlockers', turnNumber: 1, activePlayerId: 'opp', players: [me, opp], stack: [], youPlayerId: null };
 
     const { component } = mountOverlay(state, ['DeclareBlockersCommand'], ['me']);
 
@@ -229,7 +229,7 @@ describe('PromptOverlayComponent — combat prompts', () => {
     const oppAtk = card({ instanceId: 'atk-1', name: 'Bear', tapped: true });
     const me = player({ id: 'me', name: 'Alice', battlefield: { cards: [] } });
     const opp = player({ id: 'opp', name: 'Bob', battlefield: { cards: [oppAtk] } });
-    const state: GameState = { phase: 'DeclareBlockers', turnNumber: 1, activePlayerId: 'opp', players: [me, opp], stack: [] };
+    const state: GameState = { phase: 'DeclareBlockers', turnNumber: 1, activePlayerId: 'opp', players: [me, opp], stack: [], youPlayerId: null };
 
     const { component } = mountOverlay(state, ['DeclareBlockersCommand'], ['me']);
     const captured: PromptDecision[] = [];
@@ -247,7 +247,7 @@ describe('PromptOverlayComponent — combat prompts', () => {
     const exhausted = card({ instanceId: 'block-tapped', name: 'Tired Goblin', tapped: true });
     const me = player({ id: 'me', name: 'Alice', battlefield: { cards: [ready, exhausted] } });
     const opp = player({ id: 'opp', name: 'Bob', battlefield: { cards: [atk] } });
-    const state: GameState = { phase: 'DeclareBlockers', turnNumber: 1, activePlayerId: 'opp', players: [me, opp], stack: [] };
+    const state: GameState = { phase: 'DeclareBlockers', turnNumber: 1, activePlayerId: 'opp', players: [me, opp], stack: [], youPlayerId: null };
 
     const { component } = mountOverlay(state, ['DeclareBlockersCommand'], ['me']);
 
@@ -262,7 +262,7 @@ describe('PromptOverlayComponent — combat prompts', () => {
     // the decision.
     const me = player({ id: 'me', name: 'Alice' });
     const opp = player({ id: 'opp', name: 'Bob' });
-    const state: GameState = { phase: 'BeginningOfGame', turnNumber: 0, activePlayerId: 'me', players: [me, opp], stack: [] };
+    const state: GameState = { phase: 'BeginningOfGame', turnNumber: 0, activePlayerId: 'me', players: [me, opp], stack: [], youPlayerId: null };
 
     const { component, fixture } = mountOverlay(state, ['MulliganCommand'], ['me']);
     expect(component.kind()).toBe('mulligan');
@@ -278,7 +278,7 @@ describe('PromptOverlayComponent — combat prompts', () => {
     // is one example where the player can still bail on the prompt UI.
     const me = player({ id: 'me', name: 'Alice' });
     const opp = player({ id: 'opp', name: 'Bob' });
-    const state: GameState = { phase: 'DeclareAttackers', turnNumber: 1, activePlayerId: 'me', players: [me, opp], stack: [] };
+    const state: GameState = { phase: 'DeclareAttackers', turnNumber: 1, activePlayerId: 'me', players: [me, opp], stack: [], youPlayerId: null };
 
     const { fixture } = mountOverlay(state, ['DeclareAttackersCommand'], ['me']);
 
@@ -297,7 +297,7 @@ describe('PromptOverlayComponent — combat prompts', () => {
     const opp = player({ id: 'opp', name: 'Bob' });
     const state: GameState = {
       phase: 'PreCombatMain', turnNumber: 1, activePlayerId: 'me',
-      players: [me, opp], stack: [],
+      players: [me, opp], stack: [], youPlayerId: null,
     };
 
     const { component, fixture } = mountOverlay(state, ['ChooseTargetsCommand'], ['me']);
@@ -323,7 +323,7 @@ describe('PromptOverlayComponent — combat prompts', () => {
     const opp = player({ id: 'opp', name: 'Bob' });
     const state: GameState = {
       phase: 'PreCombatMain', turnNumber: 1, activePlayerId: 'me',
-      players: [me, opp], stack: [],
+      players: [me, opp], stack: [], youPlayerId: null,
     };
 
     const { component } = mountOverlay(state, ['ChooseTargetsCommand'], ['me']);
@@ -350,7 +350,7 @@ describe('PromptOverlayComponent — combat prompts', () => {
     const opp = player({ id: 'opp', name: 'Bob' });
     const state: GameState = {
       phase: 'DeclareAttackers', turnNumber: 1, activePlayerId: 'me',
-      players: [me, opp], stack: [],
+      players: [me, opp], stack: [], youPlayerId: null,
     };
 
     const { component, fixture } = mountOverlay(state, ['DeclareAttackersCommand'], ['me']);
@@ -375,7 +375,7 @@ describe('PromptOverlayComponent — combat prompts', () => {
     const opp = player({ id: 'opp', name: 'Bob' });
     const state: GameState = {
       phase: 'DeclareAttackers', turnNumber: 1, activePlayerId: 'me',
-      players: [me, opp], stack: [],
+      players: [me, opp], stack: [], youPlayerId: null,
     };
 
     const { component, fixture } = mountOverlay(state, ['DeclareAttackersCommand'], ['me']);
@@ -401,7 +401,7 @@ describe('PromptOverlayComponent — combat prompts', () => {
     // route it to the dedicated mana UI.
     const me = player({ id: 'me', name: 'Alice' });
     const opp = player({ id: 'opp', name: 'Bob' });
-    const state: GameState = { phase: 'PreCombatMain', turnNumber: 1, activePlayerId: 'me', players: [me, opp], stack: [] };
+    const state: GameState = { phase: 'PreCombatMain', turnNumber: 1, activePlayerId: 'me', players: [me, opp], stack: [], youPlayerId: null };
 
     const { component } = mountOverlay(state, ['ChooseManaCommand'], ['me']);
 
@@ -412,7 +412,7 @@ describe('PromptOverlayComponent — combat prompts', () => {
   it('confirmMana emits an empty source list (server auto-pays the deficit)', () => {
     const me = player({ id: 'me', name: 'Alice' });
     const opp = player({ id: 'opp', name: 'Bob' });
-    const state: GameState = { phase: 'PreCombatMain', turnNumber: 1, activePlayerId: 'me', players: [me, opp], stack: [] };
+    const state: GameState = { phase: 'PreCombatMain', turnNumber: 1, activePlayerId: 'me', players: [me, opp], stack: [], youPlayerId: null };
 
     const { component } = mountOverlay(state, ['ChooseManaCommand'], ['me']);
     const captured: PromptDecision[] = [];
@@ -426,7 +426,7 @@ describe('PromptOverlayComponent — combat prompts', () => {
   it('cancelMana emits a mana-cancel decision (translated to cancelCast on the wire)', () => {
     const me = player({ id: 'me', name: 'Alice' });
     const opp = player({ id: 'opp', name: 'Bob' });
-    const state: GameState = { phase: 'PreCombatMain', turnNumber: 1, activePlayerId: 'me', players: [me, opp], stack: [] };
+    const state: GameState = { phase: 'PreCombatMain', turnNumber: 1, activePlayerId: 'me', players: [me, opp], stack: [], youPlayerId: null };
 
     const { component } = mountOverlay(state, ['ChooseManaCommand'], ['me']);
     const captured: PromptDecision[] = [];
@@ -451,7 +451,7 @@ describe('PromptOverlayComponent — combat prompts', () => {
       id: 'opp', name: 'Bob',
       battlefield: { cards: [attackedBear, untappedScout, tappedLand] },
     });
-    const state: GameState = { phase: 'DeclareBlockers', turnNumber: 1, activePlayerId: 'opp', players: [me, opp], stack: [] };
+    const state: GameState = { phase: 'DeclareBlockers', turnNumber: 1, activePlayerId: 'opp', players: [me, opp], stack: [], youPlayerId: null };
 
     const { component } = mountOverlay(state, ['DeclareBlockersCommand'], ['me']);
 
@@ -473,7 +473,7 @@ describe('PromptOverlayComponent — library pick prompt', () => {
     return player({ id: 'me', name: 'Alice' });
   }
   function makeState(): GameState {
-    return { phase: 'Main', turnNumber: 3, activePlayerId: 'me', players: [makeMe()], stack: [] };
+    return { phase: 'Main', turnNumber: 3, activePlayerId: 'me', players: [makeMe()], stack: [], youPlayerId: null };
   }
 
   it('detects libraryPick kind from server "ChooseLibraryPickCommand" envelope', () => {

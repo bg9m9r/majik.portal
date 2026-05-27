@@ -102,7 +102,16 @@ export const GameStore = signalStore(
   })),
   withMethods(store => ({
     setState(next: GameState | null): void {
-      patchState(store, s => ({ state: next, stateVersion: s.stateVersion + 1 }));
+      patchState(store, s => ({
+        state: next,
+        stateVersion: s.stateVersion + 1,
+        // When the snapshot carries an authoritative youPlayerId (set by
+        // the server since Slice 2a), use it to derive selfPlayerIds.
+        // Fall back to the existing selfPlayerIds when the snapshot lacks
+        // the field (e.g. spectator view, older server). Never clear on
+        // a null snapshot — reset() is the explicit teardown path.
+        selfPlayerIds: next?.youPlayerId ? [next.youPlayerId] : s.selfPlayerIds,
+      }));
     },
     setSelfPlayerIds(ids: string[]): void {
       patchState(store, { selfPlayerIds: ids });

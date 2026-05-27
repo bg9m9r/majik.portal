@@ -50,6 +50,7 @@ function baseState(): GameState {
       },
     ],
     stack: [],
+    youPlayerId: null,
   };
 }
 

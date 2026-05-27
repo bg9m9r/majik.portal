@@ -483,35 +483,20 @@ export class MatchPage implements OnInit, OnDestroy {
         this.stateDirty = false;
         const r = await this.matchSvc.getState(this.id);
         if (r.ok) {
-          this.game.setState(r.value);
-          this.resolveSelfPlayerIds();
+          // Tolerate PascalCase or camelCase from the server (mirrors the
+          // prompt-envelope mapping above). The server stamps youPlayerId
+          // since Slice 2a; older builds or spectator views leave it absent.
+          const raw = r.value as unknown as Record<string, unknown>;
+          const snapshot: GameState = {
+            ...r.value,
+            youPlayerId: (raw['youPlayerId'] ?? raw['YouPlayerId'] ?? null) as string | null,
+          };
+          this.game.setState(snapshot);
         }
       } while (this.stateDirty);
     } finally {
       this.statePending = false;
     }
-  }
-
-  // Engine PlayerDto.Id is the random seat id, but MatchDto carries the
-  // human/bot Handle. Engine snapshots use that Handle as PlayerDto.Name
-  // (see GameFacade/Player init), so the safe mapping is by handle.
-  private resolveSelfPlayerIds(): void {
-    const state = this.game.state();
-    const m = this.matchSvc.current();
-    const sub = this.auth.principal()?.sub;
-    if (!state || !m || !sub) {
-      this.game.setSelfPlayerIds([]);
-      return;
-    }
-    const myHandle = sub === m.creator.sub
-      ? m.creator.handle
-      : m.opponent?.sub === sub ? m.opponent.handle : null;
-    if (!myHandle) {
-      this.game.setSelfPlayerIds([]);
-      return;
-    }
-    const ids = state.players.filter(p => p.name === myHandle).map(p => p.id);
-    this.game.setSelfPlayerIds(ids);
   }
 
   isRollWinner(m: Match): boolean {

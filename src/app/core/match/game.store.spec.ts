@@ -24,8 +24,56 @@ function snapshot(): GameState {
       },
     ],
     stack: [],
+    youPlayerId: null,
   };
 }
+
+// ----------------------------------------------------------------
+// GameStore.setState — seat-identity derivation from youPlayerId
+// ----------------------------------------------------------------
+describe('GameStore.setState — seat identity from youPlayerId', () => {
+  let store: InstanceType<typeof GameStore>;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({});
+    store = TestBed.inject(GameStore);
+    store.reset();
+  });
+
+  it('derives selfPlayerIds from youPlayerId when present', () => {
+    const snap: GameState = { ...snapshot(), youPlayerId: ALICE };
+    store.setState(snap);
+    expect(store.selfPlayerIds()).toEqual([ALICE]);
+  });
+
+  it('isMyTurnPrompt is true when prompt.playerId matches the youPlayerId-derived seat', () => {
+    const snap: GameState = { ...snapshot(), youPlayerId: ALICE };
+    store.setState(snap);
+    store.setPrompt({ gameId: 'g-1', playerId: ALICE, expectedKinds: ['PassPriorityCommand'] });
+    expect(store.isMyTurnPrompt()).toBe(true);
+  });
+
+  it('isMyTurnPrompt is false when prompt belongs to opponent', () => {
+    const snap: GameState = { ...snapshot(), youPlayerId: ALICE };
+    store.setState(snap);
+    store.setPrompt({ gameId: 'g-1', playerId: BOB, expectedKinds: ['PassPriorityCommand'] });
+    expect(store.isMyTurnPrompt()).toBe(false);
+  });
+
+  it('retains prior selfPlayerIds when snapshot lacks youPlayerId (spectator / old server)', () => {
+    store.setSelfPlayerIds([BOB]);
+    const snap: GameState = { ...snapshot(), youPlayerId: null };
+    store.setState(snap);
+    expect(store.selfPlayerIds()).toEqual([BOB]);
+  });
+
+  it('updates selfPlayerIds when a later snapshot carries youPlayerId', () => {
+    store.setSelfPlayerIds([BOB]);
+    const snap: GameState = { ...snapshot(), youPlayerId: ALICE };
+    store.setState(snap);
+    expect(store.selfPlayerIds()).toEqual([ALICE]);
+  });
+});
 
 describe('GameStore.applyEvent', () => {
   let store: InstanceType<typeof GameStore>;

@@ -73,6 +73,7 @@ describe('BoardComponent — opponent hand rendering', () => {
       activePlayerId: 'me',
       players: [me, opp],
       stack: [],
+      youPlayerId: null,
     };
 
     const { fixture } = mountBoard(state, ['me']);
@@ -107,6 +108,7 @@ describe('BoardComponent — opponent hand rendering', () => {
       activePlayerId: 'me',
       players: [me, opp],
       stack: [],
+      youPlayerId: null,
     };
 
     const { fixture } = mountBoard(state, ['me']);
@@ -129,6 +131,7 @@ describe('BoardComponent — opponent hand rendering', () => {
       activePlayerId: 'me',
       players: [me, opp],
       stack: [],
+      youPlayerId: null,
     };
 
     const { fixture } = mountBoard(state, ['me']);
@@ -156,6 +159,7 @@ describe('BoardComponent — stack viewer trigger highlight', () => {
         { id: 's-trigger', kind: 'TriggeredAbility', description: 'ETB trigger' },
         { id: 's-spell', kind: 'Spell', description: 'Lightning Bolt' },
       ],
+      youPlayerId: null,
     };
 
     const { fixture } = mountBoard(state, ['me']);
