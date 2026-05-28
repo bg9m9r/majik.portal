@@ -131,6 +131,28 @@ describe('LobbyStore', () => {
     expect(store.createError()).toBeNull();
   });
 
+  it('create success sets createdMatchId to the new match id', async () => {
+    const createFn = vi.fn(() => Promise.resolve({ ok: true, value: m('new-match-id') }));
+    const store = init({ create: createFn });
+    await flushMicrotasks(); // let onInit load settle
+    expect(store.createdMatchId()).toBeNull();
+    store.create(req);
+    await flushMicrotasks(2);
+    expect(store.createdMatchId()).toBe('new-match-id');
+    expect(store.createError()).toBeNull();
+  });
+
+  it('clearCreatedMatchId resets createdMatchId to null', async () => {
+    const createFn = vi.fn(() => Promise.resolve({ ok: true, value: m('new-match-id') }));
+    const store = init({ create: createFn });
+    await flushMicrotasks();
+    store.create(req);
+    await flushMicrotasks(2);
+    expect(store.createdMatchId()).toBe('new-match-id');
+    store.clearCreatedMatchId();
+    expect(store.createdMatchId()).toBeNull();
+  });
+
   it('create failure sets createError and does not call list again', async () => {
     const err: MatchError = { code: 'invalid-request' };
     const listFn = vi.fn(() => Promise.resolve({ ok: true, value: [] as Match[] }));
@@ -144,5 +166,17 @@ describe('LobbyStore', () => {
     await flushMicrotasks(3);
     expect(store.createError()?.code).toBe('invalid-request');
     expect(listFn.mock.calls.length).toBe(callsBefore); // no additional list call
+  });
+
+  it('create failure leaves createdMatchId null', async () => {
+    const err: MatchError = { code: 'invalid-request' };
+    const store = init({
+      create: vi.fn(() => Promise.resolve({ ok: false, error: err })),
+    });
+    await flushMicrotasks();
+    store.create(req);
+    await flushMicrotasks(3);
+    expect(store.createdMatchId()).toBeNull();
+    expect(store.createError()?.code).toBe('invalid-request');
   });
 });

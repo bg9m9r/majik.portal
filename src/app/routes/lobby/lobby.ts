@@ -1,4 +1,4 @@
-import { Component, inject } from '@angular/core';
+import { Component, effect, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { Match, CreateMatchRequest } from '../../core/match/match.types';
 import { LobbyStore } from '../../core/lobby/lobby.store';
@@ -54,6 +54,16 @@ import { CreateMatchWizardComponent } from '../match/components/create-match-wiz
 export class LobbyPage {
   readonly store = inject(LobbyStore);
   private readonly router = inject(Router);
+
+  constructor() {
+    effect(() => {
+      const id = this.store.createdMatchId();
+      if (id) {
+        this.router.navigate(['/match', id]);
+        this.store.clearCreatedMatchId();
+      }
+    });
+  }
 
   open(m: Match): void {
     this.router.navigate(['/match', m.id]);
