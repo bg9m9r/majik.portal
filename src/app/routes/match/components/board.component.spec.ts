@@ -370,6 +370,161 @@ describe('BoardComponent — onSelfBattlefieldDoubleClick: non-mana activated ab
 });
 
 // ---------------------------------------------------------------------------
+// BoardComponent — context-menu "Activate ability" entries
+//
+// Users intuitively right-click a permanent (e.g. Misty Rainforest)
+// expecting an Activate entry; the original menu offered only tap /
+// details / scryfall and "tap" was visual-only, so the user fell into a
+// dead end. Fix: when the right-clicked card is a SELF-owned permanent
+// with one or more activated abilities (kind === 'Activated' + non-null
+// id), surface one menu entry per ability. Clicking dispatches the same
+// activateAbilityRequested output the double-click path uses, so the
+// page-level translation is identical.
+//
+// Opponent permanents and cards with no activated abilities get NO
+// Activate entries. The double-click path is unchanged (covered by the
+// parallel describe block above).
+// ---------------------------------------------------------------------------
+describe('BoardComponent — context-menu activate entries', () => {
+  it('exposes one ActivatableAbility per self-owned activated ability with an id', () => {
+    const card = permanentCard({
+      instanceId: 'fetch-1',
+      abilities: [activatedAbility('abil-1', '{T}, Pay 1 life, Sacrifice: search')],
+    });
+    const { component } = mountBoardWithCard(card);
+
+    component.onContextMenu(
+      new MouseEvent('contextmenu', { clientX: 10, clientY: 10 }),
+      card,
+      'self',
+    );
+
+    const abilities = component.activeContextActivatableAbilities();
+    expect(abilities).toEqual([
+      { id: 'abil-1', description: '{T}, Pay 1 life, Sacrifice: search' },
+    ]);
+  });
+
+  it('exposes one ActivatableAbility per ability for a multi-ability permanent', () => {
+    const card = permanentCard({
+      instanceId: 'pw-1',
+      types: ['Planeswalker'],
+      abilities: [
+        { kind: 'Activated', description: '+1: scry', id: 'pw-1-plus' },
+        { kind: 'Activated', description: '-3: bolt', id: 'pw-1-minus' },
+      ],
+    });
+    const { component } = mountBoardWithCard(card);
+
+    component.onContextMenu(
+      new MouseEvent('contextmenu', { clientX: 10, clientY: 10 }),
+      card,
+      'self',
+    );
+
+    const abilities = component.activeContextActivatableAbilities();
+    expect(abilities).toEqual([
+      { id: 'pw-1-plus', description: '+1: scry' },
+      { id: 'pw-1-minus', description: '-3: bolt' },
+    ]);
+  });
+
+  it('exposes no Activate entries for a self-owned card with no activated abilities', () => {
+    const card = permanentCard({ instanceId: 'vanilla' }); // no abilities
+    const { component } = mountBoardWithCard(card);
+
+    component.onContextMenu(
+      new MouseEvent('contextmenu', { clientX: 10, clientY: 10 }),
+      card,
+      'self',
+    );
+
+    expect(component.activeContextActivatableAbilities()).toEqual([]);
+  });
+
+  it('exposes no Activate entries for an opponent permanent (even if it has activated abilities)', () => {
+    const card = permanentCard({
+      instanceId: 'opp-fetch',
+      abilities: [activatedAbility('opp-abil', 'search')],
+    });
+    const { component } = mountBoardWithCard(card);
+
+    component.onContextMenu(
+      new MouseEvent('contextmenu', { clientX: 10, clientY: 10 }),
+      card,
+      'opponent',
+    );
+
+    expect(component.activeContextActivatableAbilities()).toEqual([]);
+  });
+
+  it('excludes activated abilities whose id is null (older server build)', () => {
+    const card = permanentCard({
+      instanceId: 'fetch-no-id',
+      abilities: [
+        { kind: 'Activated', description: 'search', id: null },
+        { kind: 'Activated', description: 'sac', id: 'abil-with-id' },
+      ],
+    });
+    const { component } = mountBoardWithCard(card);
+
+    component.onContextMenu(
+      new MouseEvent('contextmenu', { clientX: 10, clientY: 10 }),
+      card,
+      'self',
+    );
+
+    expect(component.activeContextActivatableAbilities()).toEqual([
+      { id: 'abil-with-id', description: 'sac' },
+    ]);
+  });
+
+  it('emits activateAbilityRequested with the permanent instanceId + ability id when an Activate entry fires', () => {
+    const card = permanentCard({
+      instanceId: 'fetch-1',
+      abilities: [activatedAbility('abil-1', 'search')],
+    });
+    const { component } = mountBoardWithCard(card);
+    component.onContextMenu(
+      new MouseEvent('contextmenu', { clientX: 10, clientY: 10 }),
+      card,
+      'self',
+    );
+    const activateSpy = vi.fn();
+    component.activateAbilityRequested.subscribe(activateSpy);
+
+    component.onContextActivateAbility('abil-1');
+
+    expect(activateSpy).toHaveBeenCalledOnce();
+    expect(activateSpy).toHaveBeenCalledWith({
+      permanentInstanceId: 'fetch-1',
+      abilityId: 'abil-1',
+    });
+  });
+
+  it('renders the Activate entry inside the rendered <app-card-context-menu>', () => {
+    const card = permanentCard({
+      instanceId: 'fetch-1',
+      abilities: [activatedAbility('abil-1', 'search your library')],
+    });
+    const { component, fixture } = mountBoardWithCard(card);
+
+    component.onContextMenu(
+      new MouseEvent('contextmenu', { clientX: 10, clientY: 10 }),
+      card,
+      'self',
+    );
+    fixture.detectChanges();
+
+    const buttons = Array.from(
+      fixture.nativeElement.querySelectorAll('app-card-context-menu button'),
+    ) as HTMLButtonElement[];
+    const labels = buttons.map(b => b.textContent?.trim());
+    expect(labels).toContain('Activate search your library');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // BoardComponent — zoned battlefield layout
 //
 // Frontline (creatures, incl. tokens + Artifact-/Enchantment-Creatures) sits
@@ -656,6 +811,95 @@ describe('BoardComponent — self-side ordering + host display (zoned layout)', 
     // block and exercised end-to-end at build + visual-inspect time.
     expect(style.display).toBe('flex');
     expect(style.flexDirection).toBe('column');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// BoardComponent — symmetric non-battlefield footprint across the two sides
+//
+// Regression coverage for the "self battlefield visibly shorter than opp"
+// layout bug. Each arena-side is flex: 1 1 0, but the inner stack ABOVE the
+// centerline used to be asymmetric: opp = one .arena-strip (HUD + mana +
+// shrunk hand), self = (.hand-row full-size) + (.arena-strip--self HUD +
+// mana). Net opp-non-bf < self-non-bf, so opp .battlefield got more
+// vertical space and the self board looked clipped.
+//
+// The fix locks the three non-battlefield elements to fixed heights:
+//   opp .arena-strip height == self .hand-row height + self .arena-strip--self height
+// so each side's .battlefield consumes the same remaining flex space.
+//
+// These layout rules live in board.component.ts's inline `styles:` block
+// so jsdom can resolve them in unit tests. The card and spacing tokens
+// come from styles/tokens.scss which is NOT loaded in unit tests; the
+// component falls back to defaults via var(name, default) so the math
+// resolves predictably here.
+// ---------------------------------------------------------------------------
+describe('BoardComponent — equal arena-strip footprint across both sides', () => {
+  // tokens.scss isn't loaded in unit tests, so the component uses the
+  // var(name, default) fallback literals (140px card-h, 8px space-2)
+  // when computing arena-strip heights. Mirror that math here.
+  const HAND_H = 140 + 8 * 2;        // = 156px
+  const INFO_H = 8 * 4;              // = 32px
+  const STRIP_H = HAND_H + INFO_H;   // = 188px
+
+  it('locks the opp .arena-strip to a fixed height equal to self hand-row + arena-strip--self', () => {
+    const { fixture } = mountBoardWithBattlefields([], []);
+    const oppStrip = fixture.nativeElement.querySelector(
+      '.arena-side--foe .arena-strip',
+    ) as HTMLElement;
+    expect(oppStrip).toBeTruthy();
+    const style = window.getComputedStyle(oppStrip);
+    expect(style.minHeight).toBe(`${STRIP_H}px`);
+    expect(style.maxHeight).toBe(`${STRIP_H}px`);
+    expect(style.flexBasis).toBe(`${STRIP_H}px`);
+  });
+
+  it('locks the self .hand-row to the full-size hand-card-row height', () => {
+    const { fixture } = mountBoardWithBattlefields([], []);
+    const selfHandRow = Array.from(
+      fixture.nativeElement.querySelectorAll('.arena-side--self > .hand-row'),
+    ).find(el => !(el as HTMLElement).classList.contains('hand-row--opponent')) as
+      HTMLElement | undefined;
+    expect(selfHandRow).toBeTruthy();
+    const style = window.getComputedStyle(selfHandRow!);
+    expect(style.minHeight).toBe(`${HAND_H}px`);
+    expect(style.maxHeight).toBe(`${HAND_H}px`);
+    expect(style.flexBasis).toBe(`${HAND_H}px`);
+  });
+
+  it('locks the self .arena-strip--self (HUD + mana) to the small info-row height', () => {
+    const { fixture } = mountBoardWithBattlefields([], []);
+    const selfStrip = fixture.nativeElement.querySelector(
+      '.arena-side--self > .arena-strip--self',
+    ) as HTMLElement;
+    expect(selfStrip).toBeTruthy();
+    const style = window.getComputedStyle(selfStrip);
+    expect(style.minHeight).toBe(`${INFO_H}px`);
+    expect(style.maxHeight).toBe(`${INFO_H}px`);
+    expect(style.flexBasis).toBe(`${INFO_H}px`);
+  });
+
+  it('makes opp .arena-strip height === self .hand-row height + self .arena-strip--self height (the equalization invariant)', () => {
+    const { fixture } = mountBoardWithBattlefields([], []);
+    const oppStrip = fixture.nativeElement.querySelector(
+      '.arena-side--foe .arena-strip',
+    ) as HTMLElement;
+    const selfHandRow = Array.from(
+      fixture.nativeElement.querySelectorAll('.arena-side--self > .hand-row'),
+    ).find(el => !(el as HTMLElement).classList.contains('hand-row--opponent')) as
+      HTMLElement | undefined;
+    const selfStrip = fixture.nativeElement.querySelector(
+      '.arena-side--self > .arena-strip--self',
+    ) as HTMLElement;
+
+    const oppH = parseInt(window.getComputedStyle(oppStrip).flexBasis, 10);
+    const selfHandH = parseInt(window.getComputedStyle(selfHandRow!).flexBasis, 10);
+    const selfStripH = parseInt(window.getComputedStyle(selfStrip).flexBasis, 10);
+
+    expect(oppH).toBe(selfHandH + selfStripH);
+    // Both .battlefield wrappers are flex: 1 1 0 inside their arena-side
+    // (also flex: 1 1 0 of the board area), so equal non-bf footprint
+    // implies equal battlefield height.
   });
 });
 
