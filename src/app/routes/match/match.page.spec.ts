@@ -60,6 +60,9 @@ describe('MatchPage — resilience wiring', () => {
   let matchSvc: any;
   let signalr: any;
   let game: any;
+  // Writable signals exposed so prefs-push effect tests can drive them.
+  let fullControlSig: ReturnType<typeof signal<boolean>>;
+  let phaseStopsSig: ReturnType<typeof signal<Record<string, 'mine' | 'theirs'>>>;
   let router: { navigate: ReturnType<typeof vi.fn> };
   let toast: ToastService;
 
@@ -87,6 +90,8 @@ describe('MatchPage — resilience wiring', () => {
     sessionExpiredSig = signal(false);
     authExpiredSig = signal(false);
     state$ = new Subject<unknown>();
+    fullControlSig = signal<boolean>(false);
+    phaseStopsSig = signal<Record<string, 'mine' | 'theirs'>>({});
 
     matchSvc = {
       current: currentSig.asReadonly(),
@@ -97,6 +102,7 @@ describe('MatchPage — resilience wiring', () => {
       concede: vi.fn(() => Promise.resolve({ ok: true, value: playingMatch() })),
       submitRoll: vi.fn(() => Promise.resolve({ ok: true, value: playingMatch() })),
       playDraw: vi.fn(() => Promise.resolve({ ok: true, value: playingMatch() })),
+      updateAutoPassPrefs: vi.fn(() => Promise.resolve({ ok: true, value: undefined })),
     };
 
     signalr = {
@@ -124,8 +130,8 @@ describe('MatchPage — resilience wiring', () => {
       isMyTurnPrompt: signal(false),
       selfTimerState: signal(null),
       opponentTimerState: signal(null),
-      fullControl: signal(false),
-      phaseStops: signal({}),
+      fullControl: fullControlSig.asReadonly(),
+      phaseStops: phaseStopsSig.asReadonly(),
       recentDecisions: signal([]),
       toggleFullControl: vi.fn(),
       togglePhaseStop: vi.fn(),
@@ -333,5 +339,67 @@ describe('MatchPage — resilience wiring', () => {
     await page.onActivateAbilityRequested({ permanentInstanceId: 'perm-1', abilityId: 'abil-1' });
     expect(toast.current()?.severity).toBe('error');
     expect(toast.current()?.message).toContain('ability not legal');
+  });
+
+  // --- Slice 5a: prefs-push effect tests ----------------------------
+  //
+  // The prefs-push effect calls updateAutoPassPrefs whenever fullControl
+  // or phaseStops changes (with a JSON-sig guard to suppress no-op
+  // re-emits). It also pushes once on construction (the initial values).
+
+  it('prefs effect pushes once on construction with the initial prefs', async () => {
+    init();
+    // The effect runs synchronously on the first signal read in Angular's
+    // TestBed; flush the microtask queue so the async pushPrefs resolves.
+    await vi.runOnlyPendingTimersAsync();
+    // One call on init (initial fullControl=false, phaseStops={}).
+    expect(matchSvc.updateAutoPassPrefs).toHaveBeenCalledTimes(1);
+    expect(matchSvc.updateAutoPassPrefs).toHaveBeenCalledWith('m-1', {
+      fullControl: false,
+      phaseStops: {},
+    });
+  });
+
+  it('prefs effect PUTs with the new prefs when fullControl toggles', async () => {
+    init();
+    await vi.runOnlyPendingTimersAsync();
+    const beforeCount = matchSvc.updateAutoPassPrefs.mock.calls.length;
+
+    // Toggle fullControl — the effect should re-fire with the new value.
+    fullControlSig.set(true);
+    TestBed.tick(); // flush the effect
+    await vi.runOnlyPendingTimersAsync();
+
+    expect(matchSvc.updateAutoPassPrefs.mock.calls.length).toBeGreaterThan(beforeCount);
+    const lastArgs = matchSvc.updateAutoPassPrefs.mock.calls.at(-1);
+    expect(lastArgs[1].fullControl).toBe(true);
+  });
+
+  it('prefs effect PUTs when phaseStops mutates', async () => {
+    init();
+    await vi.runOnlyPendingTimersAsync();
+    const beforeCount = matchSvc.updateAutoPassPrefs.mock.calls.length;
+
+    // Mutate phaseStops — effect re-fires with updated stops.
+    phaseStopsSig.set({ Untap: 'mine' });
+    TestBed.tick();
+    await vi.runOnlyPendingTimersAsync();
+
+    expect(matchSvc.updateAutoPassPrefs.mock.calls.length).toBeGreaterThan(beforeCount);
+    const lastArgs = matchSvc.updateAutoPassPrefs.mock.calls.at(-1);
+    expect(lastArgs[1].phaseStops).toEqual({ Untap: 'mine' });
+  });
+
+  it('prefs effect does NOT re-PUT when signals re-emit with identical values', async () => {
+    init();
+    await vi.runOnlyPendingTimersAsync();
+    const afterInitCount = matchSvc.updateAutoPassPrefs.mock.calls.length;
+
+    // Re-set to the same values — JSON sig guard must suppress.
+    fullControlSig.set(false); // same as initial
+    TestBed.tick();
+    await vi.runOnlyPendingTimersAsync();
+
+    expect(matchSvc.updateAutoPassPrefs.mock.calls.length).toBe(afterInitCount);
   });
 });

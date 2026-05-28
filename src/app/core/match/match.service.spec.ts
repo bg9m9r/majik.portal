@@ -144,4 +144,37 @@ describe('MatchService', () => {
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error.code).toBe('forbidden');
   });
+
+  // --- updateAutoPassPrefs (Slice 5a) ---
+  it('updateAutoPassPrefs PUTs /me/prefs and returns ok on 204', async () => {
+    const prefs = { fullControl: false, phaseStops: { Untap: 'mine' as const } };
+    const p = svc.updateAutoPassPrefs('m1', prefs);
+    const req = http.expectOne(r => r.method === 'PUT' && r.url.endsWith('/matches/m1/me/prefs'));
+    // Verify the body is the prefs object.
+    expect(req.request.body).toEqual(prefs);
+    req.flush(null, { status: 204, statusText: 'No Content' });
+    const r = await p;
+    expect(r.ok).toBe(true);
+  });
+
+  it('updateAutoPassPrefs returns ok: false on 404 (pre-deploy window)', async () => {
+    // Until the companion core PR deploys the endpoint returns 404.
+    // The caller (MatchPage.pushPrefs) catches this and logs to console
+    // only — the page must not break.
+    const p = svc.updateAutoPassPrefs('m1', { fullControl: false, phaseStops: {} });
+    http.expectOne(r => r.url.endsWith('/matches/m1/me/prefs'))
+      .flush({ error: 'not-found' }, { status: 404, statusText: 'Not Found' });
+    const r = await p;
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.code).toBe('not-found');
+  });
+
+  it('updateAutoPassPrefs maps network failure to network error', async () => {
+    const p = svc.updateAutoPassPrefs('m1', { fullControl: true, phaseStops: {} });
+    http.expectOne(r => r.url.endsWith('/matches/m1/me/prefs'))
+      .error(new ProgressEvent('error'), { status: 0 });
+    const r = await p;
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.code).toBe('network');
+  });
 });

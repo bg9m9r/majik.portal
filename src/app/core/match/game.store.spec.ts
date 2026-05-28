@@ -1,6 +1,6 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { GameStore, GAME_COMMAND_SENDER, GameCommandSender } from './game.store';
 import { AuthUserStore } from '../auth/auth-user.store';
 import { MatchService } from './match.service';
@@ -624,9 +624,17 @@ describe('GameStore — Task 5 clock derivation', () => {
 });
 
 // ----------------------------------------------------------------
-// Task 6 — store-owned auto-pass (interval-driven) + shouldAutoPassNow
+// Slice 5a — shouldAutoPassNow (server-contract reference computed)
+//
+// The client-side auto-pass DRIVER (runAutoPass + heartbeat interval)
+// has been removed. The server now owns the auto-pass loop. The pure
+// shouldAutoPass() function and the shouldAutoPassNow computed are
+// retained here as the wire-contract reference — they document the
+// logic the server implements and are exercised in full by
+// match-session.spec.ts. These store-level tests verify that the
+// computed wires through game-store state correctly.
 // ----------------------------------------------------------------
-describe('GameStore — Task 6 auto-pass', () => {
+describe('GameStore — shouldAutoPassNow (contract reference)', () => {
   function playingState(over: Partial<GameState> & { hand?: CardSnapshot[] } = {}): GameState {
     const { hand = [], ...rest } = over;
     return {
@@ -652,14 +660,9 @@ describe('GameStore — Task 6 auto-pass', () => {
     };
   }
 
-  function armCleanPassPrompt(store: InstanceType<typeof GameStore>, match?: FakeMatch): void {
+  function armCleanPassPrompt(store: InstanceType<typeof GameStore>): void {
     store.setState(playingState());
     store.setPrompt(passOnlyPrompt());
-    // Arm the matching current match so the gameId guard passes when the
-    // caller intends to trigger a send. Callers that only test
-    // shouldAutoPassNow (a pure computed) or expect no-send behaviour
-    // omit `match`.
-    match?.setCurrent(matchDto({ gameId: 'g-1' }));
   }
 
   it('shouldAutoPassNow is true for a clean my-turn pass-only prompt', () => {
@@ -715,91 +718,5 @@ describe('GameStore — Task 6 auto-pass', () => {
     store.setSelfPlayerIds([]);
     store.setPrompt(passOnlyPrompt());
     expect(store.shouldAutoPassNow()).toBe(false);
-  });
-
-  it('runAutoPass sends a single pass for a clean prompt and dedupes within the same window', () => {
-    // Same live prompt — interval tick fires twice without any prompt
-    // change → pass sent only once (dedupe within window still works).
-    const { store, match, sender } = configureStore();
-    armCleanPassPrompt(store, match);
-    store.runAutoPass(); // first tick → pass sent
-    expect(sender.sent).toHaveLength(1);
-    expect(sender.sent[0]).toEqual({ $type: 'pass' });
-    // Second tick with no prompt change → dedupe key still set → no
-    // second pass.
-    store.runAutoPass();
-    expect(sender.sent).toHaveLength(1);
-    expect(store.lastAutoPassedPromptKey()).not.toBeNull();
-  });
-
-  it('runAutoPass passes again after clearPrompt (per-window auto-pass restored)', () => {
-    // Regression test for C1: dedupe key must be cleared when the prompt
-    // changes so each distinct priority window is eligible for auto-pass.
-    const { store, match, sender } = configureStore();
-    armCleanPassPrompt(store, match);
-    store.runAutoPass(); // first window → 1 pass
-    expect(sender.sent).toHaveLength(1);
-    // Simulate the server clearing the old prompt and issuing a fresh
-    // pass-only window (e.g. next priority cycle).
-    store.clearPrompt();
-    expect(store.lastAutoPassedPromptKey()).toBeNull(); // key cleared
-    store.setState(playingState());
-    store.setPrompt(passOnlyPrompt()); // fresh window, same logical key
-    store.runAutoPass(); // second window → must fire again
-    expect(sender.sent).toHaveLength(2); // would be 1 before the fix
-  });
-
-  it('runAutoPass does not pass when fullControl suppresses', () => {
-    const { store, match, sender } = configureStore();
-    armCleanPassPrompt(store, match);
-    store.toggleFullControl();
-    store.runAutoPass();
-    expect(sender.sent).toHaveLength(0);
-  });
-
-  it('runAutoPass does not pass with a non-empty stack', () => {
-    const { store, sender } = configureStore();
-    store.setState(playingState({ stack: [{ id: 's1', kind: 'Spell', description: 'x' }] }));
-    store.setPrompt(passOnlyPrompt());
-    store.runAutoPass();
-    expect(sender.sent).toHaveLength(0);
-  });
-
-  it('runAutoPass does not pass with empty selfPlayerIds', () => {
-    const { store, sender } = configureStore();
-    store.setState({ ...playingState(), youPlayerId: null });
-    store.setSelfPlayerIds([]);
-    store.setPrompt(passOnlyPrompt());
-    store.runAutoPass();
-    expect(sender.sent).toHaveLength(0);
-  });
-
-  // ----------------------------------------------------------------
-  // M2 defense-in-depth: gameId mismatch guard
-  // ----------------------------------------------------------------
-  it('runAutoPass does NOT send when MatchService.current().gameId does not match the prompt gameId', () => {
-    // Arm a clean pass-only prompt for game 'g-1', but load a match that
-    // has already advanced to game 'g-2'. The store's prompt is stale
-    // relative to the active match — the guard must suppress the pass.
-    const { store, match, sender } = configureStore();
-    store.setState(playingState());          // youPlayerId = ALICE → selfPlayerIds
-    store.setPrompt(passOnlyPrompt());       // prompt.gameId = 'g-1'
-    // Current match points to a different game.
-    match.setCurrent(matchDto({ id: 'm-2', gameId: 'g-2' }));
-    store.runAutoPass();
-    expect(sender.sent).toHaveLength(0);
-  });
-
-  it('runAutoPass DOES send when MatchService.current().gameId matches the prompt gameId (happy path)', () => {
-    // Coherent state: match.gameId === prompt.gameId — normal operation
-    // must not be broken by the guard.
-    const { store, match, sender } = configureStore();
-    store.setState(playingState());          // youPlayerId = ALICE → selfPlayerIds
-    store.setPrompt(passOnlyPrompt());       // prompt.gameId = 'g-1'
-    // Current match has the same gameId.
-    match.setCurrent(matchDto({ gameId: 'g-1' }));
-    store.runAutoPass();
-    expect(sender.sent).toHaveLength(1);
-    expect(sender.sent[0]).toEqual({ $type: 'pass' });
   });
 });

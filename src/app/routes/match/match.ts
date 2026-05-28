@@ -365,9 +365,21 @@ export class MatchPage implements OnInit, OnDestroy {
     effect(() => {
       this.game.recordStackMutation(this.game.state());
     });
-    // Auto-pass priority is now owned by the store (shouldAutoPassNow +
-    // the heartbeat-driven runAutoPass loop started in GameStore's
-    // onInit hook). No component effect required.
+    // Prefs-push effect (Slice 5a): whenever fullControl or phaseStops
+    // change, push the updated prefs to the server so the server-side
+    // auto-pass loop stays in sync. A JSON-serialised key guards against
+    // spurious re-sends when the signal re-emits with identical values.
+    let lastPrefsSig = '';
+    effect(() => {
+      const prefs = {
+        fullControl: this.game.fullControl(),
+        phaseStops: this.game.phaseStops() as Record<string, 'mine' | 'theirs'>,
+      };
+      const sig = JSON.stringify(prefs);
+      if (sig === lastPrefsSig) return;
+      lastPrefsSig = sig;
+      void this.pushPrefs(prefs);
+    });
   }
 
   ngOnInit(): void {
@@ -491,6 +503,24 @@ export class MatchPage implements OnInit, OnDestroy {
         if (this.reconnectResyncOwnsState) return;
         this.game.setState(normaliseStateSnapshot(s));
       });
+  }
+
+  // Push the viewer's auto-pass prefs to the server. Called once on
+  // connect (initial value) and on every prefs change (effect above).
+  // Failures are caught and logged so the page never breaks — the server
+  // endpoint will 404 until the companion Slice 5a core PR deploys.
+  private async pushPrefs(prefs: {
+    fullControl: boolean;
+    phaseStops: Record<string, 'mine' | 'theirs'>;
+  }): Promise<void> {
+    const matchId = this.id;
+    if (!matchId) return;
+    const r = await this.matchSvc.updateAutoPassPrefs(matchId, prefs);
+    if (!r.ok) {
+      // TODO(slice5a-deploy): 404 expected until the companion core PR
+      //   deploys to prod. Log to dev console only; don't surface to user.
+      console.debug('updateAutoPassPrefs failed (may be pre-deploy 404)', r.error);
+    }
   }
 
   private async refresh(): Promise<void> {

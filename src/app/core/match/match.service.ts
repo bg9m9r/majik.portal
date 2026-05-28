@@ -80,6 +80,26 @@ export class MatchService {
       this.http.get<MatchReplay>(`${this.base}/${id}/replay`)));
   }
 
+  // Push the viewer's auto-pass prefs to the server. The server takes
+  // over the auto-pass loop (Slice 5a core); calling this keeps server
+  // and client in sync whenever fullControl or phaseStops changes, and
+  // once on match-page init so the server has the current prefs from the
+  // start.
+  //
+  // Wire: PUT /matches/{id}/me/prefs → 204 NoContent.
+  //
+  // TODO(slice5a-deploy): until the companion core PR deploys, this
+  //   endpoint will 404 on prod. Failures are caught + logged to the dev
+  //   console so the page never breaks. Once the core PR ships, prefs
+  //   sync resumes automatically.
+  async updateAutoPassPrefs(
+    matchId: string,
+    prefs: { fullControl: boolean; phaseStops: Record<string, 'mine' | 'theirs'> },
+  ): Promise<Result<void>> {
+    return this.req(() => firstValueFrom(
+      this.http.put<void>(`${this.base}/${matchId}/me/prefs`, prefs)));
+  }
+
   private async req<T>(fn: () => Promise<T>): Promise<Result<T>> {
     try {
       return { ok: true, value: await fn() };
