@@ -1,5 +1,7 @@
 # majik.portal
 
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=bg9m9r_majik.portal&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=bg9m9r_majik.portal)
+
 Web client for [Majik](https://github.com/bg9m9r/majik) — the open-source Magic: The Gathering rules engine. Free, 1v1, desktop. Live at [majik.tech](https://majik.tech).
 
 This is the Angular UI. All gameplay logic is server-authoritative; the portal subscribes to engine events over SignalR and dispatches player intents back.
