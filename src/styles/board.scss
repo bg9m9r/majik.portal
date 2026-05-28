@@ -7,49 +7,35 @@
   --majik-card-h: 140px; // 100 * 7/5 — matches `.card { aspect-ratio: 5/7 }`
 }
 
+// =============================================================
+// Zoned battlefield (PR: battlefield UX revamp).
+//
+// Each side's .battlefield is a two-row grid:
+//   .frontline — single horizontal row (creatures, incl. tokens +
+//                artifact-creatures / enchantment-creatures). Closest
+//                to the centerline. overflow-x: auto on overflow.
+//   .backline  — CSS grid with two columns. Lands LEFT, utility
+//                (artifacts / enchantments / planeswalkers) RIGHT.
+//
+// Self: frontline TOP, backline BOTTOM (toward action bar).
+// Opp:  frontline BOTTOM, backline TOP (vertical flip; same LR for
+// lands/utility so the screen-left/right is stable across both
+// players' halves).
+//
+// The whose-turn ambient rim wraps the .battlefield wrapper so it
+// surrounds both rows together — not per-row.
+// =============================================================
 .battlefield {
   display: flex;
   flex-direction: column;
-  gap: var(--majik-space-3);
-}
-
-.battlefield-row {
-  display: flex;
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  align-items: center;
-  gap: var(--majik-space-2);
-  padding: var(--majik-space-2);
+  gap: var(--majik-space-1);
+  padding: var(--majik-space-1) var(--majik-space-2);
   border-radius: var(--majik-radius-panel);
-  // Card-height locking from PR #26 — battlefield content can't reflow
-  // the vertical board layout as the game state grows.
-  height: calc(var(--majik-card-h) + (var(--majik-space-2) * 2));
   border: 1px solid var(--majik-line-faint);
   background: rgba(0, 0, 0, 0.20);
-  transition: border-color 220ms ease-out, background-color 220ms ease-out, box-shadow 220ms ease-out;
-}
+  transition: border-color 220ms ease-out, background-color 220ms ease-out, box-shadow 220ms ease-out, opacity 200ms ease-out;
+  position: relative;
 
-// =============================================================
-// Player frame — one DOM container per player's half of the table.
-// Whose-turn ambient lives here (was previously split across the
-// battlefield-row + player-hud). The inactive side gets a single
-// 92% opacity dim so the active side reads brighter without
-// changing the absolute colours.
-// =============================================================
-// Arena layout — opp side stacks top, self side stacks bottom. Each
-// arena-side is a vertical stack of (HUD row, hand row, battlefield
-// row). The battlefield rows themselves carry the whose-turn ambient
-// rim because they're the visually-dominant element on each side.
-.arena-side {
-  display: flex;
-  flex-direction: column;
-  gap: var(--majik-space-2);
-}
-
-// Whose-turn ambient rim moves back onto .battlefield-row directly so
-// the full-width row reads as the "table half" boundary. The HUD keeps
-// its own active rim from PR #32 so the cue is reinforced top + bottom.
-.battlefield-row {
   &--active-self {
     border-color: var(--majik-self-rim);
     background: var(--majik-self-soft);
@@ -62,6 +48,128 @@
   }
   &--inactive {
     opacity: 0.92;
+  }
+
+  &__empty {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 11px;
+    pointer-events: none;
+  }
+}
+
+// Frontline — full-width single horizontal row of creatures. Locks to
+// one card-height so a wide creature board scrolls horizontally
+// instead of breaking the vertical layout. Centerline-side.
+.frontline {
+  display: flex;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  align-items: center;
+  gap: var(--majik-space-2);
+  min-height: var(--majik-card-h);
+  height: calc(var(--majik-card-h) + (var(--majik-space-1) * 2));
+  padding: var(--majik-space-1) var(--majik-space-1);
+}
+
+// Backline — two columns. Lands LEFT, utility (artifacts / enchants /
+// planeswalkers) RIGHT. Same LR for both players — only the vertical
+// axis flips. The columns themselves wrap so a heavy lands count
+// stacks rather than scrolling horizontally.
+.backline {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--majik-space-2);
+  min-height: var(--majik-card-h);
+
+  &__lands,
+  &__utility {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--majik-space-2);
+    min-height: var(--majik-card-h);
+    padding: var(--majik-space-1);
+    border-radius: var(--majik-radius-panel);
+    border: 1px dashed transparent; // hover-affordance slot
+    transition: border-color 200ms ease-out;
+  }
+
+  &__lands {
+    justify-content: flex-start; // left-aligned within its column
+  }
+  &__utility {
+    justify-content: flex-end;   // right-aligned within its column
+  }
+}
+
+// Backwards-compat shim: any legacy callers / tests still referencing
+// .battlefield-row resolve to a thin wrapper style so they don't blow
+// up if they leak into the DOM. Intentionally no border/background so
+// the new .battlefield wrapper owns the rim.
+.battlefield-row {
+  display: flex;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  align-items: center;
+  gap: var(--majik-space-2);
+}
+
+// =============================================================
+// Player frame — one DOM container per player's half of the table.
+// Each arena-side is a vertical stack of (strip, hand, battlefield)
+// on the opp side, mirrored on the self side. The .battlefield
+// wrapper carries the whose-turn ambient rim around both inner rows.
+// =============================================================
+.arena-side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--majik-space-1);
+  // Each side gets a healthy chunk of the board so the battlefield
+  // grows — flex-1 stretches the .board-arena to fill, and the strips
+  // (HUD + mana + opp hand) are content-sized while the battlefield
+  // claims the remaining space.
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+.arena-side--self .battlefield,
+.arena-side--foe  .battlefield {
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+// =============================================================
+// Compact HUD + mana strip. The "non-active info" gets a tighter
+// pad + smaller font so the battlefield can claim more vertical
+// space. opp side also tucks the face-down hand into the same strip.
+// =============================================================
+.arena-strip {
+  display: flex;
+  align-items: center;
+  gap: var(--majik-space-2);
+  padding: 2px var(--majik-space-2);
+  font-size: 11px;
+  line-height: 1.2;
+
+  &__hud {
+    flex: 0 1 auto;
+  }
+
+  &__mana {
+    flex: 0 1 auto;
+  }
+
+  &__hand {
+    flex: 1 1 auto;
+    min-height: 0;
+    justify-content: flex-end;
+    // Opp face-down hand sits inside the strip — squeeze the card
+    // size down so it doesn't push the strip taller than the HUD.
+    --majik-card-w: 56px;
+    --majik-card-h: 78px;
   }
 }
 
@@ -169,33 +277,78 @@
 }
 
 // =============================================================
-// Stack floating panel — pinned to the right edge of the board
-// area so it never reflows the table when items appear/resolve.
-// Compact header always visible; expands downward as items land.
+// Stack chip — collapsed-by-default corner badge. Click to expand
+// the contents list. Sits in the top-right of the board area so it
+// doesn't eat a row of vertical space — reclaiming that space is
+// the point of the zoned-battlefield refactor.
 // =============================================================
+.stack-chip {
+  position: absolute;
+  top: var(--majik-space-3);
+  right: var(--majik-space-3);
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--majik-space-1);
+  pointer-events: auto;
+
+  &__toggle {
+    appearance: none;
+    background: rgba(0, 0, 0, 0.65);
+    border: 1px solid var(--majik-line-faint);
+    border-radius: var(--majik-radius-pill);
+    color: var(--majik-fg-muted);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    padding: 3px 10px;
+    cursor: pointer;
+    transition: border-color 220ms ease-out, color 220ms ease-out, box-shadow 220ms ease-out, background-color 220ms ease-out;
+  }
+
+  &--populated &__toggle {
+    border-color: var(--majik-accent);
+    color: var(--majik-accent-strong);
+    background: rgba(0, 0, 0, 0.85);
+    box-shadow: 0 0 0 1px var(--majik-accent-soft);
+  }
+
+  &__body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--majik-space-1);
+    width: 200px;
+    max-height: 40vh;
+    padding: var(--majik-space-2);
+    border-radius: var(--majik-radius-panel);
+    border: 1px solid var(--majik-line-faint);
+    background: rgba(0, 0, 0, 0.75);
+    overflow-y: auto;
+
+    &--collapsed {
+      // Keep stack-item nodes mounted for tests + animate.leave, but
+      // off-screen so they don't paint.
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      padding: 0;
+      border: 0;
+      clip: rect(0 0 0 0);
+      clip-path: inset(50%);
+    }
+  }
+}
+
+// Backwards-compat alias so any deep selector / test still referencing
+// .stack-floating doesn't break. Maps to the new chip body styling.
 .stack-floating {
   position: absolute;
   top: var(--majik-space-3);
   right: var(--majik-space-3);
-  width: 200px;
-  max-height: calc(100% - (var(--majik-space-3) * 2));
-  display: flex;
-  flex-direction: column;
-  gap: var(--majik-space-1);
-  padding: var(--majik-space-2);
-  border-radius: var(--majik-radius-panel);
-  border: 1px solid var(--majik-line-faint);
-  background: rgba(0, 0, 0, 0.55);
-  overflow-y: auto;
   z-index: 5;
-  pointer-events: auto;
-  transition: border-color 220ms ease-out, box-shadow 220ms ease-out, background-color 220ms ease-out;
-
-  &--populated {
-    border-color: var(--majik-accent);
-    box-shadow: 0 0 0 1px var(--majik-accent-soft);
-    background: rgba(0, 0, 0, 0.75);
-  }
 }
 
 .stack-item {

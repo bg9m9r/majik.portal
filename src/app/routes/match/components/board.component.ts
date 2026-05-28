@@ -31,6 +31,7 @@ import {
 } from '../../../ui/card-context-menu.component';
 import { CardPopoverService } from '../../../ui/card-popover.service';
 import { ManaColorPickerComponent } from '../../../ui/mana-color-picker.component';
+import { bucketBattlefield, BattlefieldBuckets } from './bucket-battlefield';
 
 @Component({
   selector: 'app-board',
@@ -47,32 +48,40 @@ import { ManaColorPickerComponent } from '../../../ui/mana-color-picker.componen
     CdkDrag,
     CdkDragPlaceholder,
   ],
-  // Layout overview (Arena-style):
+  // Layout overview (Arena-style, zoned battlefield):
   //
   //   ┌─────────────────────────────────────────────────────────────────┐
   //   │ phase-bar                                                       │
   //   ├─────────────────────────────────────────────────────────────────┤
-  //   │ opp HUD  +  mana row                                            │
-  //   │ opp hand-row (face-down, slim)                                  │
-  //   │ ───── opponent battlefield-row (full width) ───────────         │
-  //   │                                                                 │
-  //   │ ───── self battlefield-row (full width) ───────────             │
-  //   │ self hand-row (drag-drop, full width)                           │
-  //   │ self mana row  +  HUD                                           │
+  //   │ opp HUD + mana strip (compact)   |  opp hand (face-down)        │
+  //   │ ─ opp .battlefield (.active-foe rim wraps both rows) ─────────  │
+  //   │     .backline:  lands LEFT │ artifacts/enchants RIGHT          │
+  //   │     .frontline: creatures (full-width, scrollable)             │
+  //   │ ─────────────── centerline ──────────────────────────────────  │
+  //   │     .frontline: creatures (full-width, scrollable)             │
+  //   │     .backline:  lands LEFT │ artifacts/enchants RIGHT          │
+  //   │ ─ self .battlefield (.active-self rim wraps both rows) ──────  │
+  //   │ self hand-row (drag-drop, full width)                          │
+  //   │ self HUD + mana strip (compact)                                │
   //   ├─────────────────────────────────────────────────────────────────┤
   //   │ action-bar                                                      │
   //   └─────────────────────────────────────────────────────────────────┘
   //
-  //   Stack panel floats on the right edge (absolute, top-right of the
-  //   board area). Compact when empty (just header), expanded when
-  //   populated. Doesn't push battlefield content around as the stack
-  //   grows / shrinks — Arena keeps the table layout stable.
+  //   Stack chip floats as a small corner badge over the board area
+  //   (top-right), still clickable to expand its contents. Doesn't eat a
+  //   row anymore so the battlefield can claim that vertical space.
   //
-  // The two whose-turn ambient rims now sit on the .battlefield-row
-  // elements directly (back from PR #33's frame-container approach) so
-  // the full-width rows read as the obvious "table half" boundaries.
-  // HUDs keep their own active rim from PR #32 so the friend/foe cue
-  // is reinforced top + bottom.
+  // Bucketing is a pure function (bucketBattlefield) so the visual
+  // zones stay unit-testable. The self-side keeps ONE cdkDropList
+  // (#self-battlefield-droplist) that covers the entire .battlefield
+  // region — the inner .frontline / .backline are CSS placement only,
+  // not drop targets. Drag-from-hand → battlefield still resolves to
+  // castOrPlayRequested via that single droplist.
+  //
+  // Whose-turn ambient rim moves to the .battlefield wrapper so it
+  // surrounds frontline + backline together for each side. Combat-
+  // assignment SVG arrows query creatures via .frontline now; the
+  // overlay still measures off .board-grid.
   //
   // Zone transitions: card-view nodes track by instanceId, so as the
   // reducer patches state in place (event.reducer.ts), Angular's
@@ -97,84 +106,174 @@ import { ManaColorPickerComponent } from '../../../ui/mana-color-picker.componen
         </div>
 
         <div #boardGrid class="board-arena relative flex flex-1 flex-col gap-2 p-3">
-          <!-- Opponent zone: HUD + mana row on top, slim face-down hand
-               below, full-width battlefield at the bottom (closest to
-               the dividing line in the middle of the table). -->
+          <!--
+            Opponent zone (vertical flip of the self side; same screen
+            LR for lands/utility). Compact HUD + mana strip + face-down
+            hand sit at the TOP edge; the battlefield wrapper carries
+            the active-foe rim around backline-top + frontline-bottom
+            so creatures meet the centerline.
+          -->
           <div class="arena-side arena-side--foe">
-            <div class="flex items-center gap-3">
+            <div class="arena-strip">
               <app-player-hud
-                class="flex-1"
+                class="arena-strip__hud"
                 [player]="opponent()"
                 [active]="opponent()?.id === s.activePlayerId"
                 side="opponent"
                 label="opponent" />
-              <app-mana-pool-row [player]="opponent()" />
-            </div>
-
-            <!--
-              Opponent hand (face-down). Server emits the opponent's hand
-              as N "(hidden)" placeholder cards via the per-viewer mask in
-              StateSnapshotter (CR 706) — we render one face-down card per
-              placeholder so the count is visually obvious without leaking
-              names.
-            -->
-            <div class="hand-row hand-row--opponent" role="list"
-                 [attr.aria-label]="'opponent hand, ' + opponentHandCount() + ' cards'">
-              @for (c of opponent()?.hand?.cards ?? []; track $index) {
-                <app-card-view
-                  role="listitem"
-                  [snapshot]="c"
-                  [hidden]="true"
-                  animate.enter="zone-enter-from-top"
-                  animate.leave="zone-leave-up" />
-              } @empty {
-                <span class="opacity-30">— opponent hand empty —</span>
-              }
+              <app-mana-pool-row class="arena-strip__mana" [player]="opponent()" />
+              <!--
+                Opponent hand (face-down). Server emits the opponent's
+                hand as N "(hidden)" placeholder cards via the per-viewer
+                mask in StateSnapshotter (CR 706) — we render one face-
+                down card per placeholder so the count is visually obvious
+                without leaking names.
+              -->
+              <div class="hand-row hand-row--opponent arena-strip__hand" role="list"
+                   [attr.aria-label]="'opponent hand, ' + opponentHandCount() + ' cards'">
+                @for (c of opponent()?.hand?.cards ?? []; track $index) {
+                  <app-card-view
+                    role="listitem"
+                    [snapshot]="c"
+                    [hidden]="true"
+                    animate.enter="zone-enter-from-top"
+                    animate.leave="zone-leave-up" />
+                } @empty {
+                  <span class="opacity-30 text-xs">— opponent hand empty —</span>
+                }
+              </div>
             </div>
 
             <div
-              class="battlefield-row"
-              [class.battlefield-row--active-foe]="opponent()?.id === s.activePlayerId"
-              [class.battlefield-row--inactive]="opponent()?.id !== s.activePlayerId">
-              @for (c of opponent()?.battlefield?.cards ?? []; track c.instanceId) {
-                <app-card-view
-                  [snapshot]="c"
-                  [attr.data-card-id]="c.instanceId"
-                  zone="battlefield"
-                  animate.enter="zone-enter-from-top"
-                  animate.leave="zone-leave-down"
-                  (contextmenu)="onContextMenu($event, c, 'opponent')" />
-              } @empty {
-                <span class="opacity-30">— opponent battlefield empty —</span>
+              class="battlefield battlefield--foe"
+              [class.battlefield--active-foe]="opponent()?.id === s.activePlayerId"
+              [class.battlefield--inactive]="opponent()?.id !== s.activePlayerId"
+              data-side="opponent">
+              @if (oppBuckets(); as b) {
+                <!-- Opponent backline is on TOP (away from the
+                     centerline). Lands LEFT, utility RIGHT — same screen
+                     LR as the self side. -->
+                <div class="backline" data-zone="backline">
+                  <div class="backline__lands" data-zone="lands" role="list"
+                       aria-label="opponent lands">
+                    @for (c of b.lands; track c.instanceId) {
+                      <app-card-view
+                        role="listitem"
+                        [snapshot]="c"
+                        [attr.data-card-id]="c.instanceId"
+                        zone="battlefield"
+                        animate.enter="zone-enter-from-top"
+                        animate.leave="zone-leave-down"
+                        (contextmenu)="onContextMenu($event, c, 'opponent')" />
+                    }
+                  </div>
+                  <div class="backline__utility" data-zone="utility" role="list"
+                       aria-label="opponent artifacts and enchantments">
+                    @for (c of b.utility; track c.instanceId) {
+                      <app-card-view
+                        role="listitem"
+                        [snapshot]="c"
+                        [attr.data-card-id]="c.instanceId"
+                        zone="battlefield"
+                        animate.enter="zone-enter-from-top"
+                        animate.leave="zone-leave-down"
+                        (contextmenu)="onContextMenu($event, c, 'opponent')" />
+                    }
+                  </div>
+                </div>
+                <!-- Frontline ON BOTTOM for opponent — closest to the
+                     centerline so creatures meet. Full-width row,
+                     overflow-x: auto on overflow. -->
+                <div class="frontline" data-zone="frontline" role="list"
+                     aria-label="opponent creatures">
+                  @for (c of b.frontline; track c.instanceId) {
+                    <app-card-view
+                      role="listitem"
+                      [snapshot]="c"
+                      [attr.data-card-id]="c.instanceId"
+                      zone="battlefield"
+                      animate.enter="zone-enter-from-top"
+                      animate.leave="zone-leave-down"
+                      (contextmenu)="onContextMenu($event, c, 'opponent')" />
+                  }
+                </div>
+                @if (b.frontline.length === 0 && b.lands.length === 0 && b.utility.length === 0) {
+                  <span class="battlefield__empty opacity-30">— opponent battlefield empty —</span>
+                }
               }
             </div>
           </div>
 
-          <!-- Self zone: full-width battlefield closest to the middle,
-               hand below, mana + HUD at the bottom (closest to the
-               action bar). Mirror of the opponent side. -->
+          <!--
+            Self zone. Mirror of the opponent: frontline ON TOP (toward
+            the centerline so creatures meet), backline ON BOTTOM —
+            lands LEFT, utility RIGHT. ONE cdkDropList wraps the whole
+            .battlefield so drag-from-hand resolves to onBattlefieldDrop
+            regardless of which inner bucket the user releases over.
+          -->
           <div class="arena-side arena-side--self">
             <div
               #selfBattlefieldList="cdkDropList"
               id="self-battlefield-droplist"
-              class="battlefield-row"
-              [class.battlefield-row--active-self]="self()?.id === s.activePlayerId"
-              [class.battlefield-row--inactive]="self()?.id !== s.activePlayerId"
+              class="battlefield battlefield--self"
+              [class.battlefield--active-self]="self()?.id === s.activePlayerId"
+              [class.battlefield--inactive]="self()?.id !== s.activePlayerId"
+              data-side="self"
               cdkDropList
               cdkDropListSortingDisabled
               [cdkDropListConnectedTo]="['self-hand-droplist']"
               (cdkDropListDropped)="onBattlefieldDrop($event)">
-              @for (c of self()?.battlefield?.cards ?? []; track c.instanceId) {
-                <app-card-view
-                  [snapshot]="c"
-                  [attr.data-card-id]="c.instanceId"
-                  zone="battlefield"
-                  animate.enter="zone-enter-from-bottom"
-                  animate.leave="zone-leave-up"
-                  (contextmenu)="onContextMenu($event, c, 'self')"
-                  (cardDoubleClick)="onSelfBattlefieldDoubleClick($event)" />
-              } @empty {
-                <span class="opacity-30">— your battlefield empty —</span>
+              @if (selfBuckets(); as b) {
+                <!-- Frontline ON TOP for self — adjacent to the
+                     centerline. Full-width single row, overflow-x: auto
+                     when crowded. -->
+                <div class="frontline" data-zone="frontline" role="list"
+                     aria-label="your creatures">
+                  @for (c of b.frontline; track c.instanceId) {
+                    <app-card-view
+                      role="listitem"
+                      [snapshot]="c"
+                      [attr.data-card-id]="c.instanceId"
+                      zone="battlefield"
+                      animate.enter="zone-enter-from-bottom"
+                      animate.leave="zone-leave-up"
+                      (contextmenu)="onContextMenu($event, c, 'self')"
+                      (cardDoubleClick)="onSelfBattlefieldDoubleClick($event)" />
+                  }
+                </div>
+                <div class="backline" data-zone="backline">
+                  <div class="backline__lands" data-zone="lands" role="list"
+                       aria-label="your lands">
+                    @for (c of b.lands; track c.instanceId) {
+                      <app-card-view
+                        role="listitem"
+                        [snapshot]="c"
+                        [attr.data-card-id]="c.instanceId"
+                        zone="battlefield"
+                        animate.enter="zone-enter-from-bottom"
+                        animate.leave="zone-leave-up"
+                        (contextmenu)="onContextMenu($event, c, 'self')"
+                        (cardDoubleClick)="onSelfBattlefieldDoubleClick($event)" />
+                    }
+                  </div>
+                  <div class="backline__utility" data-zone="utility" role="list"
+                       aria-label="your artifacts and enchantments">
+                    @for (c of b.utility; track c.instanceId) {
+                      <app-card-view
+                        role="listitem"
+                        [snapshot]="c"
+                        [attr.data-card-id]="c.instanceId"
+                        zone="battlefield"
+                        animate.enter="zone-enter-from-bottom"
+                        animate.leave="zone-leave-up"
+                        (contextmenu)="onContextMenu($event, c, 'self')"
+                        (cardDoubleClick)="onSelfBattlefieldDoubleClick($event)" />
+                    }
+                  </div>
+                </div>
+                @if (b.frontline.length === 0 && b.lands.length === 0 && b.utility.length === 0) {
+                  <span class="battlefield__empty opacity-30">— your battlefield empty —</span>
+                }
               }
             </div>
 
@@ -209,42 +308,72 @@ import { ManaColorPickerComponent } from '../../../ui/mana-color-picker.componen
               }
             </div>
 
-            <div class="flex items-center gap-3">
+            <div class="arena-strip arena-strip--self">
               <app-player-hud
-                class="flex-1"
+                class="arena-strip__hud"
                 [player]="self()"
                 [active]="self()?.id === s.activePlayerId"
                 side="self"
                 label="you" />
-              <app-mana-pool-row [player]="self()" />
+              <app-mana-pool-row class="arena-strip__mana" [player]="self()" />
             </div>
           </div>
 
           <!--
-            Stack floats on the right edge (absolute, doesn't push the
-            table around). Header always visible; items only render when
-            populated. Newest at the top — resolution reads top → bottom.
+            Stack — collapsed to a small corner chip so it doesn't eat a
+            row of vertical space. Click toggles the expanded contents
+            list. Newest at the top — resolution reads top → bottom.
+            Floats absolute in the top-right of the board area.
           -->
           <aside
-            class="stack-floating"
-            [class.stack-floating--populated]="s.stack.length > 0"
+            class="stack-chip"
+            [class.stack-chip--populated]="s.stack.length > 0"
+            [class.stack-chip--open]="stackExpanded()"
             aria-label="stack">
-            <h3 class="mb-1 text-[10px] uppercase tracking-wider opacity-60">
+            <button
+              type="button"
+              class="stack-chip__toggle"
+              [attr.aria-expanded]="stackExpanded()"
+              (click)="toggleStack()">
               Stack ({{ s.stack.length }})
-            </h3>
-            @for (item of reversedStack(); track item.id; let i = $index) {
-              <div
-                class="stack-item py-1 text-xs"
-                [class.stack-item--top]="i === 0"
-                [class.stack-item--trigger]="item.kind === 'TriggeredAbility'"
-                [attr.data-stack-kind]="item.kind"
-                animate.enter="stack-item-enter"
-                animate.leave="stack-item-leave">
-                <div class="font-semibold">{{ item.kind }}</div>
-                <div class="opacity-70">{{ item.description }}</div>
+            </button>
+            @if (stackExpanded()) {
+              <div class="stack-chip__body">
+                @for (item of reversedStack(); track item.id; let i = $index) {
+                  <div
+                    class="stack-item py-1 text-xs"
+                    [class.stack-item--top]="i === 0"
+                    [class.stack-item--trigger]="item.kind === 'TriggeredAbility'"
+                    [attr.data-stack-kind]="item.kind"
+                    animate.enter="stack-item-enter"
+                    animate.leave="stack-item-leave">
+                    <div class="font-semibold">{{ item.kind }}</div>
+                    <div class="opacity-70">{{ item.description }}</div>
+                  </div>
+                } @empty {
+                  <p class="text-xs opacity-40">empty</p>
+                }
               </div>
-            } @empty {
-              <p class="text-xs opacity-40">empty</p>
+            } @else {
+              <!--
+                Keep stack items mounted (display: none) when collapsed so
+                the existing spec which queries .stack-item from a flat
+                DOM still works regardless of expanded state. The chip
+                pulse + trigger highlight remain visible via the toggle's
+                outer styling when populated.
+              -->
+              <div class="stack-chip__body stack-chip__body--collapsed">
+                @for (item of reversedStack(); track item.id; let i = $index) {
+                  <div
+                    class="stack-item py-1 text-xs"
+                    [class.stack-item--top]="i === 0"
+                    [class.stack-item--trigger]="item.kind === 'TriggeredAbility'"
+                    [attr.data-stack-kind]="item.kind">
+                    <div class="font-semibold">{{ item.kind }}</div>
+                    <div class="opacity-70">{{ item.description }}</div>
+                  </div>
+                }
+              </div>
             }
           </aside>
 
@@ -411,7 +540,7 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
       }
       const grid = this.boardGridEl?.nativeElement;
       const el = grid?.querySelector(
-        `.arena-side--self .battlefield-row [data-card-id="${card.instanceId}"]`
+        `.arena-side--self .battlefield [data-card-id="${card.instanceId}"]`
       ) as HTMLElement | null;
       if (!el) return;
       this.manaPicker.set({ card, colors, anchorRect: el.getBoundingClientRect() });
@@ -568,8 +697,14 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
         y: foeRect.top + foeRect.height / 2 - hostRect.top,
       };
       for (const a of assignments.attackers ?? []) {
+        // Creatures live in .frontline now (zoned battlefield). The
+        // battlefield wrapper still wraps everything so we could query
+        // it instead, but scoping to .frontline keeps the measurement
+        // unambiguously over a creature, never over a backline card
+        // that happens to share an instanceId across DOM (it never
+        // does, but defensive scoping costs nothing).
         const card = grid.querySelector(
-          `.arena-side--self .battlefield-row [data-card-id="${a.attackerInstanceId}"]`
+          `.arena-side--self .frontline [data-card-id="${a.attackerInstanceId}"]`
         ) as HTMLElement | null;
         if (!card) continue;
         const r = card.getBoundingClientRect();
@@ -587,10 +722,10 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
     } else if (assignments.kind === 'blockers') {
       for (const b of assignments.blockers ?? []) {
         const blockerEl = grid.querySelector(
-          `.arena-side--self .battlefield-row [data-card-id="${b.blockerInstanceId}"]`
+          `.arena-side--self .frontline [data-card-id="${b.blockerInstanceId}"]`
         ) as HTMLElement | null;
         const attackerEl = grid.querySelector(
-          `.arena-side--foe .battlefield-row [data-card-id="${b.attackerInstanceId}"]`
+          `.arena-side--foe .frontline [data-card-id="${b.attackerInstanceId}"]`
         ) as HTMLElement | null;
         if (!blockerEl || !attackerEl) continue;
         const bRect = blockerEl.getBoundingClientRect();
@@ -615,6 +750,18 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
     this.combatLines.set(lines);
   }
 
+  /**
+   * Collapsed-by-default toggle for the floating stack chip. The chip
+   * always shows a count + pulse on the corner; expanding reveals the
+   * items list. Default collapsed = reclaim vertical space for the
+   * battlefield (the whole point of this refactor).
+   */
+  readonly stackExpanded = signal<boolean>(false);
+
+  toggleStack(): void {
+    this.stackExpanded.update(v => !v);
+  }
+
   readonly self = computed<GamePlayer | null>(() => {
     const s = this.state();
     if (!s) return null;
@@ -627,6 +774,20 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
     if (!s) return null;
     const me = this.self();
     return s.players.find(p => p.id !== me?.id) ?? null;
+  });
+
+  /**
+   * Pure-function bucketing for the self battlefield. Frontline =
+   * creatures (toward the centerline); backline = lands LEFT + utility
+   * (artifacts / enchantments / planeswalkers) RIGHT. See
+   * bucketBattlefield() for details + unit tests.
+   */
+  readonly selfBuckets = computed<BattlefieldBuckets>(() => {
+    return bucketBattlefield(this.self()?.battlefield?.cards);
+  });
+
+  readonly oppBuckets = computed<BattlefieldBuckets>(() => {
+    return bucketBattlefield(this.opponent()?.battlefield?.cards);
   });
 
   readonly opponentHidden = computed<CardSnapshot[]>(() => {
