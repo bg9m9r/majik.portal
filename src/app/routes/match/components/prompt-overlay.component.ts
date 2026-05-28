@@ -140,8 +140,22 @@ export function detectKind(kinds: string[] | undefined): PromptKind {
               <p class="text-xs opacity-70">{{ d }}</p>
             }
           </div>
-          @if (kind() !== 'mulligan') {
-            <!-- CR 103.4: mulligan has no opt-out — every player must answer keep-or-mulligan. -->
+          @if (showCancelButton()) {
+            <!--
+              CR 601.2 — the user may abort a spell cast at any point
+              before the announcement is fully resolved (target picker,
+              mode picker, X picker, mana payment). Once the spell hits
+              the stack, the cast is locked in.
+
+              Cancel is hidden for every other prompt kind: there is no
+              take-back for a triggered library-pick after a tutor
+              resolves, no opt-out from mulligan (CR 103.4), no "skip"
+              for combat declarations (the player chooses NO attackers
+              by confirming an empty set), no escape from a yes/no
+              "may" prompt the engine is waiting on. Hiding the button
+              prevents accidental clicks that produced an unrecoverable
+              UX state in v1.
+            -->
             <button
               type="button"
               class="rounded border border-white/20 px-2 py-0.5 text-xs hover:bg-white/10"
@@ -657,6 +671,30 @@ export class PromptOverlayComponent implements AfterViewInit, OnDestroy {
   readonly surveilDecisions = signal<Record<string, 'graveyard' | 'top'>>({});
 
   readonly kind = computed<PromptKind>(() => detectKind(this.prompt()?.expectedKinds));
+
+  /**
+   * CR 601.2 — the cast of a spell can be aborted at any sub-step up to
+   * the spell being fully announced. The portal models that as the
+   * cluster of mid-cast prompts:
+   *  - `targets`  — choosing targets for the spell on the stack;
+   *  - `x`        — choosing X for a variable-cost spell;
+   *  - `mode`     — choosing a mode for a modal spell;
+   *  - `mana`     — paying the mana cost.
+   *
+   * Every other prompt kind hides Cancel. Mulligan has no opt-out
+   * (CR 103.4). Library-pick / surveil run as part of an already-
+   * resolved triggered/static effect — there's no take-back. Combat
+   * declarations use empty-selection to "skip" rather than dismiss the
+   * overlay. Yes/No "may" prompts (shock land "pay 2 life?") need a
+   * positive answer from the engine to continue.
+   *
+   * Mirrored by the spec coverage in `prompt-overlay.component.spec.ts`
+   * (one assertion per kind in the cancel-button audit block).
+   */
+  readonly showCancelButton = computed<boolean>(() => {
+    const k = this.kind();
+    return k === 'targets' || k === 'x' || k === 'mode' || k === 'mana';
+  });
 
   readonly self = computed<GamePlayer | null>(() => {
     const s = this.state();

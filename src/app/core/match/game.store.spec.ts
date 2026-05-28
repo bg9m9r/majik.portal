@@ -298,9 +298,20 @@ describe('GameStore.phaseStops', () => {
     store.reset();
   });
 
-  it('cycles a phase chip null → mine → theirs → null', () => {
-    expect(store.phaseStops()).toEqual({});
+  it('defaults to the standard MTG-client opponent-turn stops (BoC + End)', () => {
+    // Mirrors AutoPassPrefs.Default on the server: hold priority only at
+    // beginning-of-combat + end step on the opponent's turn; auto-pass
+    // everywhere else (own-turn dead windows handled by the server's
+    // empty-action gate).
+    expect(store.phaseStops()).toEqual({
+      BeginningOfCombat: 'theirs',
+      End: 'theirs',
+    });
+  });
 
+  it('cycles a phase chip null → mine → theirs → null', () => {
+    // Use a phase that is NOT one of the defaults so the assertions
+    // don't depend on the default-stops shape.
     store.togglePhaseStop('Untap');
     expect(store.phaseStops()['Untap']).toBe('mine');
 
@@ -312,6 +323,7 @@ describe('GameStore.phaseStops', () => {
   });
 
   it('tracks each phase independently', () => {
+    store.clearPhaseStops();
     store.togglePhaseStop('Untap');         // mine
     store.togglePhaseStop('PreCombatMain'); // mine
     store.togglePhaseStop('PreCombatMain'); // theirs
@@ -322,17 +334,21 @@ describe('GameStore.phaseStops', () => {
     });
   });
 
-  it('clearPhaseStops wipes all entries', () => {
+  it('clearPhaseStops wipes all entries (including the defaults)', () => {
     store.togglePhaseStop('Untap');
     store.togglePhaseStop('Draw');
     store.clearPhaseStops();
     expect(store.phaseStops()).toEqual({});
   });
 
-  it('reset clears phase stops along with everything else', () => {
+  it('reset restores the default opponent-turn stops', () => {
+    store.clearPhaseStops();
     store.togglePhaseStop('Untap');
     store.reset();
-    expect(store.phaseStops()).toEqual({});
+    expect(store.phaseStops()).toEqual({
+      BeginningOfCombat: 'theirs',
+      End: 'theirs',
+    });
   });
 });
 

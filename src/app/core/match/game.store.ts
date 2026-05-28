@@ -151,7 +151,15 @@ const initial: GameStoreState = {
   stateVersion: 0,
   selfPlayerIds: [],
   recentDecisions: [],
-  phaseStops: {},
+  // Standard MTG-client opponent-turn pattern (Arena / MTGO): hold
+  // priority only at beginning-of-combat + end step on the opponent's
+  // turn. Auto-pass everywhere else. Own-turn windows have no stops —
+  // the user still drives every action they have available, and the
+  // server's empty-action gate (PriorityKinds.IsPassOnly) auto-passes
+  // dead windows in between. Mirrors AutoPassPrefs.Default on the
+  // server so a freshly-seated user gets the same defaults whether the
+  // server or the portal pushes first.
+  phaseStops: { BeginningOfCombat: 'theirs', End: 'theirs' },
   landsPlayedThisTurn: 0,
   lastAnnouncement: '',
   lastAnnouncementSeq: 0,
