@@ -48,7 +48,12 @@ function mountOverlay(
   state: GameState | null,
   kinds: string[],
   selfPlayerIds: string[],
-  promptExtras: { candidates?: CardSnapshot[]; label?: string; libraryView?: CardSnapshot[] } = {},
+  promptExtras: {
+    candidates?: CardSnapshot[];
+    label?: string;
+    libraryView?: CardSnapshot[];
+    surveilView?: CardSnapshot[];
+  } = {},
 ) {
   TestBed.configureTestingModule({ imports: [PromptOverlayComponent] });
   const fixture = TestBed.createComponent(PromptOverlayComponent);
@@ -782,5 +787,140 @@ describe('PromptOverlayComponent — full library-view grid', () => {
     component.confirmLibraryPickNothing();
 
     expect(captured).toEqual([{ kind: 'libraryPick', selectedInstanceId: null }]);
+  });
+});
+
+// -----------------------------------------------------------------------
+// CR 701.42 — surveil prompts (Underground Mortuary ETB et al.)
+// -----------------------------------------------------------------------
+
+describe('PromptOverlayComponent — surveil prompt (CR 701.42)', () => {
+  function me(): GamePlayer {
+    return player({ id: 'me', name: 'Alice' });
+  }
+  function state(): GameState {
+    return {
+      phase: 'Main', turnNumber: 3, activePlayerId: 'me',
+      players: [me()], stack: [], youPlayerId: null,
+    };
+  }
+
+  it('detects surveil kind from server "ChooseSurveilCommand" envelope', () => {
+    const peeked = [card({ instanceId: 'top-1', name: 'Forest' })];
+    const { component } = mountOverlay(
+      state(),
+      ['ChooseSurveilCommand'],
+      ['me'],
+      { surveilView: peeked, label: 'surveil 1' },
+    );
+
+    expect(component.kind()).toBe('surveil');
+    expect(component.titleFor(component.kind())).toBe('Surveil');
+  });
+
+  it('exposes envelope surveilView to the modal computed', () => {
+    const a = card({ instanceId: 'a', name: 'Forest' });
+    const b = card({ instanceId: 'b', name: 'Mountain' });
+    const { component } = mountOverlay(
+      state(),
+      ['ChooseSurveilCommand'],
+      ['me'],
+      { surveilView: [a, b], label: 'surveil 2' },
+    );
+
+    expect(component.surveilPeeked()).toHaveLength(2);
+    expect(component.surveilPeeked()[0].instanceId).toBe('a');
+    expect(component.surveilReady()).toBe(false);
+  });
+
+  it('confirm is disabled until every peeked card has a decision', () => {
+    const a = card({ instanceId: 'a', name: 'Forest' });
+    const b = card({ instanceId: 'b', name: 'Mountain' });
+    const { component } = mountOverlay(
+      state(),
+      ['ChooseSurveilCommand'],
+      ['me'],
+      { surveilView: [a, b], label: 'surveil 2' },
+    );
+
+    component.setSurveilDecision('a', 'graveyard');
+    expect(component.surveilReady()).toBe(false);
+    component.setSurveilDecision('b', 'top');
+    expect(component.surveilReady()).toBe(true);
+  });
+
+  it('toggling the same choice clears it (forcing the player to re-pick before Confirm)', () => {
+    const a = card({ instanceId: 'a', name: 'Forest' });
+    const { component } = mountOverlay(
+      state(),
+      ['ChooseSurveilCommand'],
+      ['me'],
+      { surveilView: [a], label: 'surveil 1' },
+    );
+
+    component.setSurveilDecision('a', 'graveyard');
+    expect(component.surveilDecisions()['a']).toBe('graveyard');
+    component.setSurveilDecision('a', 'graveyard');
+    expect(component.surveilDecisions()['a']).toBeUndefined();
+    expect(component.surveilReady()).toBe(false);
+  });
+
+  it('confirmSurveil emits the partition and resets decision state', () => {
+    // Peeked order: a, b, c (top-to-bottom). Player keeps b on top,
+    // sends a + c to graveyard. Wire payload preserves topOrder in the
+    // peeked-list's natural order so index 0 of topOrderInstanceIds
+    // becomes the new top of library.
+    const a = card({ instanceId: 'a', name: 'Forest' });
+    const b = card({ instanceId: 'b', name: 'Mountain' });
+    const c = card({ instanceId: 'c', name: 'Island' });
+    const { component } = mountOverlay(
+      state(),
+      ['ChooseSurveilCommand'],
+      ['me'],
+      { surveilView: [a, b, c], label: 'surveil 3' },
+    );
+    const captured: PromptDecision[] = [];
+    component.decision.subscribe(d => captured.push(d));
+
+    component.setSurveilDecision('a', 'graveyard');
+    component.setSurveilDecision('b', 'top');
+    component.setSurveilDecision('c', 'graveyard');
+    component.confirmSurveil();
+
+    expect(captured).toEqual([
+      {
+        kind: 'surveil',
+        toGraveyardInstanceIds: ['a', 'c'],
+        topOrderInstanceIds: ['b'],
+      },
+    ]);
+    // Resets so a subsequent surveil prompt starts clean.
+    expect(component.surveilDecisions()).toEqual({});
+  });
+
+  it('all-to-graveyard partition: empty topOrder, every peeked id in toGraveyard', () => {
+    // Common shape for bot-default behaviour and "no upside" hands.
+    const a = card({ instanceId: 'a', name: 'Forest' });
+    const b = card({ instanceId: 'b', name: 'Mountain' });
+    const { component } = mountOverlay(
+      state(),
+      ['ChooseSurveilCommand'],
+      ['me'],
+      { surveilView: [a, b], label: 'surveil 2' },
+    );
+    const captured: PromptDecision[] = [];
+    component.decision.subscribe(d => captured.push(d));
+
+    component.setSurveilDecision('a', 'graveyard');
+    component.setSurveilDecision('b', 'graveyard');
+    component.confirmSurveil();
+
+    expect(captured).toEqual([
+      {
+        kind: 'surveil',
+        toGraveyardInstanceIds: ['a', 'b'],
+        topOrderInstanceIds: [],
+      },
+    ]);
   });
 });
