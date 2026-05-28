@@ -27,6 +27,11 @@ interface PromptInfo {
   // to the flat candidates list — no breakage during the transient
   // deploy window between portal deploy and core deploy.
   libraryView?: CardSnapshot[];
+  // CR 701.42 — surveil prompts ship the peeked top-N (top-to-bottom)
+  // here. The overlay renders each card with two buttons ("graveyard"
+  // / "keep on top") and assembles a ChooseSurveilCommand partition.
+  // Privacy: per-recipient SignalR routing (same as libraryView).
+  surveilView?: CardSnapshot[];
 }
 
 export type PromptKind =
@@ -40,6 +45,7 @@ export type PromptKind =
   | 'mana'
   | 'mana-cancel'
   | 'libraryPick'
+  | 'surveil'
   | 'none';
 
 export interface PromptDecision {
@@ -55,6 +61,12 @@ export interface PromptDecision {
   // CR 701.19a — id of the picked candidate, or `null` for the legal
   // "find nothing" branch (the player may decline to choose).
   selectedInstanceId?: string | null;
+  // CR 701.42 — partition of the peeked top-N into graveyard-bound and
+  // top-bound buckets. topOrderInstanceIds order is honoured: index 0
+  // becomes the new top of the library. Together they must cover the
+  // peeked set exactly once (server validates).
+  toGraveyardInstanceIds?: string[];
+  topOrderInstanceIds?: string[];
 }
 
 interface CandidateCard {
@@ -71,6 +83,10 @@ export function detectKind(kinds: string[] | undefined): PromptKind {
   // grid (which only reads from the battlefield + can't see the
   // candidates).
   if (ks.some(k => k.includes('libraryp') || k.includes('library-pick') || k.includes('chooselibrary'))) return 'libraryPick';
+  // CR 701.42 — match BEFORE 'targets' / 'mode' for the same reason as
+  // libraryPick: the server's literal "ChooseSurveilCommand" envelope
+  // must route to the surveil modal, not the generic targets grid.
+  if (ks.some(k => k.includes('surveil') || k.includes('choosesurveil'))) return 'surveil';
   if (ks.some(k => k.includes('attacker'))) return 'attackers';
   if (ks.some(k => k.includes('blocker'))) return 'blockers';
   if (ks.some(k => k.includes('target'))) return 'targets';
@@ -429,6 +445,79 @@ export function detectKind(kinds: string[] | undefined): PromptKind {
             </div>
           }
 
+          @case ('surveil') {
+            <!--
+              CR 701.42 — surveil modal. Server peeked the top N of the
+              surveilling player's library and shipped them in
+              surveilView (top-to-bottom). Each peeked card gets two
+              radio-style buttons: "to graveyard" or "keep on top". The
+              order they appear in the surveilView is the order the
+              cards CURRENTLY sit on top of the library (index 0 = top),
+              so the kept-on-top buckets stay in surveilView order for
+              the wire payload. Confirm is gated on every card having a
+              decision (server validates the partition coverage too).
+            -->
+            <div class="flex flex-col gap-2 text-xs">
+              @if (prompt()?.label; as lbl) {
+                <span class="opacity-70">Decide each card: send to graveyard, or keep on top of your library.</span>
+              }
+              <div class="flex flex-col gap-1">
+                @for (c of surveilPeeked(); track c.instanceId; let i = $index) {
+                  <div
+                    class="flex items-center justify-between rounded border border-white/15 px-2 py-1"
+                    [attr.data-surveil-row]="c.instanceId">
+                    <span class="flex-1">
+                      <span class="opacity-50">#{{ i + 1 }}</span>
+                      <span class="ml-2 font-medium">{{ c.name }}</span>
+                      <span class="ml-2 opacity-60">{{ c.manaCost }}</span>
+                      @if (c.power !== null && c.toughness !== null) {
+                        <span class="ml-2 opacity-70">{{ c.power }}/{{ c.toughness }}</span>
+                      }
+                    </span>
+                    <span class="flex items-center gap-1">
+                      <button
+                        type="button"
+                        class="rounded border px-2 py-0.5"
+                        [class.border-red-400]="surveilDecisions()[c.instanceId] === 'graveyard'"
+                        [class.bg-red-400/10]="surveilDecisions()[c.instanceId] === 'graveyard'"
+                        [class.text-red-300]="surveilDecisions()[c.instanceId] === 'graveyard'"
+                        [class.border-white/15]="surveilDecisions()[c.instanceId] !== 'graveyard'"
+                        [attr.data-surveil-action]="'graveyard'"
+                        (click)="setSurveilDecision(c.instanceId, 'graveyard')">
+                        To graveyard
+                      </button>
+                      <button
+                        type="button"
+                        class="rounded border px-2 py-0.5"
+                        [class.border-emerald-400]="surveilDecisions()[c.instanceId] === 'top'"
+                        [class.bg-emerald-400/10]="surveilDecisions()[c.instanceId] === 'top'"
+                        [class.text-emerald-300]="surveilDecisions()[c.instanceId] === 'top'"
+                        [class.border-white/15]="surveilDecisions()[c.instanceId] !== 'top'"
+                        [attr.data-surveil-action]="'top'"
+                        (click)="setSurveilDecision(c.instanceId, 'top')">
+                        Keep on top
+                      </button>
+                    </span>
+                  </div>
+                } @empty {
+                  <span class="opacity-50">No cards to surveil (library empty).</span>
+                }
+              </div>
+              <div class="flex items-center gap-3">
+                <span class="opacity-60">
+                  graveyard: {{ surveilToGraveyardCount() }} | top: {{ surveilToTopCount() }} / {{ surveilPeeked().length }}
+                </span>
+                <button
+                  type="button"
+                  class="rounded border border-amber-400 px-3 py-1 text-amber-300 hover:bg-amber-400/10 disabled:cursor-not-allowed disabled:opacity-40"
+                  [disabled]="!surveilReady()"
+                  (click)="confirmSurveil()">
+                  Confirm surveil
+                </button>
+              </div>
+            </div>
+          }
+
           @case ('bottom') {
             <div class="flex flex-col gap-2 text-xs">
               <span class="opacity-70">Click cards to bottom them ({{ selected().length }} selected).</span>
@@ -506,6 +595,13 @@ export class PromptOverlayComponent implements AfterViewInit, OnDestroy {
   // signal-as-model glue.
   readonly selectedLibraryInstanceId = signal<string | null>(null);
   readonly libraryPickFilter = signal<string>('');
+
+  // CR 701.42 — surveil partition state. Maps a peeked card's instanceId
+  // to 'graveyard' | 'top'. Cards not yet decided are absent (unset);
+  // surveilReady() flips true only when every peeked card has a
+  // decision, which gates the Confirm button (matches the server's
+  // partition-coverage validation).
+  readonly surveilDecisions = signal<Record<string, 'graveyard' | 'top'>>({});
 
   readonly kind = computed<PromptKind>(() => detectKind(this.prompt()?.expectedKinds));
 
@@ -608,6 +704,30 @@ export class PromptOverlayComponent implements AfterViewInit, OnDestroy {
     return this.filteredLibraryView().filter(c => eligible.has(c.instanceId)).length;
   });
 
+  // CR 701.42 — peeked top-N of the surveilling player's library.
+  // Library zone is hidden in GameState (CR 706), so the cards must
+  // ride on the prompt envelope.
+  readonly surveilPeeked = computed<CardSnapshot[]>(() =>
+    this.prompt()?.surveilView ?? []
+  );
+
+  // True iff every peeked card has been classified ('graveyard' | 'top').
+  // Drives the Confirm button's enabled state.
+  readonly surveilReady = computed<boolean>(() => {
+    const peeked = this.surveilPeeked();
+    if (peeked.length === 0) return false;
+    const decisions = this.surveilDecisions();
+    return peeked.every(c => decisions[c.instanceId] === 'graveyard'
+      || decisions[c.instanceId] === 'top');
+  });
+
+  // Convenience selectors used by the template to label the live counts
+  // next to each bucket.
+  readonly surveilToGraveyardCount = computed<number>(() =>
+    Object.values(this.surveilDecisions()).filter(v => v === 'graveyard').length);
+  readonly surveilToTopCount = computed<number>(() =>
+    Object.values(this.surveilDecisions()).filter(v => v === 'top').length);
+
   titleFor(k: PromptKind): string {
     switch (k) {
       case 'targets': return 'Choose targets';
@@ -619,6 +739,7 @@ export class PromptOverlayComponent implements AfterViewInit, OnDestroy {
       case 'blockers': return 'Declare blockers';
       case 'mana': return 'Pay mana cost';
       case 'libraryPick': return 'Search your library';
+      case 'surveil': return 'Surveil';
       default: return '';
     }
   }
@@ -739,6 +860,38 @@ export class PromptOverlayComponent implements AfterViewInit, OnDestroy {
   // line to keep each row scannable.
   libraryCardTypeLine(card: CardSnapshot): string {
     return (card.types ?? []).join(' ');
+  }
+
+  // CR 701.42 — record/toggle a single peeked card's surveil decision.
+  // Clicking the already-set choice clears it (so the row goes back to
+  // "undecided", forcing the player to re-pick before Confirm enables).
+  setSurveilDecision(instanceId: string, choice: 'graveyard' | 'top'): void {
+    const map = { ...this.surveilDecisions() };
+    if (map[instanceId] === choice) {
+      delete map[instanceId];
+    } else {
+      map[instanceId] = choice;
+    }
+    this.surveilDecisions.set(map);
+  }
+
+  // Assemble the wire ChooseSurveilCommand payload. Top-order is taken
+  // from the peeked-list's natural order (server.PromptDto.SurveilView
+  // ships top-to-bottom; cards the player chose to keep on top stay in
+  // that relative order — index 0 of the resulting list becomes the new
+  // top of the library).
+  confirmSurveil(): void {
+    const peeked = this.surveilPeeked();
+    const decisions = this.surveilDecisions();
+    const toGraveyardInstanceIds: string[] = [];
+    const topOrderInstanceIds: string[] = [];
+    for (const c of peeked) {
+      const choice = decisions[c.instanceId];
+      if (choice === 'graveyard') toGraveyardInstanceIds.push(c.instanceId);
+      else if (choice === 'top') topOrderInstanceIds.push(c.instanceId);
+    }
+    this.decision.emit({ kind: 'surveil', toGraveyardInstanceIds, topOrderInstanceIds });
+    this.surveilDecisions.set({});
   }
 
   confirmBlockers(): void {

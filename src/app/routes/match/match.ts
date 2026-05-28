@@ -481,6 +481,10 @@ export class MatchPage implements OnInit, OnDestroy {
           // Absent until the companion core PR deploys; fallback renders
           // the flat candidates list in the transient deploy window.
           libraryView: (raw['libraryView'] ?? raw['LibraryView']) as CardSnapshot[] | undefined,
+          // CR 701.42 — peeked top-N for surveil prompts. Absent on every
+          // other prompt kind; absent on older server builds (the surveil
+          // modal simply won't render until the companion core PR ships).
+          surveilView: (raw['surveilView'] ?? raw['SurveilView']) as CardSnapshot[] | undefined,
         };
         this.game.setPrompt(envelope);
       });
@@ -764,6 +768,17 @@ export class MatchPage implements OnInit, OnDestroy {
         return {
           $type: 'chooseLibraryPick',
           selectedInstanceId: d.selectedInstanceId ?? null,
+        };
+      case 'surveil':
+        // CR 701.42 — partition of the peeked top-N. Server validates
+        // that ToGraveyard ∪ TopOrder covers the peeked set exactly
+        // once (no duplicates, no extras, no missing peeked card) and
+        // rejects with a clear error otherwise — so a stale partition
+        // never silently mis-orders the library.
+        return {
+          $type: 'chooseSurveil',
+          toGraveyardInstanceIds: d.toGraveyardInstanceIds ?? [],
+          topOrderInstanceIds: d.topOrderInstanceIds ?? [],
         };
       default:
         return null;

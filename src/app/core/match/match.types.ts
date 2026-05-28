@@ -170,6 +170,14 @@ export interface PromptEnvelope {
   // and ineligible cards muted. When absent (older server build or non-search
   // prompts), the overlay falls back to the flat candidates list.
   libraryView?: CardSnapshot[];
+  // CR 701.42 — surveil prompts (DSK surveil-land cycle ETB, Brainstorm-
+  // style "surveil N" effects). The engine peeks the top N cards of the
+  // surveilling player's library and ships them here in top-to-bottom
+  // order. Null on every other prompt kind. The portal surfaces each card
+  // with two choices ("to graveyard" / "keep on top") and assembles a
+  // ChooseSurveilCommand partitioning the set. Privacy: per-recipient
+  // SignalR routing — the opponent never sees these cards.
+  surveilView?: CardSnapshot[];
 }
 
 // Polymorphic GameCommand wire envelope — matches
@@ -190,7 +198,8 @@ export type GameCommand =
   | ActivateAbilityCommand
   | ChooseManaCommand
   | CancelCastCommand
-  | ChooseLibraryPickCommand;
+  | ChooseLibraryPickCommand
+  | ChooseSurveilCommand;
 
 interface CmdBase { playerId?: string }
 export interface PassPriorityCommand extends CmdBase { $type: 'pass' }
@@ -243,6 +252,17 @@ export interface CancelCastCommand extends CmdBase { $type: 'cancelCast' }
 export interface ChooseLibraryPickCommand extends CmdBase {
   $type: 'chooseLibraryPick';
   selectedInstanceId: string | null;
+}
+// CR 701.42 — response to a surveil prompt. The engine peeked N cards
+// (shipped on PromptEnvelope.surveilView in top-to-bottom order); the
+// client partitions them into two disjoint lists: which to send to the
+// graveyard and which to keep on top (in the order the player wants
+// them, where index 0 becomes the new top of library). Server rejects
+// payloads that don't cover the peeked set exactly once.
+export interface ChooseSurveilCommand extends CmdBase {
+  $type: 'chooseSurveil';
+  toGraveyardInstanceIds: string[];
+  topOrderInstanceIds: string[];
 }
 
 // Bot decision envelope — mirrors server-side
