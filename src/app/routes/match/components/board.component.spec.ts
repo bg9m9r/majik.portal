@@ -439,18 +439,18 @@ describe('BoardComponent — zoned battlefield layout', () => {
     expect(selfBattlefield).toBeTruthy();
 
     const frontIds = Array.from(
-      selfBattlefield.querySelectorAll('.frontline [data-card-id]'),
-    ).map(el => el.getAttribute('data-card-id'));
+      selfBattlefield.querySelectorAll<HTMLElement>('.frontline [data-card-id]'),
+    ).map(el => el.dataset['cardId']);
     const landIds = Array.from(
-      selfBattlefield.querySelectorAll('.backline__lands [data-card-id]'),
-    ).map(el => el.getAttribute('data-card-id'));
+      selfBattlefield.querySelectorAll<HTMLElement>('.backline__lands [data-card-id]'),
+    ).map(el => el.dataset['cardId']);
     const utilIds = Array.from(
-      selfBattlefield.querySelectorAll('.backline__utility [data-card-id]'),
-    ).map(el => el.getAttribute('data-card-id'));
+      selfBattlefield.querySelectorAll<HTMLElement>('.backline__utility [data-card-id]'),
+    ).map(el => el.dataset['cardId']);
 
-    expect(frontIds.sort()).toEqual(['ac-1', 'cr-1']);
+    expect(frontIds.sort((a, b) => (a ?? '').localeCompare(b ?? ''))).toEqual(['ac-1', 'cr-1']);
     expect(landIds).toEqual(['ld-1']);
-    expect(utilIds.sort()).toEqual(['art-1', 'enc-1', 'pw-1']);
+    expect(utilIds.sort((a, b) => (a ?? '').localeCompare(b ?? ''))).toEqual(['art-1', 'enc-1', 'pw-1']);
   });
 
   it('renders empty zones gracefully — placeholder shows for a fully-empty side', () => {
