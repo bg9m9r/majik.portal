@@ -48,7 +48,7 @@ function mountOverlay(
   state: GameState | null,
   kinds: string[],
   selfPlayerIds: string[],
-  promptExtras: { candidates?: CardSnapshot[]; label?: string } = {},
+  promptExtras: { candidates?: CardSnapshot[]; label?: string; libraryView?: CardSnapshot[] } = {},
 ) {
   TestBed.configureTestingModule({ imports: [PromptOverlayComponent] });
   const fixture = TestBed.createComponent(PromptOverlayComponent);
@@ -588,5 +588,199 @@ describe('PromptOverlayComponent — library pick prompt', () => {
     expect(component.selectedLibraryInstanceId()).toBe('elf-1');
     component.selectLibraryCandidate('elf-1');
     expect(component.selectedLibraryInstanceId()).toBeNull();
+  });
+});
+
+// CR 701.19a — full library-view grid (companion core PR). When the server
+// ships `libraryView` alongside `candidates`, the overlay renders ALL 60
+// cards in deck order: eligible cards (in candidates) are highlighted and
+// clickable; ineligible cards are muted and not interactive.
+describe('PromptOverlayComponent — full library-view grid', () => {
+  function makeMe() {
+    return player({ id: 'me', name: 'Alice' });
+  }
+  function makeState(): GameState {
+    return { phase: 'Main', turnNumber: 3, activePlayerId: 'me', players: [makeMe()], stack: [], youPlayerId: null };
+  }
+
+  // Build a libraryView of `total` cards and a candidates subset of `eligibleIds`.
+  function makeLibrary(total: number, eligibleIds: string[]): CardSnapshot[] {
+    return Array.from({ length: total }, (_, i) => card({
+      instanceId: `lib-${i}`,
+      name: eligibleIds.includes(`lib-${i}`) ? `Forest ${i}` : `Plains ${i}`,
+    }));
+  }
+
+  it('renders ALL libraryView cards (10 total) with 3 eligible, 7 muted', () => {
+    const eligibleIds = ['lib-0', 'lib-3', 'lib-7'];
+    const libraryView = makeLibrary(10, eligibleIds);
+    const candidates = libraryView.filter(c => eligibleIds.includes(c.instanceId));
+
+    const { component, fixture } = mountOverlay(
+      makeState(),
+      ['ChooseLibraryPickCommand'],
+      ['me'],
+      { candidates, libraryView, label: 'Forest card' },
+    );
+
+    expect(component.hasLibraryView()).toBe(true);
+    expect(component.libraryView()).toHaveLength(10);
+
+    const el = fixture.nativeElement as HTMLElement;
+    const eligibleButtons = el.querySelectorAll('[data-eligible="true"]');
+    const mutedCards = el.querySelectorAll('[data-muted="true"]');
+
+    expect(eligibleButtons.length).toBe(3);
+    expect(mutedCards.length).toBe(7);
+  });
+
+  it('clicking an eligible card updates selectedLibraryInstanceId and emits pick on confirm', () => {
+    const eligibleIds = ['lib-0', 'lib-3', 'lib-7'];
+    const libraryView = makeLibrary(10, eligibleIds);
+    const candidates = libraryView.filter(c => eligibleIds.includes(c.instanceId));
+
+    const { component, fixture } = mountOverlay(
+      makeState(),
+      ['ChooseLibraryPickCommand'],
+      ['me'],
+      { candidates, libraryView },
+    );
+    const captured: PromptDecision[] = [];
+    component.decision.subscribe(d => captured.push(d));
+
+    const el = fixture.nativeElement as HTMLElement;
+    const eligibleButton = el.querySelector('[data-eligible="true"]') as HTMLButtonElement;
+    expect(eligibleButton).toBeTruthy();
+    eligibleButton.click();
+    fixture.detectChanges();
+
+    // Should have selected the eligible card's instanceId.
+    expect(component.selectedLibraryInstanceId()).not.toBeNull();
+
+    component.confirmLibraryPick();
+    expect(captured).toHaveLength(1);
+    expect(captured[0].kind).toBe('libraryPick');
+    expect(typeof captured[0].selectedInstanceId).toBe('string');
+    expect(eligibleIds).toContain(captured[0].selectedInstanceId);
+  });
+
+  it('clicking a muted card does NOT update selection', () => {
+    const eligibleIds = ['lib-0'];
+    const libraryView = makeLibrary(10, eligibleIds);
+    const candidates = libraryView.filter(c => eligibleIds.includes(c.instanceId));
+
+    const { component, fixture } = mountOverlay(
+      makeState(),
+      ['ChooseLibraryPickCommand'],
+      ['me'],
+      { candidates, libraryView },
+    );
+    const captured: PromptDecision[] = [];
+    component.decision.subscribe(d => captured.push(d));
+
+    const el = fixture.nativeElement as HTMLElement;
+    // Muted cards are divs, not buttons — they have no click handler.
+    const mutedEl = el.querySelector('[data-muted="true"]') as HTMLElement;
+    expect(mutedEl).toBeTruthy();
+    // Simulate click (div with no handler should not change state).
+    mutedEl.click();
+    fixture.detectChanges();
+
+    expect(component.selectedLibraryInstanceId()).toBeNull();
+    expect(captured).toHaveLength(0);
+  });
+
+  it('filter narrows across the full libraryView (not just candidates)', () => {
+    // 10 cards: lib-0..lib-4 named "Forest N", lib-5..lib-9 named "Plains N".
+    // Only lib-0 is eligible. Filtering "Forest" should show 5 cards, all Forests.
+    const eligibleIds = ['lib-0'];
+    const libraryView = Array.from({ length: 10 }, (_, i) =>
+      card({ instanceId: `lib-${i}`, name: i < 5 ? `Forest ${i}` : `Plains ${i}` })
+    );
+    const candidates = libraryView.filter(c => eligibleIds.includes(c.instanceId));
+
+    const { component } = mountOverlay(
+      makeState(),
+      ['ChooseLibraryPickCommand'],
+      ['me'],
+      { candidates, libraryView },
+    );
+
+    component.libraryPickFilter.set('Forest');
+    const filtered = component.filteredLibraryView();
+    expect(filtered).toHaveLength(5);
+    expect(filtered.every(c => c.name.toLowerCase().includes('forest'))).toBe(true);
+
+    // The single eligible Forest (lib-0) should appear in the filtered set.
+    expect(filtered.some(c => c.instanceId === 'lib-0')).toBe(true);
+  });
+
+  it('eligible count reflects filter — "eligible: X / Y" counter', () => {
+    // 4 eligible Forests out of 8 total Forests. Filter "Forest" → 8 shown, 4 eligible.
+    const eligibleIds = ['lib-0', 'lib-1', 'lib-2', 'lib-3'];
+    const libraryView = Array.from({ length: 12 }, (_, i) =>
+      card({ instanceId: `lib-${i}`, name: i < 8 ? `Forest ${i}` : `Plains ${i}` })
+    );
+    const candidates = libraryView.filter(c => eligibleIds.includes(c.instanceId));
+
+    const { component } = mountOverlay(
+      makeState(),
+      ['ChooseLibraryPickCommand'],
+      ['me'],
+      { candidates, libraryView },
+    );
+
+    component.libraryPickFilter.set('Forest');
+    // 8 Forests match the filter; 4 of those are eligible.
+    expect(component.filteredLibraryView()).toHaveLength(8);
+    expect(component.visibleEligibleCount()).toBe(4);
+  });
+
+  it('envelope WITHOUT libraryView falls back to flat candidates list (regression guard)', () => {
+    // Older server builds do not ship libraryView. The overlay must not
+    // break — it falls back to the existing flat-candidates behaviour.
+    const elf = card({ instanceId: 'elf-1', name: 'Llanowar Elves' });
+    const bop = card({ instanceId: 'bop-1', name: 'Birds of Paradise' });
+
+    const { component, fixture } = mountOverlay(
+      makeState(),
+      ['ChooseLibraryPickCommand'],
+      ['me'],
+      { candidates: [elf, bop], label: 'green creature' },
+    );
+
+    // hasLibraryView must be false when libraryView is absent.
+    expect(component.hasLibraryView()).toBe(false);
+
+    // The legacy flat list should still be rendered (no data-eligible / data-muted attributes).
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelectorAll('[data-eligible]').length).toBe(0);
+    expect(el.querySelectorAll('[data-muted]').length).toBe(0);
+
+    // The two candidates should render as buttons.
+    // Find buttons containing the candidate names.
+    const buttons = Array.from(el.querySelectorAll('button')) as HTMLButtonElement[];
+    const names = buttons.map(b => b.textContent ?? '');
+    expect(names.some(t => t.includes('Llanowar Elves'))).toBe(true);
+    expect(names.some(t => t.includes('Birds of Paradise'))).toBe(true);
+  });
+
+  it('decline button (Pick nothing) still emits the existing decline decision', () => {
+    const eligibleIds = ['lib-0'];
+    const libraryView = makeLibrary(5, eligibleIds);
+    const candidates = libraryView.filter(c => eligibleIds.includes(c.instanceId));
+
+    const { component } = mountOverlay(
+      makeState(),
+      ['ChooseLibraryPickCommand'],
+      ['me'],
+      { candidates, libraryView },
+    );
+    const captured: PromptDecision[] = [];
+    component.decision.subscribe(d => captured.push(d));
+
+    component.confirmLibraryPickNothing();
+
+    expect(captured).toEqual([{ kind: 'libraryPick', selectedInstanceId: null }]);
   });
 });

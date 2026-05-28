@@ -22,6 +22,11 @@ interface PromptInfo {
   // the library is otherwise hidden in GameState under CR 706.
   candidates?: CardSnapshot[];
   label?: string;
+  // Full library snapshot (top-to-bottom order). Present only when the
+  // companion core PR has deployed. When absent, the overlay falls back
+  // to the flat candidates list — no breakage during the transient
+  // deploy window between portal deploy and core deploy.
+  libraryView?: CardSnapshot[];
 }
 
 export type PromptKind =
@@ -298,11 +303,15 @@ export function detectKind(kinds: string[] | undefined): PromptKind {
 
           @case ('libraryPick') {
             <!--
-              CR 701.19a — library search picker. Server pre-filters the
-              candidates (e.g. green creature cards with mv ≤ X for
-              Green Sun's Zenith) and ships them on the prompt envelope
-              along with a human-readable predicate label. Picking
-              nothing is legal — the player may decline to choose.
+              CR 701.19a — library search picker. When the companion core
+              PR is deployed, the server ships the FULL library snapshot
+              (libraryView) plus the engine-pre-filtered eligible subset
+              (candidates). The full-library grid renders all cards with
+              eligible cards highlighted and ineligible cards muted.
+              When libraryView is absent (older server build or
+              non-search prompts), the overlay falls back to the flat
+              candidates list — no breakage during the transient deploy
+              window between portal and core deploys.
             -->
             <div class="flex flex-col gap-2 text-xs">
               @if (prompt()?.label; as lbl) {
@@ -315,34 +324,93 @@ export function detectKind(kinds: string[] | undefined): PromptKind {
                   type="search"
                   class="flex-1 rounded border border-white/15 bg-black/30 px-2 py-1 outline-none focus:border-amber-400"
                   placeholder="Filter by name…"
-                  aria-label="Filter library candidates"
+                  aria-label="Filter library cards"
                   [ngModel]="libraryPickFilter()"
                   (ngModelChange)="libraryPickFilter.set($event)"
                   name="library-pick-filter" />
-                <span class="opacity-50">{{ filteredLibraryCandidates().length }} / {{ libraryCandidates().length }}</span>
-              </div>
-              <div class="max-h-60 overflow-y-auto rounded border border-white/10">
-                @for (c of filteredLibraryCandidates(); track c.instanceId) {
-                  <button
-                    type="button"
-                    class="flex w-full items-center justify-between border-b border-white/5 px-2 py-1 text-left last:border-b-0"
-                    [class.bg-amber-400/10]="selectedLibraryInstanceId() === c.instanceId"
-                    [class.border-l-2]="selectedLibraryInstanceId() === c.instanceId"
-                    [class.border-l-amber-400]="selectedLibraryInstanceId() === c.instanceId"
-                    (click)="selectLibraryCandidate(c.instanceId)">
-                    <span class="flex-1">
-                      <span class="font-medium">{{ c.name }}</span>
-                      <span class="ml-2 opacity-60">{{ c.manaCost }}</span>
-                      <span class="ml-2 opacity-50">{{ libraryCardTypeLine(c) }}</span>
-                    </span>
-                    @if (c.power !== null && c.toughness !== null) {
-                      <span class="ml-2 opacity-70">{{ c.power }}/{{ c.toughness }}</span>
-                    }
-                  </button>
-                } @empty {
-                  <p class="p-2 opacity-50">No matching cards.</p>
+                @if (hasLibraryView()) {
+                  <span class="opacity-50">eligible: {{ visibleEligibleCount() }} / {{ filteredLibraryView().length }}</span>
+                } @else {
+                  <span class="opacity-50">{{ filteredLibraryCandidates().length }} / {{ libraryCandidates().length }}</span>
                 }
               </div>
+
+              @if (hasLibraryView()) {
+                <!--
+                  Full-library grid — shows all cards in deck order.
+                  Eligible cards (in candidates[]) are full-opacity and
+                  clickable; ineligible cards are muted (opacity-30) and
+                  not interactive. This mirrors CR 701.19a: the player
+                  looks through the entire library and picks an eligible
+                  card or declines.
+                -->
+                <div class="max-h-96 overflow-y-auto rounded border border-white/10">
+                  <div class="grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-2 p-2">
+                    @for (c of filteredLibraryView(); track c.instanceId) {
+                      @if (eligibleInstanceIds().has(c.instanceId)) {
+                        <button
+                          type="button"
+                          class="flex flex-col items-start rounded border px-2 py-1 text-left transition-colors"
+                          [class.border-amber-400]="selectedLibraryInstanceId() === c.instanceId"
+                          [class.bg-amber-400/10]="selectedLibraryInstanceId() === c.instanceId"
+                          [class.border-white/25]="selectedLibraryInstanceId() !== c.instanceId"
+                          [class.hover:bg-white/10]="selectedLibraryInstanceId() !== c.instanceId"
+                          [attr.data-eligible]="true"
+                          (click)="selectLibraryCandidate(c.instanceId)">
+                          <span class="font-medium leading-tight">{{ c.name }}</span>
+                          <span class="opacity-60">{{ c.manaCost }}</span>
+                          @if (c.power !== null && c.toughness !== null) {
+                            <span class="opacity-70">{{ c.power }}/{{ c.toughness }}</span>
+                          }
+                        </button>
+                      } @else {
+                        <div
+                          class="flex flex-col items-start rounded border border-white/10 px-2 py-1 opacity-30 cursor-not-allowed"
+                          [attr.data-muted]="true"
+                          [attr.tabindex]="-1"
+                          title="not eligible">
+                          <span class="font-medium leading-tight">{{ c.name }}</span>
+                          <span class="opacity-60">{{ c.manaCost }}</span>
+                          @if (c.power !== null && c.toughness !== null) {
+                            <span class="opacity-70">{{ c.power }}/{{ c.toughness }}</span>
+                          }
+                        </div>
+                      }
+                    } @empty {
+                      <p class="col-span-full p-2 opacity-50">No matching cards.</p>
+                    }
+                  </div>
+                </div>
+              } @else {
+                <!--
+                  Fallback: flat candidates list (legacy behaviour).
+                  Rendered when libraryView is absent — e.g. before the
+                  companion core PR deploys to majik-api.
+                -->
+                <div class="max-h-60 overflow-y-auto rounded border border-white/10">
+                  @for (c of filteredLibraryCandidates(); track c.instanceId) {
+                    <button
+                      type="button"
+                      class="flex w-full items-center justify-between border-b border-white/5 px-2 py-1 text-left last:border-b-0"
+                      [class.bg-amber-400/10]="selectedLibraryInstanceId() === c.instanceId"
+                      [class.border-l-2]="selectedLibraryInstanceId() === c.instanceId"
+                      [class.border-l-amber-400]="selectedLibraryInstanceId() === c.instanceId"
+                      (click)="selectLibraryCandidate(c.instanceId)">
+                      <span class="flex-1">
+                        <span class="font-medium">{{ c.name }}</span>
+                        <span class="ml-2 opacity-60">{{ c.manaCost }}</span>
+                        <span class="ml-2 opacity-50">{{ libraryCardTypeLine(c) }}</span>
+                      </span>
+                      @if (c.power !== null && c.toughness !== null) {
+                        <span class="ml-2 opacity-70">{{ c.power }}/{{ c.toughness }}</span>
+                      }
+                    </button>
+                  } @empty {
+                    <p class="p-2 opacity-50">No matching cards.</p>
+                  }
+                </div>
+              }
+
               <div class="flex items-center gap-2">
                 <button
                   type="button"
@@ -493,6 +561,26 @@ export class PromptOverlayComponent implements AfterViewInit, OnDestroy {
     this.prompt()?.candidates ?? []
   );
 
+  // Full library snapshot from the envelope (top-to-bottom order).
+  // Present only once the companion core PR has deployed. When absent,
+  // `hasLibraryView` is false and the overlay falls back to the flat
+  // candidates list (today's behaviour).
+  readonly libraryView = computed<CardSnapshot[]>(() =>
+    this.prompt()?.libraryView ?? []
+  );
+
+  // True when the server has shipped a full libraryView on this prompt.
+  // Drives the template switch between the full-library grid and the
+  // legacy flat-candidates list.
+  readonly hasLibraryView = computed<boolean>(() =>
+    (this.prompt()?.libraryView?.length ?? 0) > 0
+  );
+
+  // Set of eligible instanceIds for O(1) lookup in the grid template.
+  readonly eligibleInstanceIds = computed<Set<string>>(() =>
+    new Set(this.libraryCandidates().map(c => c.instanceId))
+  );
+
   // Case-insensitive name-substring filter applied to the library
   // candidate list. Empty filter leaves the list untouched so the user
   // doesn't have to type to see the full set.
@@ -501,6 +589,23 @@ export class PromptOverlayComponent implements AfterViewInit, OnDestroy {
     const all = this.libraryCandidates();
     if (!q) return all;
     return all.filter(c => c.name.toLowerCase().includes(q));
+  });
+
+  // When libraryView is present, filter the FULL library (not just
+  // candidates) by the same name substring. Eligible cards retain their
+  // eligibility marker regardless of filter state.
+  readonly filteredLibraryView = computed<CardSnapshot[]>(() => {
+    const q = this.libraryPickFilter().trim().toLowerCase();
+    const all = this.libraryView();
+    if (!q) return all;
+    return all.filter(c => c.name.toLowerCase().includes(q));
+  });
+
+  // Count of eligible cards visible after applying the current filter.
+  // Shown as "eligible: X / Y" alongside the filter input.
+  readonly visibleEligibleCount = computed<number>(() => {
+    const eligible = this.eligibleInstanceIds();
+    return this.filteredLibraryView().filter(c => eligible.has(c.instanceId)).length;
   });
 
   titleFor(k: PromptKind): string {
