@@ -548,6 +548,117 @@ describe('BoardComponent — zoned battlefield layout', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// BoardComponent — self-side DOM ordering & host display.
+//
+// Regression coverage for the zoned-battlefield layout collapse: when the
+// host element renders as `display: inline` (Angular default), the inner
+// `flex: 1 1 0; min-height: 0` chain (board-arena → arena-side →
+// battlefield) collapses to 0 because there is no height propagating
+// down from the section parent. The arena-sides then become 0-tall, the
+// inner HUD / hand / battlefield content overflows on top of each
+// other, and the self hand renders at the TOP overlapping the opponent
+// HUD + stack chip.
+//
+// The fix is a host `display: flex; flex: 1 1 0; min-height: 0;
+// flex-direction: column` so the section's `flex-1` actually applies
+// and the inner column-flex chain has a bounded height to divvy up.
+//
+// We also lock the self-side DOM order (battlefield ABOVE hand-row
+// ABOVE arena-strip--self) so a future refactor can't silently send
+// the strip back to the top of the side, and we lock the self hand-row
+// to face-UP card-view (no `[hidden]`).
+// ---------------------------------------------------------------------------
+describe('BoardComponent — self-side ordering + host display (zoned layout)', () => {
+  it('orders the self side as battlefield → hand-row → arena-strip--self (top → bottom)', () => {
+    const { fixture } = mountBoardWithBattlefields([], []);
+    const selfSide = fixture.nativeElement.querySelector(
+      '.arena-side--self',
+    ) as HTMLElement;
+    expect(selfSide).toBeTruthy();
+
+    // Filter to the structural anchors only — drag-drop / animate
+    // wrappers can inject siblings we don't care about.
+    const anchors = Array.from(selfSide.children).filter(el =>
+      el.classList.contains('battlefield') ||
+      el.classList.contains('hand-row') ||
+      el.classList.contains('arena-strip'),
+    );
+    expect(anchors.length).toBe(3);
+    expect(anchors[0].classList.contains('battlefield')).toBe(true);
+    expect(anchors[1].classList.contains('hand-row')).toBe(true);
+    expect(anchors[2].classList.contains('arena-strip--self')).toBe(true);
+  });
+
+  it('renders the self hand-row face-UP (no [hidden] on its app-card-view children)', () => {
+    const handCard = permanentCard({
+      instanceId: 'forest-hand',
+      name: 'Forest',
+      types: ['Land'],
+    });
+    const me: GamePlayer = {
+      id: 'me',
+      name: 'Alice',
+      life: 20,
+      mana: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0, generic: 0 },
+      hand: { cards: [handCard] },
+      library: { cards: [] },
+      graveyard: { cards: [] },
+      exile: { cards: [] },
+      battlefield: { cards: [] },
+    };
+    const opp = player({ id: 'opp', name: 'Bob' });
+    const state: GameState = {
+      phase: 'Main',
+      turnNumber: 1,
+      activePlayerId: 'me',
+      players: [me, opp],
+      stack: [],
+      youPlayerId: null,
+    };
+    const { fixture } = mountBoard(state, ['me']);
+
+    // The self hand-row is the cdkDropList one — `.hand-row` without
+    // the `--opponent` modifier. Its card-view children must NOT be
+    // face-down (`hidden=true` is reserved for the opponent strip).
+    const selfHand = Array.from(
+      fixture.nativeElement.querySelectorAll('.arena-side--self .hand-row'),
+    ).find(el => !(el as HTMLElement).classList.contains('hand-row--opponent')) as
+      HTMLElement | undefined;
+    expect(selfHand).toBeTruthy();
+
+    const handCardDebugs: DebugElement[] = fixture.debugElement
+      .queryAll(By.css('.arena-side--self .hand-row:not(.hand-row--opponent) app-card-view'));
+    expect(handCardDebugs.length).toBe(1);
+    handCardDebugs.forEach(d => {
+      const cv = d.componentInstance as CardViewComponent;
+      expect(cv.hidden()).toBe(false);
+    });
+  });
+
+  it('sets the host to a column flex item so the inner flex-1 chain has a constrained height to divvy up', () => {
+    // Without a proper host display the `<section class="flex-1">`
+    // wrapper in match.ts has no flex child to grow into, the
+    // .board-arena collapses to content-height, and the two
+    // .arena-side { flex: 1 1 0; min-height: 0 } items collapse to 0
+    // — pushing all inner HUD / hand / battlefield content into an
+    // overlapping pile at the top of the page. Lock the host shape
+    // so a future refactor can't silently reintroduce the regression.
+    const { fixture } = mountBoardWithBattlefields([], []);
+    const host = fixture.nativeElement as HTMLElement;
+    const style = window.getComputedStyle(host);
+    // jsdom doesn't fully resolve the `flex` shorthand into its
+    // grow/shrink/basis longhands, so we lock the two properties that
+    // actually swap the host out of `display: inline` (the default for
+    // unknown elements) and put it into a column-flex shape. The
+    // accompanying `flex: 1 1 0; min-height: 0` declarations are
+    // pinned in the inline source by board.component.ts's `styles:`
+    // block and exercised end-to-end at build + visual-inspect time.
+    expect(style.display).toBe('flex');
+    expect(style.flexDirection).toBe('column');
+  });
+});
+
 describe('BoardComponent — collapsed stack chip', () => {
   it('renders the stack as a corner chip (not a row), starting collapsed', () => {
     const me = player({ id: 'me', name: 'Alice' });

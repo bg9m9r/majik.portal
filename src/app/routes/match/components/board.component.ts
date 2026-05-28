@@ -48,6 +48,37 @@ import { bucketBattlefield, BattlefieldBuckets } from './bucket-battlefield';
     CdkDrag,
     CdkDragPlaceholder,
   ],
+  // ----------------------------------------------------------------
+  // Host display.
+  //
+  // The board's inner layout (`.board-arena.flex-1` claiming the
+  // middle band, `.arena-side { flex: 1 1 0; min-height: 0 }` divvying
+  // that band in half) relies on a CONSTRAINED height propagating down
+  // from `<main class="min-h-screen">` → `<section class="flex-1">` →
+  // `<app-board>` → inner column-flex. Angular host elements default
+  // to `display: inline`, which breaks that chain — the section's
+  // `flex-1` doesn't apply to inline children, so the board's inner
+  // `flex-1` div is content-sized, every `.arena-side { flex: 1 1 0 }`
+  // collapses to 0, and the inner HUD / hand / battlefield content
+  // overflows on top of each other (regression vs. the pre-zoned
+  // layout where each row had a fixed pixel height and didn't need
+  // height-propagation to render).
+  //
+  // Promoting the host to `display: flex; flex: 1; min-height: 0;
+  // flex-direction: column` makes the host fill its section parent
+  // AND constrain its children so `.arena-side flex: 1 1 0` actually
+  // resolves to "half of the available board area". Locked in a spec
+  // (board.component.spec.ts → "host fills its parent" + DOM-order
+  // assertions on the self side).
+  // ----------------------------------------------------------------
+  styles: [`
+    :host {
+      display: flex;
+      flex: 1 1 0;
+      min-height: 0;
+      flex-direction: column;
+    }
+  `],
   // Layout overview (Arena-style, zoned battlefield):
   //
   //   ┌─────────────────────────────────────────────────────────────────┐
