@@ -6,7 +6,7 @@
   },
   "servers": [
     {
-      "url": "http://localhost:5057/"
+      "url": "https://majik-api.onrender.com/"
     }
   ],
   "paths": {
@@ -90,11 +90,17 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/PutHandleRequest"
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/PutHandleRequest"
+                  }
+                ]
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "200": {
@@ -175,8 +181,89 @@
               ],
               "format": "int32"
             }
+          },
+          {
+            "name": "colors",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "types",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "cmc",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "pattern": "^-?(?:0|[1-9]\\d*)$",
+                "type": [
+                  "integer",
+                  "string"
+                ],
+                "format": "int32"
+              }
+            }
           }
         ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CardDto"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CardsError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
+    "/cards/by-name": {
+      "post": {
+        "tags": [
+          "Cards"
+        ],
+        "operationId": "GetCardsByName",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CardsByNameRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "description": "OK",
@@ -465,7 +552,95 @@
         ],
         "responses": {
           "200": {
-            "description": "OK"
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GameStateDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MatchError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MatchError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MatchError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/matches/{id}/replay": {
+      "get": {
+        "tags": [
+          "Matches"
+        ],
+        "operationId": "GetMatchReplay",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MatchReplayDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MatchError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MatchError"
+                }
+              }
+            }
           }
         }
       }
@@ -682,10 +857,61 @@
           }
         }
       }
+    },
+    "/decks/parse": {
+      "post": {
+        "tags": [
+          "Decks"
+        ],
+        "operationId": "ParseDeck",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ParseDeckRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ParseDeckResultDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "503": {
+            "description": "Service Unavailable"
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "AbilityDto": {
+        "required": [
+          "kind",
+          "description"
+        ],
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          }
+        }
+      },
       "AttackerDeclarationDto": {
         "required": [
           "attackerInstanceId",
@@ -720,6 +946,75 @@
           }
         }
       },
+      "BotDecision": {
+        "required": [
+          "decisionType",
+          "chosen",
+          "chosenScore",
+          "alternatives",
+          "context"
+        ],
+        "type": "object",
+        "properties": {
+          "decisionType": {
+            "type": "string"
+          },
+          "chosen": {
+            "type": "string"
+          },
+          "chosenScore": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "alternatives": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BotDecisionAlternative"
+            }
+          },
+          "context": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "BotDecisionAlternative": {
+        "required": [
+          "name",
+          "score"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "score": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          }
+        }
+      },
+      "BotOpponentRequest": {
+        "required": [
+          "archetype"
+        ],
+        "type": "object",
+        "properties": {
+          "archetype": {
+            "type": "string"
+          }
+        }
+      },
       "CardDto": {
         "required": [
           "name",
@@ -727,7 +1022,10 @@
           "types",
           "power",
           "toughness",
-          "isImplemented"
+          "isImplemented",
+          "cmc",
+          "colors",
+          "oracleText"
         ],
         "type": "object",
         "properties": {
@@ -763,6 +1061,41 @@
           },
           "isImplemented": {
             "type": "boolean"
+          },
+          "cmc": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "colors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "oracleText": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "CardsByNameRequest": {
+        "required": [
+          "names"
+        ],
+        "type": "object",
+        "properties": {
+          "names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
@@ -780,6 +1113,72 @@
               "null",
               "string"
             ]
+          }
+        }
+      },
+      "CardSnapshotDto": {
+        "required": [
+          "instanceId",
+          "name",
+          "manaCost",
+          "types",
+          "power",
+          "toughness",
+          "tapped",
+          "summoningSickness",
+          "abilities"
+        ],
+        "type": "object",
+        "properties": {
+          "instanceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "manaCost": {
+            "type": "string"
+          },
+          "types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "power": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "toughness": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "tapped": {
+            "type": "boolean"
+          },
+          "summoningSickness": {
+            "type": "boolean"
+          },
+          "abilities": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AbilityDto"
+            }
+          },
+          "producedManaColors": {
+            "type": "string",
+            "default": ""
           }
         }
       },
@@ -834,6 +1233,16 @@
               "string"
             ],
             "format": "int32"
+          },
+          "botOpponent": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/BotOpponentRequest"
+              }
+            ]
           }
         }
       },
@@ -927,6 +1336,31 @@
           }
         }
       },
+      "EventDto": {
+        "required": [
+          "eventId",
+          "type",
+          "at",
+          "payload"
+        ],
+        "type": "object",
+        "properties": {
+          "eventId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "type": {
+            "type": "string"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "payload": {
+            "$ref": "#/components/schemas/JsonElement"
+          }
+        }
+      },
       "GameCommand": {
         "required": [
           "$type"
@@ -958,6 +1392,15 @@
             "$ref": "#/components/schemas/GameCommandChooseManaCommand"
           },
           {
+            "$ref": "#/components/schemas/GameCommandCancelCastCommand"
+          },
+          {
+            "$ref": "#/components/schemas/GameCommandActivateManaAbilityCommand"
+          },
+          {
+            "$ref": "#/components/schemas/GameCommandActivateAbilityCommand"
+          },
+          {
             "$ref": "#/components/schemas/GameCommandOrderTriggersCommand"
           },
           {
@@ -968,6 +1411,9 @@
           },
           {
             "$ref": "#/components/schemas/GameCommandChooseCardsToBottomCommand"
+          },
+          {
+            "$ref": "#/components/schemas/GameCommandChooseLibraryPickCommand"
           }
         ],
         "discriminator": {
@@ -981,10 +1427,79 @@
             "x": "#/components/schemas/GameCommandChooseXCommand",
             "mode": "#/components/schemas/GameCommandChooseModeCommand",
             "mana": "#/components/schemas/GameCommandChooseManaCommand",
+            "cancelCast": "#/components/schemas/GameCommandCancelCastCommand",
+            "activateManaAbility": "#/components/schemas/GameCommandActivateManaAbilityCommand",
+            "activateAbility": "#/components/schemas/GameCommandActivateAbilityCommand",
             "order-triggers": "#/components/schemas/GameCommandOrderTriggersCommand",
             "attackers": "#/components/schemas/GameCommandDeclareAttackersCommand",
             "blockers": "#/components/schemas/GameCommandDeclareBlockersCommand",
-            "bottom": "#/components/schemas/GameCommandChooseCardsToBottomCommand"
+            "bottom": "#/components/schemas/GameCommandChooseCardsToBottomCommand",
+            "chooseLibraryPick": "#/components/schemas/GameCommandChooseLibraryPickCommand"
+          }
+        }
+      },
+      "GameCommandActivateAbilityCommand": {
+        "required": [
+          "permanentInstanceId",
+          "abilityId"
+        ],
+        "properties": {
+          "$type": {
+            "enum": [
+              "activateAbility"
+            ],
+            "type": "string"
+          },
+          "permanentInstanceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "abilityId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "playerId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "GameCommandActivateManaAbilityCommand": {
+        "required": [
+          "permanentInstanceId",
+          "color"
+        ],
+        "properties": {
+          "$type": {
+            "enum": [
+              "activateManaAbility"
+            ],
+            "type": "string"
+          },
+          "permanentInstanceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "color": {
+            "type": "string"
+          },
+          "playerId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "GameCommandCancelCastCommand": {
+        "properties": {
+          "$type": {
+            "enum": [
+              "cancelCast"
+            ],
+            "type": "string"
+          },
+          "playerId": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       },
@@ -1054,6 +1569,30 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          "playerId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "GameCommandChooseLibraryPickCommand": {
+        "required": [
+          "selectedInstanceId"
+        ],
+        "properties": {
+          "$type": {
+            "enum": [
+              "chooseLibraryPick"
+            ],
+            "type": "string"
+          },
+          "selectedInstanceId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
           },
           "playerId": {
             "type": "string",
@@ -1284,6 +1823,60 @@
           }
         }
       },
+      "GameStateDto": {
+        "required": [
+          "gameId",
+          "turnNumber",
+          "phase",
+          "activePlayerId",
+          "players",
+          "stack"
+        ],
+        "type": "object",
+        "properties": {
+          "gameId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "turnNumber": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "phase": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "activePlayerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "players": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlayerDto"
+            }
+          },
+          "stack": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StackObjectDto"
+            }
+          },
+          "youPlayerId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          }
+        }
+      },
       "JoinMatchRequest": {
         "required": [
           "deckId"
@@ -1295,6 +1888,180 @@
           }
         }
       },
+      "JsonElement": { },
+      "ManaPoolDto": {
+        "required": [
+          "generic",
+          "white",
+          "blue",
+          "black",
+          "red",
+          "green",
+          "colorless"
+        ],
+        "type": "object",
+        "properties": {
+          "generic": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "white": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "blue": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "black": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "red": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "green": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "colorless": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "MatchError": {
+        "required": [
+          "error"
+        ],
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "detail": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "MatchReplayDto": {
+        "required": [
+          "matchId",
+          "sealedAt",
+          "truncated",
+          "entryCount",
+          "entries"
+        ],
+        "type": "object",
+        "properties": {
+          "matchId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sealedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "entryCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReplayEntry"
+            }
+          }
+        }
+      },
+      "ParseDeckRequest": {
+        "required": [
+          "text"
+        ],
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string"
+          }
+        }
+      },
+      "ParseDeckResultDto": {
+        "required": [
+          "mainboard",
+          "sideboard",
+          "unknown",
+          "warnings"
+        ],
+        "type": "object",
+        "properties": {
+          "mainboard": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeckCardEntryDto"
+            }
+          },
+          "sideboard": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeckCardEntryDto"
+            }
+          },
+          "unknown": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "PlayDrawRequest": {
         "required": [
           "choice"
@@ -1303,6 +2070,59 @@
         "properties": {
           "choice": {
             "type": "string"
+          }
+        }
+      },
+      "PlayerDto": {
+        "required": [
+          "id",
+          "name",
+          "life",
+          "hasLost",
+          "mana",
+          "hand",
+          "battlefield",
+          "graveyard",
+          "library",
+          "exile"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "life": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "hasLost": {
+            "type": "boolean"
+          },
+          "mana": {
+            "$ref": "#/components/schemas/ManaPoolDto"
+          },
+          "hand": {
+            "$ref": "#/components/schemas/ZoneDto"
+          },
+          "battlefield": {
+            "$ref": "#/components/schemas/ZoneDto"
+          },
+          "graveyard": {
+            "$ref": "#/components/schemas/ZoneDto"
+          },
+          "library": {
+            "$ref": "#/components/schemas/ZoneDto"
+          },
+          "exile": {
+            "$ref": "#/components/schemas/ZoneDto"
           }
         }
       },
@@ -1359,6 +2179,81 @@
           }
         }
       },
+      "ReplayEntry": {
+        "required": [
+          "seq",
+          "at",
+          "kind",
+          "event",
+          "decision"
+        ],
+        "type": "object",
+        "properties": {
+          "seq": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "event": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/EventDto"
+              }
+            ]
+          },
+          "decision": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/BotDecision"
+              }
+            ]
+          }
+        }
+      },
+      "StackObjectDto": {
+        "required": [
+          "id",
+          "kind",
+          "controllerId",
+          "description"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "controllerId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "description": {
+            "type": "string"
+          }
+        }
+      },
       "UpdateDeckRequest": {
         "required": [
           "name",
@@ -1380,6 +2275,20 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/DeckCardEntryDto"
+            }
+          }
+        }
+      },
+      "ZoneDto": {
+        "required": [
+          "cards"
+        ],
+        "type": "object",
+        "properties": {
+          "cards": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CardSnapshotDto"
             }
           }
         }
