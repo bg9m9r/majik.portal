@@ -369,6 +369,25 @@ export function detectKind(kinds: string[] | undefined): PromptKind {
               } @else {
                 <span class="opacity-70">Pick a card from your library, or decline.</span>
               }
+              <!--
+                CR 701.19a — when the engine pre-filtered the candidate
+                list down to ZERO eligible cards (a tutor whose stated
+                quality nothing in the library satisfies — e.g. Green
+                Sun's Zenith into a deck with no green creatures), the
+                player has still searched. Show a clear banner so the
+                player SEES the failed search instead of wondering why
+                the spell did nothing. Companion to the engine-side
+                LibrarySearch refactor — prior to that fix the engine
+                silently no-op'd and this branch never fired.
+              -->
+              @if (eligibleInstanceIds().size === 0) {
+                <span
+                  data-testid="library-pick-empty-banner"
+                  class="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-amber-200">
+                  No matching cards in your library — search found nothing
+                  (CR 701.19a).
+                </span>
+              }
               <div class="flex items-center gap-2">
                 <input
                   type="search"
@@ -462,19 +481,37 @@ export function detectKind(kinds: string[] | undefined): PromptKind {
               }
 
               <div class="flex items-center gap-2">
-                <button
-                  type="button"
-                  class="rounded border border-amber-400 px-3 py-1 text-amber-300 hover:bg-amber-400/10 disabled:cursor-not-allowed disabled:opacity-40"
-                  [disabled]="!selectedLibraryInstanceId()"
-                  (click)="confirmLibraryPick()">
-                  Search and pick
-                </button>
-                <button
-                  type="button"
-                  class="rounded border border-white/20 px-3 py-1 text-white/80 hover:bg-white/10"
-                  (click)="confirmLibraryPickNothing()">
-                  Pick nothing
-                </button>
+                <!--
+                  Empty-candidates branch: "Search and pick" cannot fire
+                  (nothing eligible) so we hide it; the only legal action
+                  is to acknowledge the failed search. The wire shape is
+                  identical to "Pick nothing" — ChooseLibraryPickCommand
+                  with SelectedInstanceId = null. CR 701.19a permits a
+                  player to find no card whether or not anything matched.
+                -->
+                @if (eligibleInstanceIds().size === 0) {
+                  <button
+                    type="button"
+                    data-testid="library-pick-acknowledge"
+                    class="rounded border border-amber-400 px-3 py-1 text-amber-300 hover:bg-amber-400/10"
+                    (click)="confirmLibraryPickNothing()">
+                    OK
+                  </button>
+                } @else {
+                  <button
+                    type="button"
+                    class="rounded border border-amber-400 px-3 py-1 text-amber-300 hover:bg-amber-400/10 disabled:cursor-not-allowed disabled:opacity-40"
+                    [disabled]="!selectedLibraryInstanceId()"
+                    (click)="confirmLibraryPick()">
+                    Search and pick
+                  </button>
+                  <button
+                    type="button"
+                    class="rounded border border-white/20 px-3 py-1 text-white/80 hover:bg-white/10"
+                    (click)="confirmLibraryPickNothing()">
+                    Pick nothing
+                  </button>
+                }
               </div>
             </div>
           }

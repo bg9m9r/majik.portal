@@ -837,6 +837,116 @@ describe('PromptOverlayComponent — full library-view grid', () => {
 
     expect(captured).toEqual([{ kind: 'libraryPick', selectedInstanceId: null }]);
   });
+
+  // -----------------------------------------------------------------------
+  // CR 701.19a — zero-candidate prompts (companion to engine LibrarySearch
+  // refactor). The engine now prompts the agent even when the pre-filtered
+  // candidate list is empty (e.g. Green Sun's Zenith into a deck with no
+  // green creatures). The portal must surface this clearly with a banner +
+  // single Acknowledge button — not the dual Search-and-pick / Pick-nothing
+  // pair that would confuse the player when there's nothing eligible.
+  // -----------------------------------------------------------------------
+
+  it('zero eligible candidates: shows empty-search banner', () => {
+    const libraryView = makeLibrary(10, []);
+    const candidates: CardSnapshot[] = [];
+
+    const { fixture } = mountOverlay(
+      makeState(),
+      ['ChooseLibraryPickCommand'],
+      ['me'],
+      { candidates, libraryView, label: 'green creature card' },
+    );
+
+    const el = fixture.nativeElement as HTMLElement;
+    const banner = el.querySelector('[data-testid="library-pick-empty-banner"]');
+    expect(banner).toBeTruthy();
+    expect((banner as HTMLElement).textContent).toContain('No matching cards');
+  });
+
+  it('zero eligible candidates: all libraryView cards rendered muted, none clickable', () => {
+    const libraryView = makeLibrary(10, []); // 0 eligible
+    const candidates: CardSnapshot[] = [];
+
+    const { fixture } = mountOverlay(
+      makeState(),
+      ['ChooseLibraryPickCommand'],
+      ['me'],
+      { candidates, libraryView, label: 'basic land card' },
+    );
+
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelectorAll('[data-eligible="true"]').length).toBe(0);
+    expect(el.querySelectorAll('[data-muted="true"]').length).toBe(10);
+  });
+
+  it('zero eligible candidates: shows OK acknowledge button, hides Search-and-pick / Pick-nothing', () => {
+    const libraryView = makeLibrary(10, []);
+    const candidates: CardSnapshot[] = [];
+
+    const { fixture } = mountOverlay(
+      makeState(),
+      ['ChooseLibraryPickCommand'],
+      ['me'],
+      { candidates, libraryView, label: 'green creature card' },
+    );
+
+    const el = fixture.nativeElement as HTMLElement;
+    const ackBtn = el.querySelector('[data-testid="library-pick-acknowledge"]') as HTMLButtonElement | null;
+    expect(ackBtn).toBeTruthy();
+    expect(ackBtn!.textContent?.trim()).toBe('OK');
+
+    // The dual button pair should not be rendered in the empty branch —
+    // there is no card to "search and pick", and "Pick nothing" would be
+    // a confusing redundant verb when nothing matched.
+    const buttons = Array.from(el.querySelectorAll('button')).map(b => b.textContent?.trim());
+    expect(buttons).not.toContain('Search and pick');
+    expect(buttons).not.toContain('Pick nothing');
+  });
+
+  it('zero eligible candidates: OK button emits ChooseLibraryPickCommand with null instance id', () => {
+    const libraryView = makeLibrary(10, []);
+    const candidates: CardSnapshot[] = [];
+
+    const { component, fixture } = mountOverlay(
+      makeState(),
+      ['ChooseLibraryPickCommand'],
+      ['me'],
+      { candidates, libraryView },
+    );
+    const captured: PromptDecision[] = [];
+    component.decision.subscribe(d => captured.push(d));
+
+    const el = fixture.nativeElement as HTMLElement;
+    const ackBtn = el.querySelector('[data-testid="library-pick-acknowledge"]') as HTMLButtonElement;
+    ackBtn.click();
+
+    // CR 701.19a — declining / finding-nothing is the wire shape: null id.
+    expect(captured).toEqual([{ kind: 'libraryPick', selectedInstanceId: null }]);
+  });
+
+  it('non-empty candidates: dual buttons still render (regression guard)', () => {
+    const eligibleIds = ['lib-2'];
+    const libraryView = makeLibrary(10, eligibleIds);
+    const candidates = libraryView.filter(c => eligibleIds.includes(c.instanceId));
+
+    const { fixture } = mountOverlay(
+      makeState(),
+      ['ChooseLibraryPickCommand'],
+      ['me'],
+      { candidates, libraryView, label: 'green creature card' },
+    );
+
+    const el = fixture.nativeElement as HTMLElement;
+    // No empty banner when at least one candidate exists.
+    expect(el.querySelector('[data-testid="library-pick-empty-banner"]')).toBeNull();
+    // No OK acknowledge button when there's something to pick.
+    expect(el.querySelector('[data-testid="library-pick-acknowledge"]')).toBeNull();
+    // Both legacy buttons present.
+    const buttons = Array.from(el.querySelectorAll('button')).map(b => b.textContent?.trim());
+    expect(buttons).toContain('Search and pick');
+    expect(buttons).toContain('Pick nothing');
+  });
 });
 
 // -----------------------------------------------------------------------
