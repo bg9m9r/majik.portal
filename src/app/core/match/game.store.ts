@@ -2,7 +2,7 @@ import { InjectionToken, computed, inject } from '@angular/core';
 import { patchState, signalStore, withComputed, withHooks, withMethods, withState } from '@ngrx/signals';
 import { NormalisedEventDto, normaliseEvent, pickBoolean, pickNumber, pickString, pickStringArray } from './event.types';
 import { patchGameState } from './event.reducer';
-import { AutoPassDeps, shouldAutoPass, stackSignature, autoPassPromptKey } from './match-session';
+import { AutoPassDeps, shouldAutoPass, stackSignature } from './match-session';
 import { AuthUserStore } from '../auth/auth-user.store';
 import { MatchService } from './match.service';
 import { BotDecision, GameCommand, GameState, Match, PromptEnvelope } from './match.types';
@@ -11,21 +11,15 @@ import { BotDecision, GameCommand, GameState, Match, PromptEnvelope } from './ma
 // import surface; STACK_MUTATION_DISPLAY_MS lives in match-session.
 export { STACK_MUTATION_DISPLAY_MS } from './match-session';
 
-// Cadence of the auto-pass heartbeat tick (ms). Coarse enough not to
-// burn CPU, fine enough that the STACK_MUTATION_DISPLAY_MS window
-// expires within roughly one tick of its actual deadline.
-const AUTO_PASS_TICK_MS = 150;
 // 1Hz heartbeat for the header clock chips. The server's clockUpdate$
 // resyncs the canonical countdown; this just smooths the display
 // between syncs.
 const CLOCK_TICK_MS = 1000;
 
 /**
- * Abstraction over "send a GameCommand to the active match". The store
- * owns auto-pass, which needs to fire a `pass` command, but must not
- * depend on the page's HTTP plumbing — so command dispatch is injected.
- * The default factory resolves the match id from MatchService.current
- * and posts via MatchService.submitCommand.
+ * Abstraction over "send a GameCommand to the active match". Retained for
+ * external commands (concede, cast, etc.) — no longer used for auto-pass
+ * (the server now drives the auto-pass loop, Slice 5a).
  */
 export interface GameCommandSender {
   send(cmd: GameCommand): void;
@@ -133,20 +127,18 @@ type GameStoreState = {
   // the countdown off the most recently-confirmed clock value.
   clockAnchor: ClockAnchor | null;
   // Wall-clock timestamp (ms) of the last observed stack mutation. The
-  // auto-pass guard reads this to enforce STACK_MUTATION_DISPLAY_MS.
+  // shouldAutoPassNow computed reads this to enforce STACK_MUTATION_DISPLAY_MS
+  // (kept as a server-side contract reference — the runtime driver now
+  // lives in the server, Slice 5a).
   lastStackMutatedAt: number | null;
   // Cheap signature ("len|id1,id2,…") of the last stack snapshot seen;
   // a change stamps lastStackMutatedAt. "0|" = empty / never-populated.
   lastStackSig: string;
-  // Stable de-dupe key of the prompt we last auto-passed. Replaces the
-  // old reference-identity check so re-emitted (fresh-object) prompts
-  // with the same logical key don't get passed twice.
-  lastAutoPassedPromptKey: string | null;
-  // Internal heartbeat signals (driven by withHooks intervals; settable
-  // in tests for determinism):
-  //   * tick     — 1Hz wall-clock for the header timer chips.
-  //   * autoPassTick — ~150ms wall-clock so the auto-pass guard
-  //     re-evaluates when the stack-display window expires.
+  // Internal heartbeat signal (driven by withHooks interval; settable in
+  // tests for determinism):
+  //   * tick — 1Hz wall-clock for the header timer chips.
+  //   * autoPassTick — retained for the shouldAutoPassNow computed which
+  //     is kept as a server-contract reference (see match-session.spec.ts).
   tick: number;
   autoPassTick: number;
 };
@@ -165,7 +157,6 @@ const initial: GameStoreState = {
   clockAnchor: null,
   lastStackMutatedAt: null,
   lastStackSig: '0|',
-  lastAutoPassedPromptKey: null,
   tick: Date.now(),
   autoPassTick: Date.now(),
 };
@@ -193,11 +184,12 @@ export const GameStore = signalStore(
       timerStateFor('self', matchSvc.current(), store.clockAnchor(), auth.principal()?.sub ?? null, store.tick())),
     opponentTimerState: computed<TimerState | null>(() =>
       timerStateFor('opponent', matchSvc.current(), store.clockAnchor(), auth.principal()?.sub ?? null, store.tick())),
-    // Pure auto-pass decision wrapping shouldAutoPass(prompt, deps). Reads
-    // autoPassTick so it re-evaluates when the stack-display window
-    // expires (otherwise it would only recompute on prompt / state /
-    // phaseStops / control changes and could stay pinned past the
-    // window's natural expiry).
+    // Server-contract reference: the pure shouldAutoPass() function is
+    // retained here (and in match-session.spec.ts) as the spec for what
+    // the server implements. The runtime auto-pass DRIVER has been removed
+    // (Slice 5a) — the server now drives the loop. This computed is kept
+    // so the Slice 0 wire-contract tests continue to pass and to provide
+    // a live signal that the page's prefs-push effect can read if needed.
     shouldAutoPassNow: computed<boolean>(() => {
       const p = store.prompt();
       const ids = store.selfPlayerIds();
@@ -213,7 +205,7 @@ export const GameStore = signalStore(
       return shouldAutoPass(p, deps);
     }),
   })),
-  withMethods((store, sender = inject(GAME_COMMAND_SENDER), matchSvc = inject(MatchService)) => ({
+  withMethods((store) => ({
     setState(next: GameState | null): void {
       patchState(store, s => ({
         state: next,
@@ -230,10 +222,10 @@ export const GameStore = signalStore(
       patchState(store, { selfPlayerIds: ids });
     },
     setPrompt(p: PromptEnvelope | null): void {
-      patchState(store, { prompt: p, lastAutoPassedPromptKey: null });
+      patchState(store, { prompt: p });
     },
     clearPrompt(): void {
-      patchState(store, { prompt: null, lastAutoPassedPromptKey: null });
+      patchState(store, { prompt: null });
     },
     /**
      * Attempt to apply a SignalR engine event as an in-place patch on
@@ -345,35 +337,11 @@ export const GameStore = signalStore(
     setTick(now: number): void {
       patchState(store, { tick: now });
     },
-    // Test seam — drive the ~150ms auto-pass heartbeat deterministically.
+    // Test seam — drive the autoPassTick for the shouldAutoPassNow computed
+    // (retained as a server-contract reference; the runtime driver lives
+    // server-side since Slice 5a).
     setAutoPassTick(now: number): void {
       patchState(store, { autoPassTick: now });
-    },
-    // Auto-pass driver. When shouldAutoPassNow is true and the prompt's
-    // stable key differs from the last one we auto-passed, send a pass
-    // and record the key. Idempotent on re-emit of the same logical
-    // prompt (the key, not object identity, dedupes) within a single
-    // window. Exposed as a plain method so it's directly unit-testable;
-    // a setInterval in onInit drives it on the ~150ms heartbeat.
-    //
-    // Defense-in-depth guard: only dispatch when the loaded match's
-    // gameId matches the prompt's gameId. GameStore is providedIn:'root'
-    // and outlives any single match; a rapid match switch could leave a
-    // stale prompt in the store while MatchService.current() has already
-    // advanced to a different game. In that window the store's prompt is
-    // stale relative to the active match — sending a pass would route it
-    // to the wrong game. Correspondence: Match.gameId ↔ PromptEnvelope.gameId.
-    runAutoPass(): void {
-      if (!store.shouldAutoPassNow()) return;
-      const p = store.prompt();
-      if (!p) return;
-      // Skip if the loaded match's gameId does not match the prompt's gameId.
-      const currentGameId = matchSvc.current()?.gameId ?? null;
-      if (currentGameId !== p.gameId) return;
-      const key = autoPassPromptKey(p);
-      if (key === store.lastAutoPassedPromptKey()) return;
-      patchState(store, { lastAutoPassedPromptKey: key });
-      sender.send({ $type: 'pass' });
     },
     reset(): void {
       patchState(store, initial);
@@ -381,16 +349,9 @@ export const GameStore = signalStore(
   })),
   withHooks({
     onInit(store) {
-      // ~150ms auto-pass heartbeat: advances autoPassTick (so the
-      // shouldAutoPassNow computed re-evaluates past the stack-display
-      // window) and re-runs the auto-pass driver.
-      const autoPassHandle = setInterval(() => {
-        store.setAutoPassTick(Date.now());
-        store.runAutoPass();
-      }, AUTO_PASS_TICK_MS);
       // 1Hz clock heartbeat for the header timer chips.
       const clockHandle = setInterval(() => store.setTick(Date.now()), CLOCK_TICK_MS);
-      intervalHandles.set(store, [autoPassHandle, clockHandle]);
+      intervalHandles.set(store, [clockHandle]);
     },
     onDestroy(store) {
       const handles = intervalHandles.get(store);
