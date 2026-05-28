@@ -332,6 +332,133 @@ describe('SignalrService.isAuthError', () => {
   });
 });
 
+// Initial-connect auth-stale-suspect retry (Slice 4c fix).
+//
+// The WSS transport-refuse error (server rejects the upgraded WebSocket
+// after a stale-but-parseable JWT passed /negotiate) arrives as a generic
+// Error — NOT an HttpError 401.  The old guard
+//   `SignalrService.isAuthError(err) && !this.retryWithFreshToken`
+// therefore skipped the retry entirely.  The fix widens the trigger: on
+// the FIRST initial-connect failure (any shape), arm a one-shot
+// fresh-token retry.  If the retry also fails, latch sessionExpired
+// unconditionally.
+//
+// Testable seam: `tryInitialConnect(matchId)` is extracted as a
+// package-private method (no underscore prefix) wrapping the
+// start+invoke+catch+retry block.  We inject a minimal fake HubConnection
+// via the Internal cast to avoid a live network double.
+describe('SignalrService initial-connect retry on auth-stale-suspect', () => {
+  // Shared Internal surface used by all tests in this describe block.
+  type Internal = {
+    connection: {
+      start: () => Promise<void>;
+      invoke: (method: string, ...args: unknown[]) => Promise<void>;
+    } | null;
+    auth: { getAccessToken: () => Promise<string>; forceRefresh: () => Promise<string> };
+    retryWithFreshToken: boolean;
+    _state: { set: (v: string) => void };
+    _error: { set: (v: string | null) => void };
+    _sessionExpired: { set: (v: boolean) => void };
+    tryInitialConnect: (matchId: string) => Promise<void>;
+  };
+
+  function makeService(
+    startResponses: Array<'resolve' | Error>,
+    opts?: { forceRefreshResult?: string }
+  ): { svc: SignalrService; forceRefreshCallCount: () => number } {
+    let startCallIndex = 0;
+    let forceRefreshCalls = 0;
+
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        SignalrService,
+        {
+          provide: AuthUserStore,
+          useValue: {
+            getAccessToken: () => Promise.resolve('cached-token'),
+            forceRefresh: () => {
+              forceRefreshCalls++;
+              return Promise.resolve(opts?.forceRefreshResult ?? 'fresh-token');
+            },
+          },
+        },
+      ],
+    });
+
+    const svc = TestBed.inject(SignalrService);
+    const internal = svc as unknown as Internal;
+
+    // Inject a minimal fake HubConnection — just start() + invoke().
+    const fakeConnection = {
+      start: (): Promise<void> => {
+        const response = startResponses[startCallIndex++] ?? 'resolve';
+        if (response === 'resolve') return Promise.resolve();
+        return Promise.reject(response);
+      },
+      invoke: (_method: string, ..._args: unknown[]): Promise<void> => Promise.resolve(),
+    };
+    internal.connection = fakeConnection;
+
+    return { svc, forceRefreshCallCount: () => forceRefreshCalls };
+  }
+
+  it('a generic Error on first connect triggers a one-shot fresh-token retry', async () => {
+    const transportErr = new Error('Failed to start the transport');
+    const { svc, forceRefreshCallCount } = makeService([transportErr, 'resolve']);
+    const internal = svc as unknown as Internal;
+
+    // Must clear the flag before calling (connect() does this; we're
+    // calling tryInitialConnect directly so mirror that reset).
+    internal.retryWithFreshToken = false;
+
+    await internal.tryInitialConnect('m1');
+
+    expect(forceRefreshCallCount()).toBe(1);
+    expect(svc.state()).toBe('open');
+    expect(svc.sessionExpired()).toBe(false);
+  });
+
+  it('a non-401 HttpError on first connect (e.g. 502 transport) triggers the retry', async () => {
+    const { svc, forceRefreshCallCount } = makeService([
+      new HttpError('Bad Gateway', 502),
+      'resolve',
+    ]);
+    const internal = svc as unknown as Internal;
+    internal.retryWithFreshToken = false;
+
+    await internal.tryInitialConnect('m1');
+
+    expect(forceRefreshCallCount()).toBe(1);
+    expect(svc.state()).toBe('open');
+    expect(svc.sessionExpired()).toBe(false);
+  });
+
+  it('when both initial connect AND fresh-token retry fail, latches sessionExpired regardless of error shape', async () => {
+    const transportErr = new Error('Failed to start the transport');
+    const { svc, forceRefreshCallCount } = makeService([transportErr, transportErr]);
+    const internal = svc as unknown as Internal;
+    internal.retryWithFreshToken = false;
+
+    await expect(internal.tryInitialConnect('m1')).rejects.toThrow();
+
+    expect(svc.sessionExpired()).toBe(true);
+    expect(svc.state()).toBe('error');
+    expect(forceRefreshCallCount()).toBeGreaterThanOrEqual(1);
+  });
+
+  it('a successful first connect does NOT call forceRefresh', async () => {
+    const { svc, forceRefreshCallCount } = makeService(['resolve']);
+    const internal = svc as unknown as Internal;
+    internal.retryWithFreshToken = false;
+
+    await internal.tryInitialConnect('m1');
+
+    expect(forceRefreshCallCount()).toBe(0);
+    expect(svc.state()).toBe('open');
+  });
+});
+
 // Verify the accessTokenFactory closure does the right cache-vs-force
 // dance. Standing up a real HubConnection would require a network
 // double, so we exercise the same code path through a thin helper: the

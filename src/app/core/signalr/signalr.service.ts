@@ -29,6 +29,15 @@ export type ConnectionState = 'idle' | 'connecting' | 'open' | 'closed' | 'error
 // the UI surfaces as "connection lost".
 export const RECONNECT_BACKOFF_MS = [2_000, 5_000, 10_000, 30_000];
 
+// Cap on one-shot auth-stale-suspect retries for the initial connect.
+// When a stale-but-parseable JWT passes /negotiate but the server then
+// refuses the WSS upgrade, the browser surfaces a generic transport
+// Error — NOT an HttpError 401 — so we treat ANY first initial-connect
+// failure as auth-stale-suspect and attempt one force-refresh retry.
+// Keeping the cap as a named constant makes it auditable and prevents
+// accidental escalation to infinite retry loops.
+export const MAX_INITIAL_CONNECT_RETRIES = 1;
+
 @Injectable({ providedIn: 'root' })
 export class SignalrService {
   private readonly auth = inject(AuthUserStore);
@@ -126,6 +135,9 @@ export class SignalrService {
     this._error.set(null);
     this._reconnectFailed.set(false);
     this._sessionExpired.set(false);
+    // Reset on a fresh connect so a stale flag from a torn-down prior
+    // connection can't skip the one-shot retry path on the next session.
+    this.retryWithFreshToken = false;
     this.currentMatchId = matchId;
 
     this.connection = new HubConnectionBuilder()
@@ -199,37 +211,69 @@ export class SignalrService {
       this._sessionExpired.set(false);
     });
 
+    await this.tryInitialConnect(matchId);
+  }
+
+  /**
+   * Start the hub connection and join a match, with a one-shot auth-stale-
+   * suspect retry on any initial-connect failure.
+   *
+   * WHY the retry is unconditional on the first failure:
+   *   A stale-but-parseable JWT can pass the HTTP /negotiate (200) because
+   *   signature/expiry validation may be deferred. The server then rejects
+   *   the WSS upgrade at the auth layer — the browser surfaces this as a
+   *   generic transport Error, NOT an HttpError 401. The old guard
+   *   `isAuthError(err) && !retryWithFreshToken` therefore skipped the
+   *   retry entirely. Widening to `!retryWithFreshToken` treats ANY first
+   *   initial-connect failure as auth-stale-suspect: arm a force-refresh
+   *   and try once more (MAX_INITIAL_CONNECT_RETRIES = 1). If the retry
+   *   also fails, latch sessionExpired unconditionally — the user must
+   *   re-authenticate regardless of the exact error shape.
+   *
+   * Extracted as a package-private method (no underscore) so unit tests
+   * can inject a minimal fake HubConnection via the Internal cast and
+   * drive the catch/retry/latch logic directly without a live network.
+   */
+  async tryInitialConnect(matchId: string): Promise<void> {
     try {
-      await this.connection.start();
-      await this.connection.invoke('JoinMatch', matchId);
+      await this.connection!.start();
+      await this.connection!.invoke('JoinMatch', matchId);
       this._state.set('open');
     } catch (err: unknown) {
-      // Initial negotiate rejected our token: force one refresh + retry
-      // a single time. If the second attempt still 401s the user's
-      // session is genuinely dead and we surface the error normally.
-      if (SignalrService.isAuthError(err) && !this.retryWithFreshToken) {
-        this.retryWithFreshToken = true;
+      // Any first-connect failure is treated as auth-stale-suspect: the WSS
+      // transport-refuse case (stale JWT passes /negotiate but is rejected at
+      // the WebSocket upgrade) arrives as a generic Error, not a 401. Arm a
+      // one-shot force-refresh (MAX_INITIAL_CONNECT_RETRIES = 1) and retry.
+      //
+      // We call forceRefresh() explicitly here (rather than relying solely on
+      // the accessTokenFactory side-effect) so the retry path is testable with
+      // a minimal fake HubConnection that doesn't invoke the factory, and so
+      // the call is visible in traces / audits.  accessTokenFactory still
+      // checks retryWithFreshToken; we clear it here so the factory returns
+      // the cached token (already fresh) rather than calling forceRefresh a
+      // second time.
+      if (!this.retryWithFreshToken) {
+        this.retryWithFreshToken = true; // arm for accessTokenFactory (cleared below)
         try {
-          await this.connection.start();
-          await this.connection.invoke('JoinMatch', matchId);
+          await this.auth.forceRefresh(); // explicit refresh — makes retry testable
+          this.retryWithFreshToken = false; // factory will use the now-fresh cached token
+          await this.connection!.start();
+          await this.connection!.invoke('JoinMatch', matchId);
           this._state.set('open');
           return;
         } catch (retryErr: unknown) {
           this._state.set('error');
           this._error.set(retryErr instanceof Error ? retryErr.message : String(retryErr));
-          // Second negotiate still rejected: the session is dead even
-          // after a forced token refresh — surface "session expired".
-          if (SignalrService.isAuthError(retryErr)) {
-            this._sessionExpired.set(true);
-          }
+          // Retry also failed: the session is stale even after a forced
+          // refresh — latch sessionExpired unconditionally regardless of
+          // the retry error's shape (auth-stale-suspect → treat as expired).
+          this._sessionExpired.set(true);
           throw retryErr;
         }
       }
       this._state.set('error');
       this._error.set(err instanceof Error ? err.message : String(err));
-      if (SignalrService.isAuthError(err)) {
-        this._sessionExpired.set(true);
-      }
+      this._sessionExpired.set(true);
       throw err;
     }
   }
