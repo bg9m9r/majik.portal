@@ -163,6 +163,13 @@ export interface PromptEnvelope {
   // from the engine's `kindLabel`.
   candidates?: CardSnapshot[];
   label?: string;
+  // CR 701.19a — full library snapshot (top-to-bottom order) sent when the
+  // companion core PR is deployed. `candidates` remains the eligible subset
+  // (their instanceIds are a strict subset of libraryView's). When present,
+  // the overlay renders the full library grid with eligible cards highlighted
+  // and ineligible cards muted. When absent (older server build or non-search
+  // prompts), the overlay falls back to the flat candidates list.
+  libraryView?: CardSnapshot[];
 }
 
 // Polymorphic GameCommand wire envelope — matches

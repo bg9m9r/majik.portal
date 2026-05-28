@@ -477,6 +477,10 @@ export class MatchPage implements OnInit, OnDestroy {
           description: (raw['description'] ?? raw['Description']) as string | undefined,
           candidates: (raw['candidates'] ?? raw['Candidates']) as CardSnapshot[] | undefined,
           label: (raw['label'] ?? raw['Label']) as string | undefined,
+          // CR 701.19a — full library snapshot for library-search prompts.
+          // Absent until the companion core PR deploys; fallback renders
+          // the flat candidates list in the transient deploy window.
+          libraryView: (raw['libraryView'] ?? raw['LibraryView']) as CardSnapshot[] | undefined,
         };
         this.game.setPrompt(envelope);
       });
