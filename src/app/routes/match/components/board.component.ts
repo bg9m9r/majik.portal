@@ -26,6 +26,7 @@ import { ManaPoolRowComponent } from '../../../ui/mana-pool-row.component';
 import { PhaseBarComponent } from '../../../ui/phase-bar.component';
 import { ActionBarComponent } from './action-bar.component';
 import {
+  ActivatableAbility,
   CardContextMenuAction,
   CardContextMenuComponent,
 } from '../../../ui/card-context-menu.component';
@@ -71,12 +72,61 @@ import { bucketBattlefield, BattlefieldBuckets } from './bucket-battlefield';
   // (board.component.spec.ts → "host fills its parent" + DOM-order
   // assertions on the self side).
   // ----------------------------------------------------------------
+  // Symmetric non-battlefield footprint across the two sides.
+  //
+  // Each .arena-side is flex: 1 1 0 (equal half each), but the
+  // inner stack ABOVE the centerline used to be asymmetric: the
+  // opp side parks HUD + mana + face-down hand in a single
+  // .arena-strip (with the face-down hand shrunk to 56×78 via the
+  // .arena-strip__hand override in board.scss), so opp non-bf
+  // height ≈ one shrunk-card row. The self side stacks
+  // (full-size .hand-row) + (.arena-strip--self HUD/mana row),
+  // which is much taller. Net: opp .battlefield got more vertical
+  // space than self .battlefield — the self board looked clipped.
+  //
+  // Fix: lock the THREE non-battlefield elements (opp strip; self
+  // hand-row; self strip-self) to fixed heights such that
+  //
+  //   opp .arena-strip height
+  //     == self .hand-row height + self .arena-strip--self height
+  //
+  // Both .battlefield wrappers are flex: 1 1 0 inside their
+  // arena-side, so equal non-bf footprint implies equal battlefield
+  // height. Self hand cards stay full-size (--majik-card-h, 140px);
+  // the opp strip gets extra vertical space inside it which reads
+  // as centered empty space — fine, not a regression.
+  //
+  // Heights are co-located here (vs. board.scss) so they're loaded
+  // in jsdom unit tests for the layout assertions in
+  // board.component.spec.ts. Literal pixel values (vs. CSS vars)
+  // since jsdom doesn't resolve var() through Angular's emulated
+  // encapsulation. Math:
+  //   tokens.scss → --majik-card-h: 140px, --majik-space-2: 8px
+  //   hand-h = 140 + 8*2 = 156px   (full-size hand-card row)
+  //   info-h =       8*4 =  32px   (compact HUD/mana row)
+  //   strip-h = hand-h + info-h = 188px  (opp's one strip)
   styles: [`
     :host {
       display: flex;
       flex: 1 1 0;
       min-height: 0;
       flex-direction: column;
+    }
+    .arena-side--foe .arena-strip {
+      flex: 0 0 188px;
+      min-height: 188px;
+      max-height: 188px;
+      align-items: center;
+    }
+    .arena-side--self > .hand-row {
+      flex: 0 0 156px;
+      min-height: 156px;
+      max-height: 156px;
+    }
+    .arena-side--self > .arena-strip--self {
+      flex: 0 0 32px;
+      min-height: 32px;
+      max-height: 32px;
     }
   `],
   // Layout overview (Arena-style, zoned battlefield):
@@ -444,8 +494,10 @@ import { bucketBattlefield, BattlefieldBuckets } from './bucket-battlefield';
           [card]="activeContextCard()"
           [position]="activeContextPos()"
           [canTap]="activeContextOwner() === 'self'"
+          [activatableAbilities]="activeContextActivatableAbilities()"
           (closed)="closeContextMenu()"
-          (action)="onContextAction($event)" />
+          (action)="onContextAction($event)"
+          (activateAbilityRequested)="onContextActivateAbility($event)" />
 
         @if (manaPicker(); as mp) {
           <app-mana-color-picker
@@ -513,6 +565,26 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
   // Tracks which side's battlefield the active context card belongs to,
   // so the menu can hide Tap / Untap for opponent permanents.
   readonly activeContextOwner = signal<'self' | 'opponent' | null>(null);
+
+  /**
+   * Activatable abilities legal to surface in the context menu for the
+   * currently right-clicked card. Filters to:
+   *   * self-owned only (opponent permanents get no Activate entries —
+   *     the viewer can't activate their abilities); and
+   *   * `kind === 'Activated'` with a non-null `id` (mirrors the
+   *     onSelfBattlefieldDoubleClick guard so an older server build that
+   *     hasn't deployed AbilityDto.Id keeps the menu safe).
+   * Empty array hides the Activate entries entirely.
+   */
+  readonly activeContextActivatableAbilities = computed<ActivatableAbility[]>(() => {
+    const card = this.activeContextCard();
+    const owner = this.activeContextOwner();
+    if (!card || owner !== 'self') return [];
+    const abilities = card.abilities ?? [];
+    return abilities
+      .filter(a => a.kind === 'Activated' && a.id != null)
+      .map(a => ({ id: a.id!, description: a.description ?? '' }));
+  });
 
   // Mana color-picker popover state. `manaPicker()` is non-null while
   // the chooser is visible; carries the card we're activating + its
@@ -601,6 +673,23 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
 
   closeManaPicker(): void {
     this.manaPicker.set(null);
+  }
+
+  /**
+   * Context-menu "Activate …" entry fired: re-emit upward with the
+   * permanent's instanceId so the page dispatches an
+   * ActivateAbilityCommand. Same output shape as the double-click
+   * path — only the trigger differs. Owner is implicitly self (the
+   * computed `activeContextActivatableAbilities` filters opponent
+   * permanents out).
+   */
+  onContextActivateAbility(abilityId: string): void {
+    const card = this.activeContextCard();
+    if (!card) return;
+    this.activateAbilityRequested.emit({
+      permanentInstanceId: card.instanceId,
+      abilityId,
+    });
   }
 
   /**

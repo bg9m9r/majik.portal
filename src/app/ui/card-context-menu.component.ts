@@ -27,6 +27,19 @@ import { CardSnapshot } from '../core/match/match.types';
  */
 export type CardContextMenuAction = 'tap' | 'details' | 'scryfall';
 
+/**
+ * Activatable ability descriptor passed to the context menu by the
+ * parent. The menu stays presentational — it doesn't know about the
+ * game store or the engine's AbilityDto shape. The parent
+ * (BoardComponent) filters the snapshot's `abilities[]` to entries
+ * with `kind === 'Activated'` and a non-null `id`, and only passes
+ * them for self-owned battlefield permanents.
+ */
+export interface ActivatableAbility {
+  id: string;
+  description: string;
+}
+
 @Component({
   selector: 'app-card-context-menu',
   standalone: true,
@@ -45,6 +58,17 @@ export type CardContextMenuAction = 'tap' | 'details' | 'scryfall';
               class="block w-full px-3 py-1.5 text-left hover:bg-white/10 focus:bg-white/10 focus:outline-none"
               (click)="emit('tap')">
               Tap / Untap
+            </button>
+          </li>
+        }
+        @for (a of activatableAbilities(); track a.id) {
+          <li role="none">
+            <button
+              type="button"
+              role="menuitem"
+              class="block w-full px-3 py-1.5 text-left hover:bg-white/10 focus:bg-white/10 focus:outline-none"
+              (click)="emitActivate(a.id)">
+              {{ a.description ? 'Activate ' + a.description : 'Activate ability' }}
             </button>
           </li>
         }
@@ -81,9 +105,22 @@ export class CardContextMenuComponent {
    * hand / stack views get details + scryfall only.
    */
   readonly canTap = input<boolean>(false);
+  /**
+   * Activatable abilities legal to fire on the clicked card. Parent
+   * (BoardComponent) supplies one entry per ability with `kind ===
+   * 'Activated'` and a non-null `id`, only for self-owned battlefield
+   * permanents. Empty array hides the Activate entries entirely.
+   */
+  readonly activatableAbilities = input<ActivatableAbility[]>([]);
 
   readonly closed = output<void>();
   readonly action = output<CardContextMenuAction>();
+  /**
+   * Emitted with the ability id when the user clicks one of the
+   * "Activate …" entries. The parent translates this into an
+   * ActivateAbilityCommand on the engine.
+   */
+  readonly activateAbilityRequested = output<string>();
 
   private readonly host = inject(ElementRef<HTMLElement>);
 
@@ -113,6 +150,15 @@ export class CardContextMenuComponent {
 
   emit(a: CardContextMenuAction): void {
     this.action.emit(a);
+    this.closed.emit();
+  }
+
+  /**
+   * Fires the activate output with the ability id and closes the
+   * menu. Mirrors `emit()` — each click is one beat.
+   */
+  emitActivate(abilityId: string): void {
+    this.activateAbilityRequested.emit(abilityId);
     this.closed.emit();
   }
 
