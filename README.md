@@ -1,7 +1,7 @@
 # majik.portal
 
 [![SonarQube Cloud](https://sonarcloud.io/images/project_badges/sonarcloud-light.svg)](https://sonarcloud.io/summary/new_code?id=bg9m9r_majik.portal)
-[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=bg9m9r_majik.portal&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=bg9m9r_majik.portal)
+[![Security Rating](https://sonarcloud.io/api/project_badges/measure?project=bg9m9r_majik.portal&metric=security_rating)](https://sonarcloud.io/summary/new_code?id=bg9m9r_majik.portal)
 [![Coverage](https://sonarcloud.io/api/project_badges/measure?project=bg9m9r_majik.portal&metric=coverage)](https://sonarcloud.io/summary/new_code?id=bg9m9r_majik.portal)
 
 Web client for [Majik](https://github.com/bg9m9r/majik) — the open-source Magic: The Gathering rules engine. Free, 1v1, desktop. Live at [majik.tech](https://majik.tech).
