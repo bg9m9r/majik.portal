@@ -485,6 +485,11 @@ export class MatchPage implements OnInit, OnDestroy {
           // other prompt kind; absent on older server builds (the surveil
           // modal simply won't render until the companion core PR ships).
           surveilView: (raw['surveilView'] ?? raw['SurveilView']) as CardSnapshot[] | undefined,
+          // CR 117.x / 605.1 — Yes/No "may" prompt envelope (shock-land
+          // "pay 2 life?" is the seed caller). Absent on every other
+          // prompt kind; absent on older server builds (the modal won't
+          // render until the companion core PR deploys).
+          yesNoView: (raw['yesNoView'] ?? raw['YesNoView']) as PromptEnvelope['yesNoView'] | undefined,
         };
         this.game.setPrompt(envelope);
       });
@@ -779,6 +784,15 @@ export class MatchPage implements OnInit, OnDestroy {
           $type: 'chooseSurveil',
           toGraveyardInstanceIds: d.toGraveyardInstanceIds ?? [],
           topOrderInstanceIds: d.topOrderInstanceIds ?? [],
+        };
+      case 'yesNo':
+        // CR 117.x / 605.1 — bool answer for an optional "may" prompt
+        // (shock-land "pay 2 life?" is the seed caller). The server
+        // resolves the bool against the binder-chain context attached
+        // to the original prompt.
+        return {
+          $type: 'chooseYesNo',
+          answer: d.answer ?? false,
         };
       default:
         return null;

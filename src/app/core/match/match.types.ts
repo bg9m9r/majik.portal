@@ -178,6 +178,17 @@ export interface PromptEnvelope {
   // ChooseSurveilCommand partitioning the set. Privacy: per-recipient
   // SignalR routing — the opponent never sees these cards.
   surveilView?: CardSnapshot[];
+  // CR 117.x / 605.1 — Yes/No "may" prompts (shock-land "pay 2 life?"
+  // is the seed caller). Carries the question text + optional source-card
+  // label so the modal can be titled by the triggering permanent;
+  // yesLabel / noLabel default to "Yes" / "No" on the engine side when
+  // the binder doesn't override. Null on every other prompt kind.
+  yesNoView?: {
+    question: string;
+    yesLabel?: string;
+    noLabel?: string;
+    sourceCardName?: string | null;
+  };
 }
 
 // Polymorphic GameCommand wire envelope — matches
@@ -199,7 +210,8 @@ export type GameCommand =
   | ChooseManaCommand
   | CancelCastCommand
   | ChooseLibraryPickCommand
-  | ChooseSurveilCommand;
+  | ChooseSurveilCommand
+  | ChooseYesNoCommand;
 
 interface CmdBase { playerId?: string }
 export interface PassPriorityCommand extends CmdBase { $type: 'pass' }
@@ -263,6 +275,14 @@ export interface ChooseSurveilCommand extends CmdBase {
   $type: 'chooseSurveil';
   toGraveyardInstanceIds: string[];
   topOrderInstanceIds: string[];
+}
+// CR 117.x / 605.1 — response to a Yes/No "may" prompt (shock-land
+// "pay 2 life?" is the seed caller). The bool answer is the only payload;
+// the server's binder-chain holds the per-prompt context (which land,
+// which cost) so the client doesn't need to echo it back.
+export interface ChooseYesNoCommand extends CmdBase {
+  $type: 'chooseYesNo';
+  answer: boolean;
 }
 
 // Bot decision envelope — mirrors server-side
