@@ -292,8 +292,7 @@ describe('MatchPage — resilience wiring', () => {
   // --- session expiry recovery --------------------------------------
 
   it('SignalR sessionExpired latch toasts and redirects to /login', () => {
-    const page = init();
-    void page; // constructed; the effect is registered
+    init(); // constructed; the effect is registered
     sessionExpiredSig.set(true);
     TestBed.tick(); // flush effect
     expect(toast.current()?.message).toContain('Session expired');
@@ -301,8 +300,7 @@ describe('MatchPage — resilience wiring', () => {
   });
 
   it('AuthUserStore sessionExpired (forceRefresh failure) also toasts + redirects', () => {
-    const page = init();
-    void page;
+    init();
     authExpiredSig.set(true);
     TestBed.tick();
     expect(toast.current()?.message).toContain('Session expired');

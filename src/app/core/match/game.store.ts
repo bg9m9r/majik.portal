@@ -33,9 +33,11 @@ export const GAME_COMMAND_SENDER = new InjectionToken<GameCommandSender>('GAME_C
       send(cmd: GameCommand): void {
         const id = matchSvc.current()?.id;
         if (!id) return;
-        void matchSvc.submitCommand(id, cmd).then(r => {
-          if (!r.ok) console.warn('submitCommand failed', cmd, r.error);
-        });
+        matchSvc.submitCommand(id, cmd)
+          .then(r => {
+            if (!r.ok) console.warn('submitCommand failed', cmd, r.error);
+          })
+          .catch((err: unknown) => console.warn('submitCommand threw', cmd, err));
       },
     };
   },

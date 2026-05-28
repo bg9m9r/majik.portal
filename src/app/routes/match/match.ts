@@ -293,7 +293,9 @@ export class MatchPage implements OnInit, OnDestroy {
       if (expired && !sessionExpiredHandled) {
         sessionExpiredHandled = true;
         this.toast.error('Session expired — please sign in again');
-        void this.router.navigate(['/login']);
+        this.router.navigate(['/login']).catch((err: unknown) => {
+          console.warn('router.navigate(/login) failed', err);
+        });
       }
       if (!expired) {
         sessionExpiredHandled = false;
