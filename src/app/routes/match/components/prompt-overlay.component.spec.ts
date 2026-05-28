@@ -53,6 +53,12 @@ function mountOverlay(
     label?: string;
     libraryView?: CardSnapshot[];
     surveilView?: CardSnapshot[];
+    yesNoView?: {
+      question: string;
+      yesLabel?: string;
+      noLabel?: string;
+      sourceCardName?: string | null;
+    };
   } = {},
 ) {
   TestBed.configureTestingModule({ imports: [PromptOverlayComponent] });
@@ -922,5 +928,144 @@ describe('PromptOverlayComponent — surveil prompt (CR 701.42)', () => {
         topOrderInstanceIds: [],
       },
     ]);
+  });
+});
+
+// -----------------------------------------------------------------------
+// CR 117.x / 605.1 — Yes/No "may" prompts (shock-land "pay 2 life?" et al.)
+// -----------------------------------------------------------------------
+
+describe('PromptOverlayComponent — yes/no prompt (CR 117.x / 605.1)', () => {
+  function me(): GamePlayer {
+    return player({ id: 'me', name: 'Alice' });
+  }
+  function state(): GameState {
+    return {
+      phase: 'Main', turnNumber: 3, activePlayerId: 'me',
+      players: [me()], stack: [], youPlayerId: null,
+    };
+  }
+
+  function mountYesNo(view: {
+    question: string;
+    sourceCardName?: string | null;
+    yesLabel?: string;
+    noLabel?: string;
+  }) {
+    return mountOverlay(
+      state(),
+      ['ChooseYesNoCommand'],
+      ['me'],
+      { yesNoView: view },
+    );
+  }
+
+  it('detects yesNo kind from server "ChooseYesNoCommand" envelope', () => {
+    const { component } = mountYesNo({
+      question: 'Pay 2 life for Overgrown Tomb to enter untapped?',
+      sourceCardName: 'Overgrown Tomb',
+    });
+
+    expect(component.kind()).toBe('yesNo');
+  });
+
+  it('titles modal after the source card name when provided', () => {
+    const { component } = mountYesNo({
+      question: 'Pay 2 life for Overgrown Tomb to enter untapped?',
+      sourceCardName: 'Overgrown Tomb',
+    });
+
+    expect(component.titleFor(component.kind())).toBe('Overgrown Tomb');
+  });
+
+  it('falls back to generic "Choose" title when no source card provided', () => {
+    const { component } = mountYesNo({
+      question: 'Cast it for its alternative cost?',
+      sourceCardName: null,
+    });
+
+    expect(component.titleFor(component.kind())).toBe('Choose');
+  });
+
+  it('exposes the question text + default Yes/No labels via computeds', () => {
+    const { component } = mountYesNo({
+      question: 'Pay 2 life for Steam Vents to enter untapped?',
+      sourceCardName: 'Steam Vents',
+    });
+
+    expect(component.yesNoQuestion()).toBe(
+      'Pay 2 life for Steam Vents to enter untapped?',
+    );
+    expect(component.yesNoYesLabel()).toBe('Yes');
+    expect(component.yesNoNoLabel()).toBe('No');
+  });
+
+  it('respects engine-supplied yes/no label overrides', () => {
+    const { component } = mountYesNo({
+      question: 'Choose your fate.',
+      yesLabel: 'Pay 2 life',
+      noLabel: 'Enter tapped',
+    });
+
+    expect(component.yesNoYesLabel()).toBe('Pay 2 life');
+    expect(component.yesNoNoLabel()).toBe('Enter tapped');
+  });
+
+  it('answerYesNo emits a yesNo decision with the bool answer (true)', () => {
+    const { component } = mountYesNo({
+      question: 'Pay 2 life for Overgrown Tomb to enter untapped?',
+      sourceCardName: 'Overgrown Tomb',
+    });
+    const captured: PromptDecision[] = [];
+    component.decision.subscribe(d => captured.push(d));
+
+    component.answerYesNo(true);
+
+    expect(captured).toEqual([{ kind: 'yesNo', answer: true }]);
+  });
+
+  it('answerYesNo emits a yesNo decision with the bool answer (false)', () => {
+    const { component } = mountYesNo({
+      question: 'Pay 2 life for Overgrown Tomb to enter untapped?',
+      sourceCardName: 'Overgrown Tomb',
+    });
+    const captured: PromptDecision[] = [];
+    component.decision.subscribe(d => captured.push(d));
+
+    component.answerYesNo(false);
+
+    expect(captured).toEqual([{ kind: 'yesNo', answer: false }]);
+  });
+
+  it('clicking the Yes button emits answer: true', async () => {
+    const { component, fixture } = mountYesNo({
+      question: 'Pay 2 life for Overgrown Tomb to enter untapped?',
+      sourceCardName: 'Overgrown Tomb',
+    });
+    const captured: PromptDecision[] = [];
+    component.decision.subscribe(d => captured.push(d));
+
+    const yesBtn = fixture.nativeElement.querySelector(
+      '[data-yesno-action="yes"]') as HTMLButtonElement | null;
+    expect(yesBtn).not.toBeNull();
+    yesBtn!.click();
+
+    expect(captured).toEqual([{ kind: 'yesNo', answer: true }]);
+  });
+
+  it('clicking the No button emits answer: false', async () => {
+    const { component, fixture } = mountYesNo({
+      question: 'Pay 2 life for Overgrown Tomb to enter untapped?',
+      sourceCardName: 'Overgrown Tomb',
+    });
+    const captured: PromptDecision[] = [];
+    component.decision.subscribe(d => captured.push(d));
+
+    const noBtn = fixture.nativeElement.querySelector(
+      '[data-yesno-action="no"]') as HTMLButtonElement | null;
+    expect(noBtn).not.toBeNull();
+    noBtn!.click();
+
+    expect(captured).toEqual([{ kind: 'yesNo', answer: false }]);
   });
 });

@@ -32,6 +32,17 @@ interface PromptInfo {
   // / "keep on top") and assembles a ChooseSurveilCommand partition.
   // Privacy: per-recipient SignalR routing (same as libraryView).
   surveilView?: CardSnapshot[];
+  // CR 117.x / 605.1 — Yes/No "may" prompts (shock-land "pay 2 life?"
+  // is the current caller). Carries the question text + optional
+  // source-card label so the modal can be titled by the triggering
+  // permanent. Yes/No labels default to "Yes" / "No" when the engine
+  // doesn't override.
+  yesNoView?: {
+    question: string;
+    yesLabel?: string;
+    noLabel?: string;
+    sourceCardName?: string | null;
+  };
 }
 
 export type PromptKind =
@@ -46,6 +57,7 @@ export type PromptKind =
   | 'mana-cancel'
   | 'libraryPick'
   | 'surveil'
+  | 'yesNo'
   | 'none';
 
 export interface PromptDecision {
@@ -67,6 +79,9 @@ export interface PromptDecision {
   // peeked set exactly once (server validates).
   toGraveyardInstanceIds?: string[];
   topOrderInstanceIds?: string[];
+  // CR 117.x / 605.1 — bool answer for an optional "may" prompt
+  // (shock-land "pay 2 life?", future painlands / slowlands, etc.).
+  answer?: boolean;
 }
 
 interface CandidateCard {
@@ -87,6 +102,11 @@ export function detectKind(kinds: string[] | undefined): PromptKind {
   // libraryPick: the server's literal "ChooseSurveilCommand" envelope
   // must route to the surveil modal, not the generic targets grid.
   if (ks.some(k => k.includes('surveil') || k.includes('choosesurveil'))) return 'surveil';
+  // CR 117.x / 605.1 — Yes/No modal. The server ships the literal
+  // "ChooseYesNoCommand" envelope (or the shorter "chooseYesNo"
+  // discriminator if normalised); both must route to the dedicated
+  // yes/no modal rather than fall through to a generic catch-all.
+  if (ks.some(k => k.includes('yesno') || k.includes('chooseyesno'))) return 'yesNo';
   if (ks.some(k => k.includes('attacker'))) return 'attackers';
   if (ks.some(k => k.includes('blocker'))) return 'blockers';
   if (ks.some(k => k.includes('target'))) return 'targets';
@@ -518,6 +538,39 @@ export function detectKind(kinds: string[] | undefined): PromptKind {
             </div>
           }
 
+          @case ('yesNo') {
+            <!--
+              CR 117.x / 605.1 — Yes/No "may" modal. Shock-land
+              "pay 2 life?" is the seed caller; the same shape covers
+              every binder-chain optional rider (painlands, slowlands,
+              future may-clauses). The question copy comes from the
+              engine verbatim (it knows the exact wording); the buttons
+              default to "Yes" / "No" but the engine may override per
+              prompt (e.g. "Pay 2 life" / "Enter tapped").
+            -->
+            <div class="flex flex-col gap-3 text-xs">
+              @if (yesNoQuestion(); as q) {
+                <p class="text-sm">{{ q }}</p>
+              }
+              <div class="flex items-center gap-2">
+                <button
+                  type="button"
+                  class="rounded border border-emerald-400 px-3 py-1 text-emerald-300 hover:bg-emerald-400/10"
+                  [attr.data-yesno-action]="'yes'"
+                  (click)="answerYesNo(true)">
+                  {{ yesNoYesLabel() }}
+                </button>
+                <button
+                  type="button"
+                  class="rounded border border-red-400 px-3 py-1 text-red-300 hover:bg-red-400/10"
+                  [attr.data-yesno-action]="'no'"
+                  (click)="answerYesNo(false)">
+                  {{ yesNoNoLabel() }}
+                </button>
+              </div>
+            </div>
+          }
+
           @case ('bottom') {
             <div class="flex flex-col gap-2 text-xs">
               <span class="opacity-70">Click cards to bottom them ({{ selected().length }} selected).</span>
@@ -728,6 +781,18 @@ export class PromptOverlayComponent implements AfterViewInit, OnDestroy {
   readonly surveilToTopCount = computed<number>(() =>
     Object.values(this.surveilDecisions()).filter(v => v === 'top').length);
 
+  // CR 117.x / 605.1 — Yes/No prompt copy. Reads off the prompt
+  // envelope's yesNoView block; defaults to empty string + "Yes" / "No"
+  // when the view is absent so the template can still render (defense
+  // in depth — the modal should never render with no question, but if
+  // it does the buttons remain usable).
+  readonly yesNoQuestion = computed<string>(() =>
+    this.prompt()?.yesNoView?.question ?? '');
+  readonly yesNoYesLabel = computed<string>(() =>
+    this.prompt()?.yesNoView?.yesLabel ?? 'Yes');
+  readonly yesNoNoLabel = computed<string>(() =>
+    this.prompt()?.yesNoView?.noLabel ?? 'No');
+
   titleFor(k: PromptKind): string {
     switch (k) {
       case 'targets': return 'Choose targets';
@@ -740,6 +805,13 @@ export class PromptOverlayComponent implements AfterViewInit, OnDestroy {
       case 'mana': return 'Pay mana cost';
       case 'libraryPick': return 'Search your library';
       case 'surveil': return 'Surveil';
+      case 'yesNo': {
+        // Title the modal after the triggering permanent when the engine
+        // provided one ("Overgrown Tomb"); fall back to a generic label
+        // for prompts without a source-card context.
+        const src = this.prompt()?.yesNoView?.sourceCardName;
+        return src ?? 'Choose';
+      }
       default: return '';
     }
   }
@@ -892,6 +964,15 @@ export class PromptOverlayComponent implements AfterViewInit, OnDestroy {
     }
     this.decision.emit({ kind: 'surveil', toGraveyardInstanceIds, topOrderInstanceIds });
     this.surveilDecisions.set({});
+  }
+
+  // CR 117.x / 605.1 — emit the bool answer for an optional "may"
+  // prompt. Shock-land is the seed caller; future binder-chain prompts
+  // (painlands, slowlands, etc.) reuse this path unchanged. The server's
+  // ChooseYesNoCommand only carries { Answer: bool }; no per-button
+  // payload reshape needed.
+  answerYesNo(answer: boolean): void {
+    this.decision.emit({ kind: 'yesNo', answer });
   }
 
   confirmBlockers(): void {
