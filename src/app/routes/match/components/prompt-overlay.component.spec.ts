@@ -284,19 +284,62 @@ describe('PromptOverlayComponent — combat prompts', () => {
     expect(labels).not.toContain('Cancel');
   });
 
-  it('non-mulligan prompts still render Cancel (opt-out remains legal there)', () => {
-    // Sanity-check the fix didn't strip Cancel globally — declare-attackers
-    // is one example where the player can still bail on the prompt UI.
-    const me = player({ id: 'me', name: 'Alice' });
-    const opp = player({ id: 'opp', name: 'Bob' });
-    const state: GameState = { phase: 'DeclareAttackers', turnNumber: 1, activePlayerId: 'me', players: [me, opp], stack: [], youPlayerId: null };
+  // ---- Cancel-button audit (CR 601.2) ---------------------------------
+  // The Cancel affordance is reserved for mid-spell-cast prompts where
+  // the user may legitimately abort the cast before the spell is fully
+  // announced (target picker, X picker, mode picker, mana payment).
+  // Every other prompt kind hides Cancel — there is no take-back for a
+  // resolved tutor, no opt-out from a mulligan, no "skip" for combat
+  // declarations (the player declares an empty set to skip), no escape
+  // from a yes/no "may" prompt the engine is waiting on.
 
-    const { fixture } = mountOverlay(state, ['DeclareAttackersCommand'], ['me']);
+  const noCancelKinds: ReadonlyArray<{ label: string; kinds: string[]; expect: string }> = [
+    { label: 'attackers',  kinds: ['DeclareAttackersCommand'], expect: 'attackers' },
+    { label: 'blockers',   kinds: ['DeclareBlockersCommand'],  expect: 'blockers' },
+    { label: 'bottom',     kinds: ['ChooseCardsToBottomCommand'], expect: 'bottom' },
+    { label: 'libraryPick',kinds: ['ChooseLibraryPickCommand'], expect: 'libraryPick' },
+    { label: 'surveil',    kinds: ['ChooseSurveilCommand'],     expect: 'surveil' },
+    { label: 'yesNo',      kinds: ['ChooseYesNoCommand'],       expect: 'yesNo' },
+  ];
 
-    const buttons = (fixture.nativeElement as HTMLElement).querySelectorAll('button');
-    const labels = Array.from(buttons).map(b => (b.textContent ?? '').trim());
-    expect(labels).toContain('Cancel');
-  });
+  for (const { label, kinds, expect: expectedKind } of noCancelKinds) {
+    it(`hides Cancel for "${label}" prompts (no mid-cast abort path)`, () => {
+      const me = player({ id: 'me', name: 'Alice' });
+      const opp = player({ id: 'opp', name: 'Bob' });
+      const state: GameState = { phase: 'PreCombatMain', turnNumber: 1, activePlayerId: 'me', players: [me, opp], stack: [], youPlayerId: null };
+
+      const { component, fixture } = mountOverlay(state, kinds, ['me']);
+      expect(component.kind()).toBe(expectedKind);
+      expect(component.showCancelButton()).toBe(false);
+
+      const buttons = (fixture.nativeElement as HTMLElement).querySelectorAll('button');
+      const labels = Array.from(buttons).map(b => (b.textContent ?? '').trim());
+      expect(labels).not.toContain('Cancel');
+    });
+  }
+
+  const cancelKinds: ReadonlyArray<{ label: string; kinds: string[]; expect: string }> = [
+    { label: 'targets', kinds: ['ChooseTargetsCommand'], expect: 'targets' },
+    { label: 'x',       kinds: ['ChooseXCommand'],       expect: 'x' },
+    { label: 'mode',    kinds: ['ChooseModeCommand'],    expect: 'mode' },
+    { label: 'mana',    kinds: ['ChooseManaCommand'],    expect: 'mana' },
+  ];
+
+  for (const { label, kinds, expect: expectedKind } of cancelKinds) {
+    it(`renders Cancel for "${label}" prompts (mid-spell-cast abort, CR 601.2)`, () => {
+      const me = player({ id: 'me', name: 'Alice' });
+      const opp = player({ id: 'opp', name: 'Bob' });
+      const state: GameState = { phase: 'PreCombatMain', turnNumber: 1, activePlayerId: 'me', players: [me, opp], stack: [], youPlayerId: null };
+
+      const { component, fixture } = mountOverlay(state, kinds, ['me']);
+      expect(component.kind()).toBe(expectedKind);
+      expect(component.showCancelButton()).toBe(true);
+
+      const buttons = (fixture.nativeElement as HTMLElement).querySelectorAll('button');
+      const labels = Array.from(buttons).map(b => (b.textContent ?? '').trim());
+      expect(labels).toContain('Cancel');
+    });
+  }
 
   it('moves focus to the first focusable element on mount (targets prompt)', async () => {
     // A11y: opening the prompt overlay should land focus inside the dialog
