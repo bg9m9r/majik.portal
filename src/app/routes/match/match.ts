@@ -26,7 +26,7 @@ import { PromptOverlayComponent, PromptDecision } from './components/prompt-over
 import { Router } from '@angular/router';
 import { ToastService } from '../../ui/toast.service';
 import {
-  BotDecision, CardSnapshot, GameCommand, GameState, Match, MatchError, PromptEnvelope
+  Ability, BotDecision, CardSnapshot, GameCommand, GameState, Match, MatchError, PromptEnvelope
 } from '../../core/match/match.types';
 import { ConnectionState } from '../../core/signalr/signalr.service';
 
@@ -134,7 +134,8 @@ import { ConnectionState } from '../../core/signalr/signalr.service';
                 (concedeClicked)="onConcede()"
                 (undoClicked)="onUndoRequested()"
                 (tapToggleRequested)="onTapToggleRequested($event)"
-                (activateManaRequested)="onActivateManaRequested($event)" />
+                (activateManaRequested)="onActivateManaRequested($event)"
+                (activateAbilityRequested)="onActivateAbilityRequested($event)" />
               @if (game.prompt(); as p) {
                 @if (game.isMyTurnPrompt()) {
                   <app-prompt-overlay
@@ -608,6 +609,18 @@ export class MatchPage implements OnInit, OnDestroy {
     });
   }
 
+  // Non-mana activated ability (e.g. Verdant Catacombs {T}, pay 1 life,
+  // sacrifice → search) → ActivateAbilityCommand. The board emits this
+  // only when the server has supplied an abilityId via AbilityDto.Id;
+  // until the companion core PR deploys the path is unreachable.
+  async onActivateAbilityRequested(req: { permanentInstanceId: string; abilityId: string }): Promise<void> {
+    await this.send({
+      $type: 'activateAbility',
+      permanentInstanceId: req.permanentInstanceId,
+      abilityId: req.abilityId,
+    });
+  }
+
   async onHandClicked(card: CardSnapshot): Promise<void> {
     // Hand-click semantics depend on the active prompt:
     //   * "Bottom" prompt → toggle is handled inside the overlay, this
@@ -887,10 +900,47 @@ export function shouldAutoSubmitRoll(
  * has stamped youPlayerId since Slice 2a; older builds / spectator views
  * leave it absent → null.
  */
+/**
+ * Normalise a single AbilityDto wire object to the portal's `Ability` type.
+ * Tolerates both PascalCase (`Id`, `Kind`, `Description`) and camelCase
+ * (`id`, `kind`, `description`) — mirrors the youPlayerId mapping pattern.
+ */
+function normaliseAbility(raw: unknown): Ability {
+  const a = raw as Record<string, unknown>;
+  return {
+    kind: String(a['kind'] ?? a['Kind'] ?? ''),
+    description: String(a['description'] ?? a['Description'] ?? ''),
+    id: (a['id'] ?? a['Id'] ?? null) as string | null,
+  };
+}
+
+/**
+ * Normalise a CardSnapshot wire object, mapping the abilities array (if
+ * present) so that each entry has a proper `id` field regardless of
+ * server casing.
+ */
+function normaliseCardSnapshot(raw: unknown): CardSnapshot {
+  const c = raw as Record<string, unknown>;
+  const abilities = (c['abilities'] ?? c['Abilities']) as unknown[] | undefined;
+  const base = raw as CardSnapshot;
+  if (!abilities) return base;
+  return { ...base, abilities: abilities.map(normaliseAbility) };
+}
+
 export function normaliseStateSnapshot(raw: unknown): GameState {
   const r = raw as Record<string, unknown>;
+  const base = raw as GameState;
+  // Normalise each player's zone card snapshots so ability ids are
+  // accessible regardless of server-side JSON casing.
+  const players = (base.players ?? []).map(p => ({
+    ...p,
+    battlefield: {
+      cards: (p.battlefield?.cards ?? []).map(normaliseCardSnapshot),
+    },
+  }));
   return {
-    ...(raw as GameState),
+    ...base,
+    players,
     youPlayerId: (r['youPlayerId'] ?? r['YouPlayerId'] ?? null) as string | null,
   };
 }

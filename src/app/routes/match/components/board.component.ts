@@ -338,6 +338,12 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
    * matching ActivateManaAbilityCommand.
    */
   readonly activateManaRequested = output<{ card: CardSnapshot; color: string }>();
+  /**
+   * Emitted when the viewer double-clicks a permanent that has a
+   * non-mana activated ability (e.g. Verdant Catacombs). The page
+   * translates this into an ActivateAbilityCommand.
+   */
+  readonly activateAbilityRequested = output<{ permanentInstanceId: string; abilityId: string }>();
 
   // Context-menu state. `activeContextCard` doubles as the visibility
   // flag — when null the menu hides. Position is the page coords of the
@@ -376,26 +382,54 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
   }
 
   /**
-   * Double-click on a self-owned battlefield permanent: tap it for
-   * mana. Single-color producers fire the activate command directly;
-   * multi-color producers open the inline color picker so the viewer
-   * can choose. Already-tapped or non-producer cards are ignored.
+   * Double-click on a self-owned battlefield permanent: activate a mana
+   * ability or a non-mana activated ability.
+   *
+   * Priority order:
+   *   1. Mana producers (producedManaColors non-empty) → ActivateManaAbilityCommand.
+   *      Single-color fires directly; multi-color opens the color picker.
+   *   2. Non-mana activated abilities (abilities[].kind === 'Activated' with an id)
+   *      → activateAbilityRequested (→ ActivateAbilityCommand).
+   *      For now we pick the FIRST matching entry; multi-ability picking is
+   *      TODO once the engine exposes a picker prompt.
+   *   3. Otherwise → no-op.
+   *
+   * Already-tapped permanents are ignored for both paths ({T} costs require
+   * an untapped permanent; the engine enforces this authoritatively).
+   *
+   * TODO: ability picker for multi-ability permanents
    */
   onSelfBattlefieldDoubleClick(card: CardSnapshot): void {
     if (card.tapped) return;
     const colors = card.producedManaColors ?? '';
-    if (colors.length === 0) return;
-    this.popover.hide();
-    if (colors.length === 1) {
-      this.activateManaRequested.emit({ card, color: colors });
+    if (colors.length > 0) {
+      // Mana-ability path (existing behaviour).
+      this.popover.hide();
+      if (colors.length === 1) {
+        this.activateManaRequested.emit({ card, color: colors });
+        return;
+      }
+      const grid = this.boardGridEl?.nativeElement;
+      const el = grid?.querySelector(
+        `.arena-side--self .battlefield-row [data-card-id="${card.instanceId}"]`
+      ) as HTMLElement | null;
+      if (!el) return;
+      this.manaPicker.set({ card, colors, anchorRect: el.getBoundingClientRect() });
       return;
     }
-    const grid = this.boardGridEl?.nativeElement;
-    const el = grid?.querySelector(
-      `.arena-side--self .battlefield-row [data-card-id="${card.instanceId}"]`
-    ) as HTMLElement | null;
-    if (!el) return;
-    this.manaPicker.set({ card, colors, anchorRect: el.getBoundingClientRect() });
+    // Non-mana activated-ability path. Requires the companion core PR to
+    // deploy AbilityDto.Id; until then `id` will be null/undefined and
+    // this branch is a safe no-op.
+    const activatedAbility = (card.abilities ?? []).find(
+      a => a.kind === 'Activated' && a.id != null
+    );
+    if (activatedAbility) {
+      // TODO: ability picker for multi-ability permanents
+      this.activateAbilityRequested.emit({
+        permanentInstanceId: card.instanceId,
+        abilityId: activatedAbility.id!,
+      });
+    }
   }
 
   onManaColorPicked(color: string): void {

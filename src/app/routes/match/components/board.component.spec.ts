@@ -1,10 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { ComponentRef, DebugElement } from '@angular/core';
 import { By } from '@angular/platform-browser';
 import { BoardComponent } from './board.component';
 import { CardViewComponent } from '../../../ui/card-view.component';
 import {
+  Ability,
   CardSnapshot,
   GamePlayer,
   GameState,
@@ -175,5 +176,171 @@ describe('BoardComponent — stack viewer trigger highlight', () => {
     expect(spell).toBeTruthy();
     expect(trigger!.classList.contains('stack-item--trigger')).toBe(true);
     expect(spell!.classList.contains('stack-item--trigger')).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// BoardComponent — onSelfBattlefieldDoubleClick: non-mana activated abilities
+//
+// Covers the Verdant Catacombs / fetchland use-case where a permanent has
+// abilities[].kind === 'Activated' with a server-supplied id but an empty
+// producedManaColors string.
+// ---------------------------------------------------------------------------
+
+function activatedAbility(id: string, description = 'Search your library'): Ability {
+  return { kind: 'Activated', description, id };
+}
+
+function permanentCard(over: Partial<CardSnapshot> & Pick<CardSnapshot, 'instanceId'>): CardSnapshot {
+  return {
+    instanceId: over.instanceId,
+    name: over.name ?? over.instanceId,
+    manaCost: over.manaCost ?? '',
+    types: over.types ?? ['Land'],
+    power: null,
+    toughness: null,
+    tapped: over.tapped ?? false,
+    summoningSickness: false,
+    producedManaColors: over.producedManaColors ?? '',
+    abilities: over.abilities,
+  };
+}
+
+function mountBoardWithCard(card: CardSnapshot) {
+  const me = {
+    id: 'me',
+    name: 'Alice',
+    life: 20,
+    mana: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0, generic: 0 },
+    hand: { cards: [] },
+    library: { cards: [] },
+    graveyard: { cards: [] },
+    exile: { cards: [] },
+    battlefield: { cards: [card] },
+  };
+  const opp = { ...me, id: 'opp', name: 'Bob', battlefield: { cards: [] } };
+  const state: GameState = {
+    phase: 'Main',
+    turnNumber: 1,
+    activePlayerId: 'me',
+    players: [me, opp],
+    stack: [],
+    youPlayerId: null,
+  };
+  TestBed.configureTestingModule({ imports: [BoardComponent] });
+  const fixture = TestBed.createComponent(BoardComponent);
+  const ref: ComponentRef<BoardComponent> = fixture.componentRef;
+  ref.setInput('state', state);
+  ref.setInput('selfPlayerIds', ['me']);
+  fixture.detectChanges();
+  return { component: fixture.componentInstance, fixture };
+}
+
+describe('BoardComponent — onSelfBattlefieldDoubleClick: non-mana activated ability', () => {
+  it('emits activateAbilityRequested (not activateManaRequested) for a non-mana permanent with an Activated ability id', () => {
+    const card = permanentCard({
+      instanceId: 'fetch-1',
+      abilities: [activatedAbility('abil-1', '{T}, Pay 1 life, Sacrifice: search')],
+    });
+    const { component } = mountBoardWithCard(card);
+    const activateAbilitySpy = vi.fn();
+    const activateManaSpy = vi.fn();
+    component.activateAbilityRequested.subscribe(activateAbilitySpy);
+    component.activateManaRequested.subscribe(activateManaSpy);
+
+    component.onSelfBattlefieldDoubleClick(card);
+
+    expect(activateAbilitySpy).toHaveBeenCalledOnce();
+    expect(activateAbilitySpy).toHaveBeenCalledWith({
+      permanentInstanceId: 'fetch-1',
+      abilityId: 'abil-1',
+    });
+    expect(activateManaSpy).not.toHaveBeenCalled();
+  });
+
+  it('emits activateManaRequested (not activateAbilityRequested) for a single-color mana producer', () => {
+    const card = permanentCard({
+      instanceId: 'forest-1',
+      producedManaColors: 'G',
+      abilities: [activatedAbility('abil-g', '{T}: Add {G}')],
+    });
+    const { component } = mountBoardWithCard(card);
+    const activateAbilitySpy = vi.fn();
+    const activateManaSpy = vi.fn();
+    component.activateAbilityRequested.subscribe(activateAbilitySpy);
+    component.activateManaRequested.subscribe(activateManaSpy);
+
+    component.onSelfBattlefieldDoubleClick(card);
+
+    expect(activateManaSpy).toHaveBeenCalledOnce();
+    expect(activateManaSpy).toHaveBeenCalledWith({ card, color: 'G' });
+    expect(activateAbilitySpy).not.toHaveBeenCalled();
+  });
+
+  it('is a no-op when the card is tapped (both paths suppressed)', () => {
+    const card = permanentCard({
+      instanceId: 'tapped-fetch',
+      tapped: true,
+      abilities: [activatedAbility('abil-1')],
+    });
+    const { component } = mountBoardWithCard(card);
+    const activateAbilitySpy = vi.fn();
+    const activateManaSpy = vi.fn();
+    component.activateAbilityRequested.subscribe(activateAbilitySpy);
+    component.activateManaRequested.subscribe(activateManaSpy);
+
+    component.onSelfBattlefieldDoubleClick(card);
+
+    expect(activateAbilitySpy).not.toHaveBeenCalled();
+    expect(activateManaSpy).not.toHaveBeenCalled();
+  });
+
+  it('is a no-op for a card with no abilities and no mana colors', () => {
+    const card = permanentCard({ instanceId: 'vanilla-1' }); // no abilities, no mana
+    const { component } = mountBoardWithCard(card);
+    const activateAbilitySpy = vi.fn();
+    const activateManaSpy = vi.fn();
+    component.activateAbilityRequested.subscribe(activateAbilitySpy);
+    component.activateManaRequested.subscribe(activateManaSpy);
+
+    component.onSelfBattlefieldDoubleClick(card);
+
+    expect(activateAbilitySpy).not.toHaveBeenCalled();
+    expect(activateManaSpy).not.toHaveBeenCalled();
+  });
+
+  it('is a no-op when the Activated ability has a null id (core PR not yet deployed)', () => {
+    const card = permanentCard({
+      instanceId: 'fetch-no-id',
+      abilities: [{ kind: 'Activated', description: 'search', id: null }],
+    });
+    const { component } = mountBoardWithCard(card);
+    const activateAbilitySpy = vi.fn();
+    component.activateAbilityRequested.subscribe(activateAbilitySpy);
+
+    component.onSelfBattlefieldDoubleClick(card);
+
+    expect(activateAbilitySpy).not.toHaveBeenCalled();
+  });
+
+  it('picks the first Activated ability with an id when multiple are present', () => {
+    const card = permanentCard({
+      instanceId: 'multi-ability',
+      abilities: [
+        { kind: 'Activated', description: 'first', id: 'id-first' },
+        { kind: 'Activated', description: 'second', id: 'id-second' },
+      ],
+    });
+    const { component } = mountBoardWithCard(card);
+    const activateAbilitySpy = vi.fn();
+    component.activateAbilityRequested.subscribe(activateAbilitySpy);
+
+    component.onSelfBattlefieldDoubleClick(card);
+
+    expect(activateAbilitySpy).toHaveBeenCalledOnce();
+    expect(activateAbilitySpy).toHaveBeenCalledWith({
+      permanentInstanceId: 'multi-ability',
+      abilityId: 'id-first',
+    });
   });
 });
