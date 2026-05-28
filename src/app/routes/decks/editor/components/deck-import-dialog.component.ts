@@ -75,7 +75,7 @@ export class DeckImportDialogComponent {
   private readonly api = inject(DeckApi);
 
   readonly apply = output<{ mainboard: DeckCardEntry[]; sideboard: DeckCardEntry[] }>();
-  readonly cancel = output<void>();
+  readonly cancelled = output<void>();
 
   readonly text = signal('');
   readonly parsing = signal(false);
@@ -119,6 +119,6 @@ export class DeckImportDialogComponent {
   }
 
   onCancel(): void {
-    this.cancel.emit();
+    this.cancelled.emit();
   }
 }

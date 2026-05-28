@@ -144,7 +144,7 @@ import { ConnectionState } from '../../core/signalr/signalr.service';
                     [prompt]="p"
                     [selfPlayerIds]="game.selfPlayerIds()"
                     (decision)="onPromptDecision($event)"
-                    (cancel)="onPromptCancel()"
+                    (cancelled)="onPromptCancel()"
                     (assignmentsChanged)="onAssignmentsChanged($event)" />
                 }
               }

@@ -444,7 +444,7 @@ import { bucketBattlefield, BattlefieldBuckets } from './bucket-battlefield';
           [card]="activeContextCard()"
           [position]="activeContextPos()"
           [canTap]="activeContextOwner() === 'self'"
-          (close)="closeContextMenu()"
+          (closed)="closeContextMenu()"
           (action)="onContextAction($event)" />
 
         @if (manaPicker(); as mp) {

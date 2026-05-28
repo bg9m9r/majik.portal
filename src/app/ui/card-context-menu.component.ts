@@ -82,7 +82,7 @@ export class CardContextMenuComponent {
    */
   readonly canTap = input<boolean>(false);
 
-  readonly close = output<void>();
+  readonly closed = output<void>();
   readonly action = output<CardContextMenuAction>();
 
   private readonly host = inject(ElementRef<HTMLElement>);
@@ -113,7 +113,7 @@ export class CardContextMenuComponent {
 
   emit(a: CardContextMenuAction): void {
     this.action.emit(a);
-    this.close.emit();
+    this.closed.emit();
   }
 
   /**
@@ -127,13 +127,13 @@ export class CardContextMenuComponent {
     if (!this.card()) return;
     const root = this.host.nativeElement;
     if (root && root.contains(event.target as Node)) return;
-    this.close.emit();
+    this.closed.emit();
   }
 
   /** Escape closes — keyboard parity for the menu. */
   @HostListener('document:keydown.escape')
   onEscape(): void {
     if (!this.card()) return;
-    this.close.emit();
+    this.closed.emit();
   }
 }

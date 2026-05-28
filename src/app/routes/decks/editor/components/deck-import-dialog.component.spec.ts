@@ -66,7 +66,7 @@ describe('DeckImportDialogComponent', () => {
   it('cancel emits cancel event', () => {
     const { fx } = render();
     let cancelled = false;
-    fx.componentInstance.cancel.subscribe(() => (cancelled = true));
+    fx.componentInstance.cancelled.subscribe(() => (cancelled = true));
     (fx.nativeElement.querySelector('button[data-action="cancel"]') as HTMLButtonElement).click();
     expect(cancelled).toBe(true);
   });
