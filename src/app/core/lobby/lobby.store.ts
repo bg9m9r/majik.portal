@@ -11,6 +11,7 @@ type LobbyState = {
   loading: boolean;
   error: MatchError | null;
   createError: MatchError | null;
+  createdMatchId: string | null;
 };
 
 const initial: LobbyState = {
@@ -18,6 +19,7 @@ const initial: LobbyState = {
   loading: false,
   error: null,
   createError: null,
+  createdMatchId: null,
 };
 
 export const LobbyStore = signalStore(
@@ -46,8 +48,9 @@ export const LobbyStore = signalStore(
             patchState(store, { createError: r.error });
             return [];
           }
-          // Success: clear createError, then refresh the list
-          patchState(store, { createError: null });
+          // Success: surface the new match id for navigation, clear createError
+          patchState(store, { createdMatchId: r.value.id, createError: null });
+          // Then refresh the list (errors are non-fatal)
           return from(svc.list()).pipe(
             tapResponse({
               next: listResult => {
@@ -61,6 +64,9 @@ export const LobbyStore = signalStore(
         })
       ))
     )),
+    clearCreatedMatchId(): void {
+      patchState(store, { createdMatchId: null });
+    },
   })),
   withHooks({
     onInit(store) { store.load(); },
