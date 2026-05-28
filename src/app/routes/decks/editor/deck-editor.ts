@@ -40,7 +40,7 @@ import { ZoneEditorComponent } from './components/zone-editor.component';
 
       <div class="grid grid-cols-[minmax(0,1fr)_320px] gap-6">
         <app-zone-editor />
-        <app-deck-info-panel (save)="onSave()" (cancel)="onCancel()" />
+        <app-deck-info-panel (save)="onSave()" (cancelled)="onCancel()" />
       </div>
 
       @if (poolOpen()) {
@@ -62,7 +62,7 @@ import { ZoneEditorComponent } from './components/zone-editor.component';
       @if (importOpen()) {
         <app-deck-import-dialog
           (apply)="onImportApply($event)"
-          (cancel)="importOpen.set(false)" />
+          (cancelled)="importOpen.set(false)" />
       }
     </main>
   `,

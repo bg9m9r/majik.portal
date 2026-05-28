@@ -47,7 +47,7 @@ import { ValidationPanelComponent } from './validation-panel.component';
         </button>
         <button type="button"
                 class="rounded border border-[color:var(--majik-line)] px-4 py-2 hover:border-white/40"
-                (click)="cancel.emit()">Cancel</button>
+                (click)="cancelled.emit()">Cancel</button>
       </div>
     </aside>
   `,
@@ -55,7 +55,7 @@ import { ValidationPanelComponent } from './validation-panel.component';
 export class DeckInfoPanelComponent {
   readonly store = inject(DeckEditorStore);
   readonly save = output<void>();
-  readonly cancel = output<void>();
+  readonly cancelled = output<void>();
 
   canSave(): boolean {
     return !this.store.saving() && this.store.name().trim().length > 0 && this.store.mainCount() > 0;

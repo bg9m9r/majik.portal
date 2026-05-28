@@ -398,7 +398,7 @@ export class PromptOverlayComponent implements AfterViewInit, OnDestroy {
   readonly selfPlayerIds = input<string[]>([]);
 
   readonly decision = output<PromptDecision>();
-  readonly cancel = output<void>();
+  readonly cancelled = output<void>();
 
   // Emit in-progress assignment state so the board can overlay SVG
   // combat lines on top of the battlefield. Keys mirror the wire DTO
@@ -649,7 +649,7 @@ export class PromptOverlayComponent implements AfterViewInit, OnDestroy {
 
   onCancel(): void {
     this.selected.set([]);
-    this.cancel.emit();
+    this.cancelled.emit();
   }
 
   // -----------------------------------------------------------------

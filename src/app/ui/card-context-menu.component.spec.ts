@@ -59,7 +59,7 @@ describe('CardContextMenuComponent', () => {
     const emitted: string[] = [];
     fixture.componentInstance.action.subscribe(a => emitted.push(a));
     const closeSpy: boolean[] = [];
-    fixture.componentInstance.close.subscribe(() => closeSpy.push(true));
+    fixture.componentInstance.closed.subscribe(() => closeSpy.push(true));
     const buttons = Array.from(fixture.nativeElement.querySelectorAll('button')) as HTMLButtonElement[];
     for (const b of buttons) b.click();
     expect(emitted).toEqual(['tap', 'details', 'scryfall']);
