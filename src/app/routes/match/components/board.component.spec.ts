@@ -323,6 +323,30 @@ describe('BoardComponent — onSelfBattlefieldDoubleClick: non-mana activated ab
     expect(activateAbilitySpy).not.toHaveBeenCalled();
   });
 
+  it('emits activateAbilityRequested for a non-mana permanent in the backline utility bucket (Planeswalker)', () => {
+    // Regression coverage for the zoned-layout refactor: an Activated
+    // ability on a non-creature non-land permanent (here a
+    // planeswalker) lives in .backline__utility, not .frontline. The
+    // (cardDoubleClick) handler must still fire from that zone — the
+    // template wires onSelfBattlefieldDoubleClick on every bucket.
+    const card = permanentCard({
+      instanceId: 'pw-1',
+      types: ['Planeswalker'],
+      abilities: [activatedAbility('pw-loyal-1', '+1: scry 1')],
+    });
+    const { component } = mountBoardWithCard(card);
+    const activateAbilitySpy = vi.fn();
+    component.activateAbilityRequested.subscribe(activateAbilitySpy);
+
+    component.onSelfBattlefieldDoubleClick(card);
+
+    expect(activateAbilitySpy).toHaveBeenCalledOnce();
+    expect(activateAbilitySpy).toHaveBeenCalledWith({
+      permanentInstanceId: 'pw-1',
+      abilityId: 'pw-loyal-1',
+    });
+  });
+
   it('picks the first Activated ability with an id when multiple are present', () => {
     const card = permanentCard({
       instanceId: 'multi-ability',
@@ -342,5 +366,219 @@ describe('BoardComponent — onSelfBattlefieldDoubleClick: non-mana activated ab
       permanentInstanceId: 'multi-ability',
       abilityId: 'id-first',
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// BoardComponent — zoned battlefield layout
+//
+// Frontline (creatures, incl. tokens + Artifact-/Enchantment-Creatures) sits
+// adjacent to the centerline. Backline splits lands LEFT / artifacts+
+// enchantments+planeswalkers RIGHT. Opp side is a vertical flip of self.
+// The whose-turn rim moves to the .battlefield wrapper so it encompasses
+// both rows together.
+// ---------------------------------------------------------------------------
+
+function permanent(instanceId: string, types: string[], over: Partial<CardSnapshot> = {}): CardSnapshot {
+  return {
+    instanceId,
+    name: over.name ?? instanceId,
+    manaCost: over.manaCost ?? '',
+    types,
+    power: over.power ?? null,
+    toughness: over.toughness ?? null,
+    tapped: over.tapped ?? false,
+    summoningSickness: false,
+    producedManaColors: over.producedManaColors ?? '',
+    abilities: over.abilities,
+  };
+}
+
+function mountBoardWithBattlefields(
+  selfCards: CardSnapshot[],
+  oppCards: CardSnapshot[],
+  opts: { activePlayerId?: string } = {},
+) {
+  const me = player({
+    id: 'me',
+    name: 'Alice',
+    battlefield: { cards: selfCards },
+  });
+  const opp = player({
+    id: 'opp',
+    name: 'Bob',
+    battlefield: { cards: oppCards },
+  });
+  const state: GameState = {
+    phase: 'Main',
+    turnNumber: 1,
+    activePlayerId: opts.activePlayerId ?? 'me',
+    players: [me, opp],
+    stack: [],
+    youPlayerId: null,
+  };
+  return mountBoard(state, ['me']);
+}
+
+describe('BoardComponent — zoned battlefield layout', () => {
+  it('routes each card to its bucketed zone (self side)', () => {
+    const creature = permanent('cr-1', ['Creature']);
+    const land = permanent('ld-1', ['Land']);
+    const artifact = permanent('art-1', ['Artifact']);
+    const enchant = permanent('enc-1', ['Enchantment']);
+    const pw = permanent('pw-1', ['Planeswalker']);
+    const artCreature = permanent('ac-1', ['Artifact', 'Creature']);
+    const { fixture } = mountBoardWithBattlefields(
+      [creature, land, artifact, enchant, pw, artCreature],
+      [],
+    );
+
+    const selfBattlefield = fixture.nativeElement.querySelector(
+      '.arena-side--self .battlefield',
+    ) as HTMLElement;
+    expect(selfBattlefield).toBeTruthy();
+
+    const frontIds = Array.from(
+      selfBattlefield.querySelectorAll('.frontline [data-card-id]'),
+    ).map(el => el.getAttribute('data-card-id'));
+    const landIds = Array.from(
+      selfBattlefield.querySelectorAll('.backline__lands [data-card-id]'),
+    ).map(el => el.getAttribute('data-card-id'));
+    const utilIds = Array.from(
+      selfBattlefield.querySelectorAll('.backline__utility [data-card-id]'),
+    ).map(el => el.getAttribute('data-card-id'));
+
+    expect(frontIds.sort()).toEqual(['ac-1', 'cr-1']);
+    expect(landIds).toEqual(['ld-1']);
+    expect(utilIds.sort()).toEqual(['art-1', 'enc-1', 'pw-1']);
+  });
+
+  it('renders empty zones gracefully — placeholder shows for a fully-empty side', () => {
+    const { fixture } = mountBoardWithBattlefields([], []);
+    const selfBattlefield = fixture.nativeElement.querySelector(
+      '.arena-side--self .battlefield',
+    ) as HTMLElement;
+    expect(selfBattlefield).toBeTruthy();
+    expect(selfBattlefield.textContent).toContain('your battlefield empty');
+
+    const oppBattlefield = fixture.nativeElement.querySelector(
+      '.arena-side--foe .battlefield',
+    ) as HTMLElement;
+    expect(oppBattlefield.textContent).toContain('opponent battlefield empty');
+  });
+
+  it('places .frontline before .backline in self side, and .backline before .frontline on opp side (vertical mirror)', () => {
+    const selfCreature = permanent('s-c', ['Creature']);
+    const selfLand = permanent('s-l', ['Land']);
+    const oppCreature = permanent('o-c', ['Creature']);
+    const oppLand = permanent('o-l', ['Land']);
+    const { fixture } = mountBoardWithBattlefields(
+      [selfCreature, selfLand],
+      [oppCreature, oppLand],
+    );
+
+    const selfBattlefield = fixture.nativeElement.querySelector(
+      '.arena-side--self .battlefield',
+    ) as HTMLElement;
+    const oppBattlefield = fixture.nativeElement.querySelector(
+      '.arena-side--foe .battlefield',
+    ) as HTMLElement;
+    expect(selfBattlefield).toBeTruthy();
+    expect(oppBattlefield).toBeTruthy();
+
+    // Direct children — first child = closer to the top of that side.
+    const selfChildren = Array.from(selfBattlefield.children).filter(
+      el => el.classList.contains('frontline') || el.classList.contains('backline'),
+    );
+    const oppChildren = Array.from(oppBattlefield.children).filter(
+      el => el.classList.contains('frontline') || el.classList.contains('backline'),
+    );
+
+    expect(selfChildren[0].classList.contains('frontline')).toBe(true);
+    expect(selfChildren[1].classList.contains('backline')).toBe(true);
+    // Opp = vertical flip: backline ON TOP, frontline ON BOTTOM.
+    expect(oppChildren[0].classList.contains('backline')).toBe(true);
+    expect(oppChildren[1].classList.contains('frontline')).toBe(true);
+  });
+
+  it('wraps both rows in the active-side rim (rim is on .battlefield, not per-row)', () => {
+    const { fixture } = mountBoardWithBattlefields(
+      [permanent('c', ['Creature']), permanent('l', ['Land'])],
+      [],
+      { activePlayerId: 'me' },
+    );
+    const selfBattlefield = fixture.nativeElement.querySelector(
+      '.arena-side--self .battlefield',
+    ) as HTMLElement;
+    expect(selfBattlefield.classList.contains('battlefield--active-self')).toBe(true);
+    // Inner rows must NOT carry the per-row rim class anymore.
+    const frontline = selfBattlefield.querySelector('.frontline') as HTMLElement;
+    const backline = selfBattlefield.querySelector('.backline') as HTMLElement;
+    expect(frontline?.classList.contains('battlefield-row--active-self')).toBe(false);
+    expect(backline?.classList.contains('battlefield-row--active-self')).toBe(false);
+  });
+
+  it('keeps a single self-battlefield droplist that wraps the whole zoned region', () => {
+    const { fixture } = mountBoardWithBattlefields([permanent('c', ['Creature'])], []);
+    const droplists = fixture.nativeElement.querySelectorAll('#self-battlefield-droplist');
+    expect(droplists.length).toBe(1);
+    // The single droplist is the .battlefield wrapper itself — its
+    // inner .frontline / .backline don't open new droplists.
+    expect(droplists[0].classList.contains('battlefield')).toBe(true);
+  });
+
+  it('still emits cardDoubleClick when activating a creature in the frontline', () => {
+    const creature = permanent('cr-mana', ['Creature'], { producedManaColors: 'G' });
+    const { fixture, component } = mountBoardWithBattlefields([creature], []);
+    const activateManaSpy = vi.fn();
+    component.activateManaRequested.subscribe(activateManaSpy);
+
+    // The creature is rendered inside .frontline — locate the card and
+    // dispatch the same dblclick event that <app-card-view> would emit.
+    const frontlineCard = fixture.nativeElement.querySelector(
+      '.arena-side--self .frontline [data-card-id="cr-mana"]',
+    ) as HTMLElement;
+    expect(frontlineCard).toBeTruthy();
+
+    // Use the component-level method directly (same wiring used by all
+    // four buckets) — keeps the assertion focused on the event path,
+    // not on simulating dblclick through Angular's event harness.
+    component.onSelfBattlefieldDoubleClick(creature);
+    expect(activateManaSpy).toHaveBeenCalledWith({ card: creature, color: 'G' });
+  });
+});
+
+describe('BoardComponent — collapsed stack chip', () => {
+  it('renders the stack as a corner chip (not a row), starting collapsed', () => {
+    const me = player({ id: 'me', name: 'Alice' });
+    const opp = player({ id: 'opp', name: 'Bob' });
+    const state: GameState = {
+      phase: 'Main',
+      turnNumber: 1,
+      activePlayerId: 'me',
+      players: [me, opp],
+      stack: [
+        { id: 's-spell', kind: 'Spell', description: 'Lightning Bolt' },
+      ],
+      youPlayerId: null,
+    };
+    const { fixture, component } = mountBoard(state, ['me']);
+
+    const chip = fixture.nativeElement.querySelector('.stack-chip') as HTMLElement;
+    expect(chip).toBeTruthy();
+    expect(chip.classList.contains('stack-chip--populated')).toBe(true);
+    // Collapsed by default — toggle aria-expanded reads false.
+    const toggle = chip.querySelector('.stack-chip__toggle') as HTMLElement;
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(component.stackExpanded()).toBe(false);
+
+    // Toggle opens the body.
+    component.toggleStack();
+    fixture.detectChanges();
+    expect(component.stackExpanded()).toBe(true);
+    expect(
+      (fixture.nativeElement.querySelector('.stack-chip__toggle') as HTMLElement)
+        .getAttribute('aria-expanded'),
+    ).toBe('true');
   });
 });
