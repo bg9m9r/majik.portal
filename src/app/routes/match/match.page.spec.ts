@@ -315,4 +315,23 @@ describe('MatchPage — resilience wiring', () => {
     expect(router.navigate).not.toHaveBeenCalled();
     expect(toast.current()?.message ?? '').not.toContain('Session expired');
   });
+
+  // --- onActivateAbilityRequested wiring ----------------------------
+
+  it('onActivateAbilityRequested sends { $type: activateAbility, permanentInstanceId, abilityId }', async () => {
+    const page = init();
+    await page.onActivateAbilityRequested({ permanentInstanceId: 'perm-1', abilityId: 'abil-1' });
+    expect(matchSvc.submitCommand).toHaveBeenCalledWith(
+      'm-1',
+      { $type: 'activateAbility', permanentInstanceId: 'perm-1', abilityId: 'abil-1' },
+    );
+  });
+
+  it('onActivateAbilityRequested toasts on command rejection', async () => {
+    const page = init();
+    matchSvc.submitCommand.mockResolvedValueOnce({ ok: false, error: { code: 'invalid-request', detail: 'ability not legal' } });
+    await page.onActivateAbilityRequested({ permanentInstanceId: 'perm-1', abilityId: 'abil-1' });
+    expect(toast.current()?.severity).toBe('error');
+    expect(toast.current()?.message).toContain('ability not legal');
+  });
 });

@@ -79,6 +79,16 @@ export interface MatchReplay {
 //      ripple typing churn into every UI consumer;
 //   2) the prompt envelope is delivered over SignalR and has no
 //      OpenAPI binding, so its shape lives here too.
+export interface Ability {
+  kind: string;
+  description: string;
+  // Nullable — absent on older server builds that predate AbilityDto.Id.
+  // Mirrors the youPlayerId nullable pattern: undefined/null both mean
+  // "id not yet supplied by the server"; code that consumes this field
+  // must guard for null/undefined before using it.
+  id: string | null;
+}
+
 export interface CardSnapshot {
   instanceId: string;
   name: string;
@@ -89,6 +99,10 @@ export interface CardSnapshot {
   tapped: boolean;
   summoningSickness: boolean;
   producedManaColors: string;
+  // Activated (and other) abilities on this permanent as reported by the
+  // engine's AbilityDto snapshot. Present on battlefield permanents once
+  // the companion core PR deploys; absent (undefined) on older snapshots.
+  abilities?: Ability[];
 }
 
 export interface ZoneSnapshot { cards: CardSnapshot[] }
@@ -166,6 +180,7 @@ export type GameCommand =
   | DeclareBlockersCommand
   | ChooseCardsToBottomCommand
   | ActivateManaAbilityCommand
+  | ActivateAbilityCommand
   | ChooseManaCommand
   | CancelCastCommand
   | ChooseLibraryPickCommand;
@@ -203,6 +218,11 @@ export interface ActivateManaAbilityCommand extends CmdBase {
   $type: 'activateManaAbility';
   permanentInstanceId: string;
   color: string;
+}
+export interface ActivateAbilityCommand extends CmdBase {
+  $type: 'activateAbility';
+  permanentInstanceId: string;
+  abilityId: string;
 }
 export interface ChooseManaCommand extends CmdBase {
   $type: 'mana';

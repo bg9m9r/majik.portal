@@ -377,6 +377,29 @@ describe('shouldAutoSubmitRoll — bot-match auto-roll guard', () => {
 // Resilience helpers (Slice 4c)
 // ---------------------------------------------------------------------
 
+// Helper to build a minimal raw state wire object with battlefield cards.
+function rawStateWithBattlefield(cards: unknown[], youPlayerId?: string): unknown {
+  return {
+    gameId: 'g',
+    phase: 'Main',
+    turnNumber: 1,
+    activePlayerId: 'p1',
+    youPlayerId: youPlayerId ?? null,
+    stack: [],
+    players: [
+      {
+        id: 'p1', name: 'Me', life: 20,
+        mana: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0, generic: 0 },
+        hand: { cards: [] },
+        library: { cards: [] },
+        graveyard: { cards: [] },
+        exile: { cards: [] },
+        battlefield: { cards },
+      },
+    ],
+  };
+}
+
 describe('normaliseStateSnapshot', () => {
   it('lifts a camelCase youPlayerId', () => {
     const s = normaliseStateSnapshot({ gameId: 'g', youPlayerId: 'p1' });
@@ -391,6 +414,38 @@ describe('normaliseStateSnapshot', () => {
   it('defaults youPlayerId to null when absent (spectator / older server)', () => {
     const s = normaliseStateSnapshot({ gameId: 'g' });
     expect(s.youPlayerId).toBeNull();
+  });
+
+  it('normalises camelCase ability id from battlefield card snapshot', () => {
+    const raw = rawStateWithBattlefield([{
+      instanceId: 'c1', name: 'Fetchland', manaCost: '', types: ['Land'],
+      power: null, toughness: null, tapped: false, summoningSickness: false,
+      producedManaColors: '',
+      abilities: [{ kind: 'Activated', description: 'Search', id: 'abil-1' }],
+    }]);
+    const s = normaliseStateSnapshot(raw);
+    expect(s.players[0].battlefield.cards[0].abilities?.[0].id).toBe('abil-1');
+  });
+
+  it('normalises PascalCase ability Id from battlefield card snapshot', () => {
+    const raw = rawStateWithBattlefield([{
+      instanceId: 'c1', name: 'Fetchland', manaCost: '', types: ['Land'],
+      power: null, toughness: null, tapped: false, summoningSickness: false,
+      producedManaColors: '',
+      abilities: [{ Kind: 'Activated', Description: 'Search', Id: 'abil-2' }],
+    }]);
+    const s = normaliseStateSnapshot(raw);
+    expect(s.players[0].battlefield.cards[0].abilities?.[0].id).toBe('abil-2');
+  });
+
+  it('leaves abilities undefined when server sends no abilities array (pre-companion-core)', () => {
+    const raw = rawStateWithBattlefield([{
+      instanceId: 'c1', name: 'Forest', manaCost: '', types: ['Land'],
+      power: null, toughness: null, tapped: false, summoningSickness: false,
+      producedManaColors: 'G',
+    }]);
+    const s = normaliseStateSnapshot(raw);
+    expect(s.players[0].battlefield.cards[0].abilities).toBeUndefined();
   });
 });
 
