@@ -2,6 +2,7 @@ import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Injectable, inject, signal } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { environment } from '../../../environments/environment';
+import { BotArchetypeDto } from '../api';
 import {
   CreateMatchRequest, GameCommand, GameState, JoinMatchRequest, Match,
   MatchError, MatchErrorCode, MatchReplay, PlayDrawRequest
@@ -20,6 +21,15 @@ export class MatchService {
   async list(): Promise<Result<Match[]>> {
     return this.req(() => firstValueFrom(
       this.http.get<Match[]>(`${this.base}?visibility=public`)));
+  }
+
+  // Selectable bot archetypes for the create-match wizard's dropdown.
+  // GET /matches/archetypes → [{ key, label }], where key is posted back
+  // in botOpponent.archetype and label is the spaced display name. Sourced
+  // from the server's BotDeckCatalog so the list stays in sync.
+  async listBotArchetypes(): Promise<Result<BotArchetypeDto[]>> {
+    return this.req(() => firstValueFrom(
+      this.http.get<BotArchetypeDto[]>(`${this.base}/archetypes`)));
   }
 
   async create(body: CreateMatchRequest): Promise<Result<Match>> {

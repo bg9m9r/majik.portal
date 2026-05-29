@@ -893,6 +893,29 @@
           }
         }
       }
+    },
+    "/matches/archetypes": {
+      "get": {
+        "tags": [
+          "Matches"
+        ],
+        "operationId": "ListBotArchetypes",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/BotArchetypeDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -2290,6 +2313,21 @@
             "items": {
               "$ref": "#/components/schemas/CardSnapshotDto"
             }
+          }
+        }
+      },
+      "BotArchetypeDto": {
+        "required": [
+          "key",
+          "label"
+        ],
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
           }
         }
       }

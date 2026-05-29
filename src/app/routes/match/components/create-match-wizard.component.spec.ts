@@ -3,6 +3,7 @@ import { provideRouter } from '@angular/router';
 import { describe, expect, it, beforeEach } from 'vitest';
 import { DecksStore } from '../../../core/deck/deck.store';
 import { Deck } from '../../../core/deck/deck.types';
+import { MatchService } from '../../../core/match/match.service';
 import { CreateMatchRequest } from '../../../core/match/match.types';
 import { CreateMatchWizardComponent } from './create-match-wizard.component';
 
@@ -10,12 +11,22 @@ const d = (id: string, name: string): Deck => ({
   id, ownerSub: 'u', name, mainboard: [], sideboard: [], createdAt: 't', updatedAt: 't',
 });
 
+const ARCHETYPES = [
+  { key: 'Burn', label: 'Burn' },
+  { key: 'Prowess', label: 'Prowess' },
+  { key: 'BorosEnergy', label: 'Boros Energy' },
+];
+
+// Flush the constructor's async archetype load (microtask + Promise chain).
+const flush = () => new Promise(r => setTimeout(r, 0));
+
 function render(decks: Deck[]) {
   TestBed.configureTestingModule({
     imports: [CreateMatchWizardComponent],
     providers: [
       provideRouter([]),
       { provide: DecksStore, useValue: { all: () => decks, count: () => decks.length } },
+      { provide: MatchService, useValue: { listBotArchetypes: async () => ({ ok: true, value: ARCHETYPES }) } },
     ],
   });
   const fx = TestBed.createComponent(CreateMatchWizardComponent);
@@ -50,13 +61,17 @@ describe('CreateMatchWizardComponent (deck dropdown)', () => {
     expect(captured?.deckId).toBe('b');
   });
 
-  it('shows bot archetype dropdown when vsBot toggled on', () => {
+  it('shows bot archetype dropdown with spaced labels when vsBot toggled on', async () => {
     const fx = render([d('a', 'Alpha')]);
+    await flush();
     fx.componentInstance.vsBot.set(true);
     fx.detectChanges();
     const sel = fx.nativeElement.querySelector('select[name="botArchetype"]') as HTMLSelectElement;
     expect(sel).not.toBeNull();
     expect(sel.options.length).toBeGreaterThanOrEqual(3);
+    // Server-supplied label is rendered (spaced), key is the option value.
+    const boros = Array.from(sel.options).find(o => o.value === 'BorosEnergy');
+    expect(boros?.text).toBe('Boros Energy');
   });
 
   it('emits create event with botOpponent set when vsBot is on', () => {
