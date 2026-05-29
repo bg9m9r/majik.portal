@@ -373,6 +373,28 @@ describe('MatchPage — resilience wiring', () => {
     expect(lastArgs[1].fullControl).toBe(true);
   });
 
+  it('bare Ctrl toggles Full Control; Meta (Win key) and Ctrl+modifier combos do not', () => {
+    const page = init();
+    const toggle = game.toggleFullControl as ReturnType<typeof vi.fn>;
+    const key = (init: KeyboardEventInit) =>
+      page.onDocumentKeydown(new KeyboardEvent('keydown', init));
+
+    // Bare Ctrl toggles.
+    key({ key: 'Control' });
+    expect(toggle).toHaveBeenCalledTimes(1);
+
+    // Meta (Windows/⌘) must NOT toggle — Win+Shift+S screenshot bug.
+    key({ key: 'Meta' });
+    key({ key: 'Meta', shiftKey: true });
+    // Ctrl with a co-modifier (combo, not the bare key) must NOT toggle.
+    key({ key: 'Control', shiftKey: true });
+    key({ key: 'Control', metaKey: true });
+    // OS auto-repeat must NOT re-fire.
+    key({ key: 'Control', repeat: true });
+
+    expect(toggle).toHaveBeenCalledTimes(1);
+  });
+
   it('prefs effect PUTs when phaseStops mutates', async () => {
     init();
     await vi.runOnlyPendingTimersAsync();

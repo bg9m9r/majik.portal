@@ -68,6 +68,11 @@
   flex-wrap: nowrap;
   overflow-x: auto;
   align-items: center;
+  // Start centered; new permanents append on the right, sliding the group
+  // left as it grows. `safe` falls back to flex-start once the row overflows
+  // the container so the leftmost cards stay reachable via horizontal scroll
+  // (plain `center` would clip + strand them).
+  justify-content: safe center;
   gap: var(--majik-space-2);
   min-height: var(--majik-card-h);
   height: calc(var(--majik-card-h) + (var(--majik-space-1) * 2));
