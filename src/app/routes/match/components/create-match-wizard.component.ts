@@ -1,7 +1,9 @@
 import { Component, computed, effect, inject, output, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
+import { BotArchetypeDto } from '../../../core/api';
 import { DecksStore } from '../../../core/deck/deck.store';
+import { MatchService } from '../../../core/match/match.service';
 import { ClockMinutes, CreateMatchRequest, MatchVisibility } from '../../../core/match/match.types';
 
 @Component({
@@ -38,8 +40,8 @@ import { ClockMinutes, CreateMatchRequest, MatchVisibility } from '../../../core
           <span class="majik-micro">Bot archetype</span>
           <select name="botArchetype" class="rounded border border-[color:var(--majik-line)] bg-black/30 px-3 py-2"
                   [ngModel]="botArchetype()" (ngModelChange)="botArchetype.set($event)">
-            @for (a of botArchetypes; track a) {
-              <option [value]="a">{{ a }}</option>
+            @for (a of botArchetypes(); track a.key) {
+              <option [value]="a.key">{{ a.label }}</option>
             }
           </select>
         </div>
@@ -87,6 +89,7 @@ import { ClockMinutes, CreateMatchRequest, MatchVisibility } from '../../../core
 })
 export class CreateMatchWizardComponent {
   readonly decks = inject(DecksStore);
+  private readonly matches = inject(MatchService);
   readonly create = output<CreateMatchRequest>();
 
   readonly visibilities: MatchVisibility[] = ['Public', 'Invite'];
@@ -97,7 +100,12 @@ export class CreateMatchWizardComponent {
   readonly clockMinutes = signal<ClockMinutes>(20);
   readonly vsBot = signal(false);
   readonly botArchetype = signal<string>('Burn');
-  readonly botArchetypes: readonly string[] = ['Burn', 'Prowess', 'BorosEnergy'];
+  // Populated from GET /matches/archetypes on init (key + spaced label).
+  // Seeded with a minimal fallback so the dropdown is never empty if the
+  // request is in flight or fails.
+  readonly botArchetypes = signal<BotArchetypeDto[]>([
+    { key: 'Burn', label: 'Burn' },
+  ]);
 
   readonly canSubmit = computed(() => this.deckId().trim().length > 0);
 
@@ -111,6 +119,21 @@ export class CreateMatchWizardComponent {
         this.deckId.set(all[0].id);
       }
     });
+
+    // Load the full archetype list (with spaced labels) from the server.
+    // Keeps the dropdown in sync with BotDeckCatalog; on failure we keep
+    // the fallback so the form still works.
+    void this.loadArchetypes();
+  }
+
+  private async loadArchetypes(): Promise<void> {
+    const res = await this.matches.listBotArchetypes();
+    if (res.ok && res.value.length > 0) {
+      this.botArchetypes.set(res.value);
+      if (!res.value.some(a => a.key === this.botArchetype())) {
+        this.botArchetype.set(res.value[0].key);
+      }
+    }
   }
 
   submit(evt: Event): void {
