@@ -728,13 +728,14 @@ export class MatchPage implements OnInit, OnDestroy {
   // ---------------- Keyboard shortcuts (Task 2) ----------------
   @HostListener('document:keydown', ['$event'])
   onDocumentKeydown(evt: KeyboardEvent): void {
-    // Full Control — press-once toggle on the bare Ctrl / Meta key.
-    // `evt.repeat` is filtered so OS auto-repeat doesn't fire the
-    // toggle multiple times while the key is held. Combination keys
-    // (Ctrl+R, Ctrl+Tab, Ctrl+digit) keep their normal browser
-    // behaviour because those keydowns surface as the OTHER key with
-    // `ctrlKey` set, not as `evt.key === 'Control'`.
-    if ((evt.key === 'Control' || evt.key === 'Meta') && !evt.repeat) {
+    // Full Control — press-once toggle on the bare Ctrl key. Bound to Ctrl
+    // ONLY (the MTGO full-control modifier), NOT Meta: the Windows/⌘ key is
+    // owned by OS shortcuts (e.g. Win+Shift+S screenshot), and a bare Meta
+    // keydown was spuriously toggling Full Control on. `evt.repeat` filters
+    // OS auto-repeat. Requiring no co-modifiers means combos (Ctrl+Shift+S,
+    // Ctrl+R, Ctrl+Tab) keep their normal behaviour and never toggle.
+    if (evt.key === 'Control' && !evt.repeat
+        && !evt.shiftKey && !evt.altKey && !evt.metaKey) {
       this.game.toggleFullControl();
     }
     dispatchMatchKey(evt, {
