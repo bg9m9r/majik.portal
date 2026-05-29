@@ -490,6 +490,12 @@ export class MatchPage implements OnInit, OnDestroy {
           // prompt kind; absent on older server builds (the modal won't
           // render until the companion core PR deploys).
           yesNoView: (raw['yesNoView'] ?? raw['YesNoView']) as PromptEnvelope['yesNoView'] | undefined,
+          // CR 701.15 — reveal-and-choose prompt envelope (Malevolent
+          // Rumble, Impulse, Sleight of Hand, See the Unwritten, …).
+          // Absent on every other prompt kind; absent on older server
+          // builds (the modal won't render until the companion core PR
+          // deploys).
+          revealView: (raw['revealView'] ?? raw['RevealView']) as PromptEnvelope['revealView'] | undefined,
         };
         this.game.setPrompt(envelope);
       });
@@ -793,6 +799,18 @@ export class MatchPage implements OnInit, OnDestroy {
         return {
           $type: 'chooseYesNo',
           answer: d.answer ?? false,
+        };
+      case 'revealPick':
+        // CR 701.15 — reveal-and-choose response (Malevolent Rumble,
+        // Impulse, Sleight of Hand, See the Unwritten, …). Null
+        // instanceId models the legal decline branch (only honoured by
+        // the server when the prompt was optional OR the eligible set
+        // was empty). Out-of-set IDs are coerced to decline + logged
+        // server-side rather than thrown so a stale or malicious pick
+        // can't crash a live match.
+        return {
+          $type: 'chooseFromRevealed',
+          instanceId: d.pickedInstanceId ?? null,
         };
       default:
         return null;

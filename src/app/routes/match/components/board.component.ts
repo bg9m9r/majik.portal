@@ -33,6 +33,8 @@ import {
 import { CardPopoverService } from '../../../ui/card-popover.service';
 import { ManaColorPickerComponent } from '../../../ui/mana-color-picker.component';
 import { bucketBattlefield, BattlefieldBuckets } from './bucket-battlefield';
+import { GraveyardPileComponent } from './graveyard-pile.component';
+import { GraveyardModalComponent } from './graveyard-modal.component';
 
 @Component({
   selector: 'app-board',
@@ -48,6 +50,8 @@ import { bucketBattlefield, BattlefieldBuckets } from './bucket-battlefield';
     CdkDropList,
     CdkDrag,
     CdkDragPlaceholder,
+    GraveyardPileComponent,
+    GraveyardModalComponent,
   ],
   // ----------------------------------------------------------------
   // Host display.
@@ -203,6 +207,18 @@ import { bucketBattlefield, BattlefieldBuckets } from './bucket-battlefield';
                 side="opponent"
                 label="opponent" />
               <app-mana-pool-row class="arena-strip__mana" [player]="opponent()" />
+              <!--
+                CR 706.2 — opponent's graveyard pile (public zone, browsable
+                by either player). Click → modal with the full pile.
+              -->
+              @if (opponent(); as opp) {
+                <app-graveyard-pile
+                  class="arena-strip__graveyard"
+                  [cards]="opp.graveyard.cards"
+                  ownerSide="opponent"
+                  [ownerName]="opp.name"
+                  (expand)="openGraveyard('opponent')" />
+              }
               <!--
                 Opponent hand (face-down). Server emits the opponent's
                 hand as N "(hidden)" placeholder cards via the per-viewer
@@ -397,6 +413,19 @@ import { bucketBattlefield, BattlefieldBuckets } from './bucket-battlefield';
                 side="self"
                 label="you" />
               <app-mana-pool-row class="arena-strip__mana" [player]="self()" />
+              <!--
+                CR 706.2 — your own graveyard pile. Click → modal with
+                the full pile. Read-only view (no graveyard-tutor /
+                regrowth wiring yet — separate slice).
+              -->
+              @if (self(); as me) {
+                <app-graveyard-pile
+                  class="arena-strip__graveyard"
+                  [cards]="me.graveyard.cards"
+                  ownerSide="self"
+                  [ownerName]="me.name"
+                  (expand)="openGraveyard('self')" />
+              }
             </div>
           </div>
 
@@ -506,6 +535,15 @@ import { bucketBattlefield, BattlefieldBuckets } from './bucket-battlefield';
             (colorSelected)="onManaColorPicked($event)"
             (dismiss)="closeManaPicker()" />
         }
+
+        <!-- CR 706.2 — graveyard browse modal. Whichever side's pile was
+             clicked drives ownerName / cards via openedGraveyard(). -->
+        @if (openedGraveyard(); as gy) {
+          <app-graveyard-modal
+            [ownerName]="gy.ownerName"
+            [cards]="gy.cards"
+            (closed)="closeGraveyard()" />
+        }
       </div>
     } @else {
       <p class="p-4 opacity-60">No game state.</p>
@@ -596,6 +634,27 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
   } | null>(null);
 
   private readonly popover = inject(CardPopoverService);
+
+  // CR 706.2 — currently-expanded graveyard pile. Null = no modal open.
+  // Stores the owner side so openedGraveyard() can re-derive the live
+  // cards / name from the current game state (so cards added while the
+  // modal is open appear without re-clicking).
+  private readonly openedGraveyardSide = signal<'self' | 'opponent' | null>(null);
+  readonly openedGraveyard = computed<{ ownerName: string; cards: CardSnapshot[] } | null>(() => {
+    const side = this.openedGraveyardSide();
+    if (!side) return null;
+    const player = side === 'self' ? this.self() : this.opponent();
+    if (!player) return null;
+    return { ownerName: player.name, cards: player.graveyard.cards };
+  });
+
+  openGraveyard(side: 'self' | 'opponent'): void {
+    this.openedGraveyardSide.set(side);
+  }
+
+  closeGraveyard(): void {
+    this.openedGraveyardSide.set(null);
+  }
 
   onContextMenu(event: MouseEvent, card: CardSnapshot, owner: 'self' | 'opponent'): void {
     event.preventDefault();

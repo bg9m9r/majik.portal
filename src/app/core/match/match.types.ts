@@ -189,6 +189,18 @@ export interface PromptEnvelope {
     noLabel?: string;
     sourceCardName?: string | null;
   };
+  // CR 701.15 — reveal-and-choose prompts (Malevolent Rumble, Impulse,
+  // Sleight of Hand, See the Unwritten, …). Ships the full revealed
+  // pile + the engine-filtered eligible InstanceIds + the optional
+  // flag. The portal highlights eligible cards / mutes non-eligibles
+  // and exposes Done + (when optional) Decline buttons. Null on every
+  // other prompt kind. Privacy: per-recipient SignalR routing.
+  revealView?: {
+    revealed: CardSnapshot[];
+    eligibleInstanceIds: string[];
+    optional: boolean;
+    label: string;
+  };
 }
 
 // Polymorphic GameCommand wire envelope — matches
@@ -211,7 +223,8 @@ export type GameCommand =
   | CancelCastCommand
   | ChooseLibraryPickCommand
   | ChooseSurveilCommand
-  | ChooseYesNoCommand;
+  | ChooseYesNoCommand
+  | ChooseFromRevealedCommand;
 
 interface CmdBase { playerId?: string }
 export interface PassPriorityCommand extends CmdBase { $type: 'pass' }
@@ -283,6 +296,16 @@ export interface ChooseSurveilCommand extends CmdBase {
 export interface ChooseYesNoCommand extends CmdBase {
   $type: 'chooseYesNo';
   answer: boolean;
+}
+// CR 701.15 — response to a reveal-and-choose prompt (Malevolent Rumble,
+// Impulse, Sleight of Hand, See the Unwritten, …). `instanceId` is the
+// picked eligible card or `null` to decline (only legal when the
+// prompt's revealView.optional flag is true OR no eligible cards exist).
+// Server coerces out-of-set ids to decline + logs rather than throwing
+// so a stale or malicious pick can't crash a live match.
+export interface ChooseFromRevealedCommand extends CmdBase {
+  $type: 'chooseFromRevealed';
+  instanceId: string | null;
 }
 
 // Bot decision envelope — mirrors server-side

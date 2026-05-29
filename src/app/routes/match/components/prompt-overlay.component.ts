@@ -43,6 +43,18 @@ interface PromptInfo {
     noLabel?: string;
     sourceCardName?: string | null;
   };
+  // CR 701.15 — reveal-and-choose prompts (Malevolent Rumble, Impulse,
+  // Sleight of Hand, See the Unwritten, …). Ships the FULL revealed
+  // pile (so the portal modal can show every card) plus the engine-
+  // filtered eligible InstanceIds (highlighted + clickable). Optional
+  // flag toggles the Decline button. Privacy: per-recipient SignalR
+  // routing (same as libraryView / surveilView).
+  revealView?: {
+    revealed: CardSnapshot[];
+    eligibleInstanceIds: string[];
+    optional: boolean;
+    label: string;
+  };
 }
 
 export type PromptKind =
@@ -58,6 +70,7 @@ export type PromptKind =
   | 'libraryPick'
   | 'surveil'
   | 'yesNo'
+  | 'revealPick'
   | 'none';
 
 export interface PromptDecision {
@@ -82,6 +95,10 @@ export interface PromptDecision {
   // CR 117.x / 605.1 — bool answer for an optional "may" prompt
   // (shock-land "pay 2 life?", future painlands / slowlands, etc.).
   answer?: boolean;
+  // CR 701.15 — id of the picked eligible card on a reveal-and-choose
+  // prompt, or `null` to decline (only legal when revealView.optional
+  // is true OR no eligible cards exist).
+  pickedInstanceId?: string | null;
 }
 
 interface CandidateCard {
@@ -107,6 +124,13 @@ export function detectKind(kinds: string[] | undefined): PromptKind {
   // discriminator if normalised); both must route to the dedicated
   // yes/no modal rather than fall through to a generic catch-all.
   if (ks.some(k => k.includes('yesno') || k.includes('chooseyesno'))) return 'yesNo';
+  // CR 701.15 — reveal-and-choose modal (Malevolent Rumble, Impulse,
+  // Sleight of Hand, See the Unwritten, …). Match BEFORE the generic
+  // 'targets' fallback so the server's literal "ChooseFromRevealedCommand"
+  // envelope routes to the dedicated reveal modal instead of being
+  // mis-detected as a targets prompt (the revealed cards aren't on the
+  // battlefield — the generic targets grid couldn't see them).
+  if (ks.some(k => k.includes('fromrevealed') || k.includes('choosefromrevealed') || k.includes('reveal-pick'))) return 'revealPick';
   if (ks.some(k => k.includes('attacker'))) return 'attackers';
   if (ks.some(k => k.includes('blocker'))) return 'blockers';
   if (ks.some(k => k.includes('target'))) return 'targets';
@@ -622,6 +646,94 @@ export function detectKind(kinds: string[] | undefined): PromptKind {
             </div>
           }
 
+          @case ('revealPick') {
+            <!--
+              CR 701.15 — reveal-and-choose modal. Server peeked the top
+              N of the caster's library (or any equivalent reveal) and
+              shipped them in revealView.revealed. Cards whose instanceId
+              is in revealView.eligibleInstanceIds are clickable +
+              highlighted; the rest are muted/non-clickable so the player
+              SEES every revealed card (CR 701.15 — revealed cards are
+              visible) while only legal picks are interactive.
+
+              When eligible is empty (no card matched the predicate —
+              "no permanent in the top 4" for Malevolent Rumble), only
+              Decline is enabled and the player acknowledges the failed
+              pick. When the prompt is optional ('you may'), the Decline
+              button is always rendered alongside the picker.
+            -->
+            <div class="flex flex-col gap-2 text-xs">
+              <span class="opacity-70">{{ revealPickLabel() }}</span>
+              @if (revealPickEligibleIds().size === 0) {
+                <span
+                  data-testid="reveal-pick-empty-banner"
+                  class="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-amber-200">
+                  No eligible card in the reveal — only decline is available.
+                </span>
+              }
+              <div class="max-h-96 overflow-y-auto rounded border border-white/10">
+                <div class="grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-2 p-2">
+                  @for (c of revealPickRevealed(); track c.instanceId) {
+                    @if (revealPickEligibleIds().has(c.instanceId)) {
+                      <button
+                        type="button"
+                        class="flex flex-col items-start rounded border px-2 py-1 text-left transition-colors"
+                        [class.border-amber-400]="selectedRevealInstanceId() === c.instanceId"
+                        [class.bg-amber-400/10]="selectedRevealInstanceId() === c.instanceId"
+                        [class.border-white/25]="selectedRevealInstanceId() !== c.instanceId"
+                        [class.hover:bg-white/10]="selectedRevealInstanceId() !== c.instanceId"
+                        [attr.data-eligible]="true"
+                        [attr.data-instance-id]="c.instanceId"
+                        (click)="selectRevealCandidate(c.instanceId)">
+                        <span class="font-medium leading-tight">{{ c.name }}</span>
+                        <span class="opacity-60">{{ c.manaCost }}</span>
+                        @if (c.power !== null && c.toughness !== null) {
+                          <span class="opacity-70">{{ c.power }}/{{ c.toughness }}</span>
+                        }
+                      </button>
+                    } @else {
+                      <div
+                        class="flex flex-col items-start rounded border border-white/10 px-2 py-1 opacity-30 cursor-not-allowed"
+                        [attr.data-muted]="true"
+                        [attr.data-instance-id]="c.instanceId"
+                        [attr.tabindex]="-1"
+                        title="not eligible">
+                        <span class="font-medium leading-tight">{{ c.name }}</span>
+                        <span class="opacity-60">{{ c.manaCost }}</span>
+                        @if (c.power !== null && c.toughness !== null) {
+                          <span class="opacity-70">{{ c.power }}/{{ c.toughness }}</span>
+                        }
+                      </div>
+                    }
+                  } @empty {
+                    <p class="col-span-full p-2 opacity-50">No cards were revealed.</p>
+                  }
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                @if (revealPickEligibleIds().size > 0) {
+                  <button
+                    type="button"
+                    data-testid="reveal-pick-confirm"
+                    class="rounded border border-amber-400 px-3 py-1 text-amber-300 hover:bg-amber-400/10 disabled:cursor-not-allowed disabled:opacity-40"
+                    [disabled]="!selectedRevealInstanceId()"
+                    (click)="confirmRevealPick()">
+                    Done
+                  </button>
+                }
+                @if (revealPickOptional() || revealPickEligibleIds().size === 0) {
+                  <button
+                    type="button"
+                    data-testid="reveal-pick-decline"
+                    class="rounded border border-white/20 px-3 py-1 text-white/80 hover:bg-white/10"
+                    (click)="confirmRevealPickDecline()">
+                    Decline
+                  </button>
+                }
+              </div>
+            </div>
+          }
+
           @case ('bottom') {
             <div class="flex flex-col gap-2 text-xs">
               <span class="opacity-70">Click cards to bottom them ({{ selected().length }} selected).</span>
@@ -699,6 +811,10 @@ export class PromptOverlayComponent implements AfterViewInit, OnDestroy {
   // signal-as-model glue.
   readonly selectedLibraryInstanceId = signal<string | null>(null);
   readonly libraryPickFilter = signal<string>('');
+
+  // CR 701.15 — reveal-and-choose picker state. selectedRevealInstanceId
+  // tracks the clicked eligible card; resets implicitly on next prompt.
+  readonly selectedRevealInstanceId = signal<string | null>(null);
 
   // CR 701.42 — surveil partition state. Maps a peeked card's instanceId
   // to 'graveyard' | 'top'. Cards not yet decided are absent (unset);
@@ -868,6 +984,19 @@ export class PromptOverlayComponent implements AfterViewInit, OnDestroy {
   readonly yesNoNoLabel = computed<string>(() =>
     this.prompt()?.yesNoView?.noLabel ?? 'No');
 
+  // CR 701.15 — reveal-and-choose computeds. Read off the prompt
+  // envelope's revealView block; default to empty when absent so the
+  // template renders defensively without crashing on a malformed
+  // prompt envelope.
+  readonly revealPickRevealed = computed<CardSnapshot[]>(() =>
+    this.prompt()?.revealView?.revealed ?? []);
+  readonly revealPickEligibleIds = computed<Set<string>>(() =>
+    new Set(this.prompt()?.revealView?.eligibleInstanceIds ?? []));
+  readonly revealPickOptional = computed<boolean>(() =>
+    this.prompt()?.revealView?.optional ?? false);
+  readonly revealPickLabel = computed<string>(() =>
+    this.prompt()?.revealView?.label ?? 'Pick a card.');
+
   titleFor(k: PromptKind): string {
     switch (k) {
       case 'targets': return 'Choose targets';
@@ -880,6 +1009,7 @@ export class PromptOverlayComponent implements AfterViewInit, OnDestroy {
       case 'mana': return 'Pay mana cost';
       case 'libraryPick': return 'Search your library';
       case 'surveil': return 'Surveil';
+      case 'revealPick': return 'Choose from revealed cards';
       case 'yesNo': {
         // Title the modal after the triggering permanent when the engine
         // provided one ("Overgrown Tomb"); fall back to a generic label
@@ -1000,6 +1130,31 @@ export class PromptOverlayComponent implements AfterViewInit, OnDestroy {
     this.decision.emit({ kind: 'libraryPick', selectedInstanceId: null });
     this.selectedLibraryInstanceId.set(null);
     this.libraryPickFilter.set('');
+  }
+
+  // CR 701.15 — reveal-and-choose picker handlers. Click toggles the
+  // selection (same UX as libraryPick); Done emits the picked id;
+  // Decline emits null. The brief explicitly forbids a Cancel button
+  // here (the reveal is mid-resolve, not mid-cast — no take-back).
+  selectRevealCandidate(id: string): void {
+    this.selectedRevealInstanceId.set(
+      this.selectedRevealInstanceId() === id ? null : id);
+  }
+
+  confirmRevealPick(): void {
+    const id = this.selectedRevealInstanceId();
+    if (!id) return;
+    this.decision.emit({ kind: 'revealPick', pickedInstanceId: id });
+    this.selectedRevealInstanceId.set(null);
+  }
+
+  confirmRevealPickDecline(): void {
+    // CR 116.1b — declining a 'you may' clause. Null pickedInstanceId
+    // is the wire shape for that branch; server resolves to no-op for
+    // the picked card (rest of the reveal still moves to the engine-
+    // specified rest destination).
+    this.decision.emit({ kind: 'revealPick', pickedInstanceId: null });
+    this.selectedRevealInstanceId.set(null);
   }
 
   // Compact "Creature — Elf Druid" type line for the picker rows. The
