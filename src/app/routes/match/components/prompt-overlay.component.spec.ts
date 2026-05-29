@@ -65,6 +65,7 @@ function mountOverlay(
       optional: boolean;
       label: string;
     };
+    bottomCount?: number;
   } = {},
 ) {
   TestBed.configureTestingModule({ imports: [PromptOverlayComponent] });
@@ -1351,5 +1352,66 @@ describe('PromptOverlayComponent — reveal-and-choose prompt (CR 701.15)', () =
     // Muted cards aren't <button>; they're <div> with no click handler.
     expect(muted!.tagName.toLowerCase()).toBe('div');
     expect(component.selectedRevealInstanceId()).toBeNull();
+  });
+});
+
+describe('PromptOverlayComponent — mulligan bottom', () => {
+  function bottomSetup(handCards: CardSnapshot[], bottomCount?: number) {
+    const me = player({ id: 'me', name: 'Alice', hand: { cards: handCards } });
+    const opp = player({ id: 'opp', name: 'Bob' });
+    const state: GameState = {
+      phase: 'Mulligan', turnNumber: 1, activePlayerId: 'me',
+      players: [me, opp], stack: [], youPlayerId: 'me',
+    };
+    return mountOverlay(state, ['ChooseCardsToBottomCommand'], ['me'], { bottomCount });
+  }
+
+  const hand = [
+    card({ instanceId: 'c1', name: 'Forest' }),
+    card({ instanceId: 'c2', name: 'Young Wolf' }),
+    card({ instanceId: 'c3', name: 'Endurance' }),
+  ];
+
+  it('routes to the bottom kind and titles with the count (singular)', () => {
+    const { component } = bottomSetup(hand, 1);
+    expect(component.kind()).toBe('bottom');
+    expect(component.requiredBottom()).toBe(1);
+    expect(component.titleFor('bottom')).toBe('Bottom 1 card');
+  });
+
+  it('pluralizes the title when count > 1', () => {
+    const { component } = bottomSetup(hand, 2);
+    expect(component.titleFor('bottom')).toBe('Bottom 2 cards');
+  });
+
+  it('enables confirm only at EXACTLY the required count; deselect re-disables', () => {
+    const { component } = bottomSetup(hand, 1);
+    expect(component.canConfirmBottom()).toBe(false);           // 0 selected
+    component.toggle('c1');
+    expect(component.canConfirmBottom()).toBe(true);            // exactly 1
+    component.toggle('c2');
+    expect(component.canConfirmBottom()).toBe(false);           // 2 > 1
+    component.toggle('c2');
+    expect(component.canConfirmBottom()).toBe(true);            // back to 1
+    component.toggle('c1');
+    expect(component.canConfirmBottom()).toBe(false);           // deselected → 0
+  });
+
+  it('marks the selection full at the cap so extra cards can be disabled', () => {
+    const { component } = bottomSetup(hand, 2);
+    expect(component.bottomSelectionFull()).toBe(false);
+    component.toggle('c1');
+    expect(component.bottomSelectionFull()).toBe(false);        // 1 < 2
+    component.toggle('c2');
+    expect(component.bottomSelectionFull()).toBe(true);         // 2 == 2 → cap
+  });
+
+  it('falls back gracefully when the server sends no count (older build)', () => {
+    const { component } = bottomSetup(hand, undefined);
+    expect(component.requiredBottom()).toBeNull();
+    expect(component.canConfirmBottom()).toBe(false);           // nothing selected
+    component.toggle('c1');
+    expect(component.canConfirmBottom()).toBe(true);            // any >0 selection
+    expect(component.bottomSelectionFull()).toBe(false);        // no cap without a count
   });
 });
