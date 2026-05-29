@@ -59,6 +59,12 @@ function mountOverlay(
       noLabel?: string;
       sourceCardName?: string | null;
     };
+    revealView?: {
+      revealed: CardSnapshot[];
+      eligibleInstanceIds: string[];
+      optional: boolean;
+      label: string;
+    };
   } = {},
 ) {
   TestBed.configureTestingModule({ imports: [PromptOverlayComponent] });
@@ -1220,5 +1226,130 @@ describe('PromptOverlayComponent — yes/no prompt (CR 117.x / 605.1)', () => {
     noBtn!.click();
 
     expect(captured).toEqual([{ kind: 'yesNo', answer: false }]);
+  });
+});
+
+// CR 701.15 — reveal-and-choose modal (Malevolent Rumble, Impulse,
+// Sleight of Hand, See the Unwritten, …). Engine ships the FULL reveal
+// pile + an eligible subset; portal highlights eligible / mutes the
+// rest, gives Done + (when optional) Decline. NO Cancel — the reveal is
+// mid-resolve, not mid-cast.
+describe('PromptOverlayComponent — reveal-and-choose prompt (CR 701.15)', () => {
+  function mountReveal(revealed: CardSnapshot[], eligibleIds: string[], optional: boolean, label = 'Permanent to put into hand') {
+    const me = player({ id: 'me', name: 'Alice' });
+    const opp = player({ id: 'opp', name: 'Bob' });
+    const state: GameState = {
+      phase: 'PreCombatMain', turnNumber: 3, activePlayerId: 'me',
+      players: [me, opp], stack: [], youPlayerId: null,
+    };
+    return mountOverlay(state, ['ChooseFromRevealedCommand'], ['me'], {
+      revealView: {
+        revealed,
+        eligibleInstanceIds: eligibleIds,
+        optional,
+        label,
+      },
+    });
+  }
+
+  it('detects revealPick kind from the server "ChooseFromRevealedCommand" envelope', () => {
+    const bear = card({ instanceId: 'bear', name: 'Bear' });
+    const { component } = mountReveal([bear], ['bear'], true);
+
+    expect(component.kind()).toBe('revealPick');
+    expect(component.titleFor(component.kind())).toBe('Choose from revealed cards');
+  });
+
+  it('renders every revealed card; eligible are interactive, non-eligible muted', () => {
+    const bear = card({ instanceId: 'bear', name: 'Bear', types: ['Creature'] });
+    const bolt = card({ instanceId: 'bolt', name: 'Bolt', types: ['Instant'] });
+    const { fixture } = mountReveal([bolt, bear], ['bear'], true);
+
+    const eligible = fixture.nativeElement.querySelectorAll('[data-eligible="true"]');
+    const muted = fixture.nativeElement.querySelectorAll('[data-muted="true"]');
+    expect(eligible.length).toBe(1);
+    expect(muted.length).toBe(1);
+    expect((eligible[0] as HTMLElement).getAttribute('data-instance-id')).toBe('bear');
+    expect((muted[0] as HTMLElement).getAttribute('data-instance-id')).toBe('bolt');
+  });
+
+  it('clicking an eligible card + Done emits chooseFromRevealed with that instanceId', () => {
+    const bear = card({ instanceId: 'bear', name: 'Bear' });
+    const { component, fixture } = mountReveal([bear], ['bear'], true);
+    const captured: PromptDecision[] = [];
+    component.decision.subscribe(d => captured.push(d));
+
+    const eligibleBtn = fixture.nativeElement.querySelector(
+      '[data-eligible="true"]') as HTMLButtonElement | null;
+    expect(eligibleBtn).not.toBeNull();
+    eligibleBtn!.click();
+    fixture.detectChanges();
+
+    const doneBtn = fixture.nativeElement.querySelector(
+      '[data-testid="reveal-pick-confirm"]') as HTMLButtonElement | null;
+    expect(doneBtn).not.toBeNull();
+    expect(doneBtn!.disabled).toBe(false);
+    doneBtn!.click();
+
+    expect(captured).toEqual([{ kind: 'revealPick', pickedInstanceId: 'bear' }]);
+  });
+
+  it('Decline button emits chooseFromRevealed with null instanceId when optional', () => {
+    const bear = card({ instanceId: 'bear', name: 'Bear' });
+    const { component, fixture } = mountReveal([bear], ['bear'], true);
+    const captured: PromptDecision[] = [];
+    component.decision.subscribe(d => captured.push(d));
+
+    const declineBtn = fixture.nativeElement.querySelector(
+      '[data-testid="reveal-pick-decline"]') as HTMLButtonElement | null;
+    expect(declineBtn).not.toBeNull();
+    declineBtn!.click();
+
+    expect(captured).toEqual([{ kind: 'revealPick', pickedInstanceId: null }]);
+  });
+
+  it('hides Decline when prompt is mandatory AND eligible non-empty', () => {
+    const bear = card({ instanceId: 'bear', name: 'Bear' });
+    const { fixture } = mountReveal([bear], ['bear'], /* optional */ false);
+
+    const declineBtn = fixture.nativeElement.querySelector(
+      '[data-testid="reveal-pick-decline"]') as HTMLButtonElement | null;
+    expect(declineBtn).toBeNull();
+  });
+
+  it('shows ONLY Decline when eligible is empty (even mandatory prompts)', () => {
+    const bolt = card({ instanceId: 'bolt', name: 'Bolt', types: ['Instant'] });
+    const { fixture } = mountReveal([bolt], [], /* optional */ false);
+
+    const declineBtn = fixture.nativeElement.querySelector(
+      '[data-testid="reveal-pick-decline"]') as HTMLButtonElement | null;
+    const doneBtn = fixture.nativeElement.querySelector(
+      '[data-testid="reveal-pick-confirm"]') as HTMLButtonElement | null;
+    expect(declineBtn).not.toBeNull();
+    expect(doneBtn).toBeNull();
+
+    const banner = fixture.nativeElement.querySelector(
+      '[data-testid="reveal-pick-empty-banner"]');
+    expect(banner).not.toBeNull();
+  });
+
+  it('Cancel button is hidden on revealPick (mid-resolve, not mid-cast)', () => {
+    const bear = card({ instanceId: 'bear', name: 'Bear' });
+    const { component } = mountReveal([bear], ['bear'], true);
+
+    expect(component.showCancelButton()).toBe(false);
+  });
+
+  it('clicking a muted (non-eligible) card does nothing', () => {
+    const bolt = card({ instanceId: 'bolt', name: 'Bolt', types: ['Instant'] });
+    const bear = card({ instanceId: 'bear', name: 'Bear' });
+    const { component, fixture } = mountReveal([bolt, bear], ['bear'], true);
+
+    const muted = fixture.nativeElement.querySelector(
+      '[data-muted="true"]') as HTMLElement | null;
+    expect(muted).not.toBeNull();
+    // Muted cards aren't <button>; they're <div> with no click handler.
+    expect(muted!.tagName.toLowerCase()).toBe('div');
+    expect(component.selectedRevealInstanceId()).toBeNull();
   });
 });
