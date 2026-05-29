@@ -201,6 +201,10 @@ export interface PromptEnvelope {
     optional: boolean;
     label: string;
   };
+  // London mulligan — number of cards to put on the bottom (= mulligans
+  // taken). Drives the "Bottom N card(s)" label + exact-N confirm gate.
+  // Absent on non-mulligan prompts and on older server builds.
+  bottomCount?: number;
 }
 
 // Polymorphic GameCommand wire envelope — matches

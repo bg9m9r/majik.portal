@@ -496,6 +496,7 @@ export class MatchPage implements OnInit, OnDestroy {
           // builds (the modal won't render until the companion core PR
           // deploys).
           revealView: (raw['revealView'] ?? raw['RevealView']) as PromptEnvelope['revealView'] | undefined,
+          bottomCount: (raw['bottomCount'] ?? raw['BottomCount']) as number | undefined,
         };
         this.game.setPrompt(envelope);
       });

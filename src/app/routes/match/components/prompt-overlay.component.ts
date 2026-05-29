@@ -55,6 +55,10 @@ interface PromptInfo {
     optional: boolean;
     label: string;
   };
+  // London mulligan — number of cards the player must put on the bottom
+  // (= mulligans taken). Drives the "Bottom N card(s)" label and gates the
+  // confirm button to exactly N selected. Absent on every other prompt.
+  bottomCount?: number;
 }
 
 export type PromptKind =
@@ -736,15 +740,20 @@ export function detectKind(kinds: string[] | undefined): PromptKind {
 
           @case ('bottom') {
             <div class="flex flex-col gap-2 text-xs">
-              <span class="opacity-70">Click cards to bottom them ({{ selected().length }} selected).</span>
+              @if (requiredBottom(); as need) {
+                <span class="opacity-70">Put {{ need }} card{{ need === 1 ? '' : 's' }} on the bottom ({{ selected().length }}/{{ need }} selected).</span>
+              } @else {
+                <span class="opacity-70">Click cards to bottom them ({{ selected().length }} selected).</span>
+              }
               <div class="grid grid-cols-3 gap-2">
                 @for (c of selfHand(); track c.instanceId) {
                   <button
                     type="button"
-                    class="rounded border px-2 py-1 text-left"
+                    class="rounded border px-2 py-1 text-left disabled:opacity-40 disabled:cursor-not-allowed"
                     [class.border-amber-400]="isSelected(c.instanceId)"
                     [class.bg-amber-400/10]="isSelected(c.instanceId)"
                     [class.border-white/15]="!isSelected(c.instanceId)"
+                    [disabled]="!isSelected(c.instanceId) && bottomSelectionFull()"
                     (click)="toggle(c.instanceId)">
                     {{ c.name }}
                   </button>
@@ -754,7 +763,8 @@ export function detectKind(kinds: string[] | undefined): PromptKind {
               </div>
               <button
                 type="button"
-                class="self-start rounded border border-amber-400 px-3 py-1 text-amber-300 hover:bg-amber-400/10"
+                class="self-start rounded border border-amber-400 px-3 py-1 text-amber-300 hover:bg-amber-400/10 disabled:opacity-40 disabled:cursor-not-allowed"
+                [disabled]="!canConfirmBottom()"
                 (click)="confirmBottom()">
                 Confirm bottoming
               </button>
@@ -824,6 +834,30 @@ export class PromptOverlayComponent implements AfterViewInit, OnDestroy {
   readonly surveilDecisions = signal<Record<string, 'graveyard' | 'top'>>({});
 
   readonly kind = computed<PromptKind>(() => detectKind(this.prompt()?.expectedKinds));
+
+  // Required number of cards to bottom (London mulligan). Null when the
+  // server didn't send a count (older build / transient deploy window) —
+  // the bottom UI then falls back to "any non-zero selection".
+  readonly requiredBottom = computed<number | null>(() => {
+    const n = this.prompt()?.bottomCount;
+    return typeof n === 'number' && n > 0 ? n : null;
+  });
+
+  // Confirm-bottoming is enabled only when EXACTLY the required number of
+  // cards is selected; deselecting back below N re-disables it. With no
+  // server count, fall back to "at least one selected".
+  readonly canConfirmBottom = computed<boolean>(() => {
+    const need = this.requiredBottom();
+    const n = this.selected().length;
+    return need === null ? n > 0 : n === need;
+  });
+
+  // True once the selection has hit the required count — used to disable
+  // not-yet-selected cards so the player can't pick more than N.
+  readonly bottomSelectionFull = computed<boolean>(() => {
+    const need = this.requiredBottom();
+    return need !== null && this.selected().length >= need;
+  });
 
   /**
    * CR 601.2 — the cast of a spell can be aborted at any sub-step up to
@@ -1003,7 +1037,10 @@ export class PromptOverlayComponent implements AfterViewInit, OnDestroy {
       case 'mulligan': return 'Mulligan?';
       case 'x': return 'Choose X';
       case 'mode': return 'Choose mode';
-      case 'bottom': return 'Bottom cards';
+      case 'bottom': {
+        const n = this.requiredBottom();
+        return n === null ? 'Bottom cards' : `Bottom ${n} card${n === 1 ? '' : 's'}`;
+      }
       case 'attackers': return 'Declare attackers';
       case 'blockers': return 'Declare blockers';
       case 'mana': return 'Pay mana cost';
@@ -1315,7 +1352,7 @@ export class PromptOverlayComponent implements AfterViewInit, OnDestroy {
         this.confirmBlockers();
         return true;
       case 'bottom':
-        if (this.selected().length === 0) return false;
+        if (!this.canConfirmBottom()) return false;
         this.confirmBottom();
         return true;
       default:
