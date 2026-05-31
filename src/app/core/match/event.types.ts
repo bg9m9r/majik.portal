@@ -15,12 +15,18 @@ export interface RawEventDto {
   type?: string; Type?: string;
   at?: string; At?: string;
   payload?: unknown; Payload?: unknown;
+  // PLAN 04 — per-game monotonic sequence number. Absent on a pre-seq
+  // (pre-deploy) server, in which case it normalises to 0 and the seq gates
+  // degrade to the prior always-accept behaviour.
+  seq?: number; Seq?: number;
 }
 
 export interface NormalisedEventDto {
   eventId: string;
   type: string;
   payload: Record<string, unknown>;
+  // PLAN 04 — the event's seq (0 when the server omits it).
+  seq: number;
 }
 
 export function normaliseEvent(raw: unknown): NormalisedEventDto | null {
@@ -30,7 +36,9 @@ export function normaliseEvent(raw: unknown): NormalisedEventDto | null {
   if (!type || typeof type !== 'string') return null;
   const payload = (r.payload ?? r.Payload ?? {}) as Record<string, unknown>;
   const eventId = String(r.eventId ?? r.EventId ?? '');
-  return { eventId, type, payload };
+  const seqRaw = r.seq ?? r.Seq;
+  const seq = typeof seqRaw === 'number' && Number.isFinite(seqRaw) ? seqRaw : 0;
+  return { eventId, type, payload, seq };
 }
 
 // Convenience helpers for payload reads — payload keys are camelCase on

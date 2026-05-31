@@ -229,16 +229,19 @@ describe('MatchPage — resilience wiring', () => {
     expect(lastCall?.[0]?.youPlayerId).toBe('p9');
   });
 
-  // --- Important 3: single-writer reconnect resync ------------------
+  // --- reconnect resync (PLAN 04: seq-gated, not single-writer) ------
   //
   // JoinMatch is NOT re-invoked on SignalR auto-reconnect (the client's
   // onreconnected handler only resets latches; withAutomaticReconnect()
   // does not replay hub invocations). The server pushes the "state"
   // snapshot only in response to JoinMatch — so on reconnect the snapshot
-  // does NOT arrive. The single authoritative reconnect resync is the
-  // connecting→open /state refetch; state$ must NOT also write setState
-  // during the reconnect window (it would let a stale buffered snapshot
-  // flap the board backward). state$ still seeds the INITIAL join.
+  // does NOT arrive. The connecting→open /state refetch performs the
+  // reconnect resync. PLAN 04 — the page no longer suppresses state$ writes
+  // during the reconnect window (the old reconnectResyncOwnsState flag is
+  // gone); instead the monotonic seq gate in GameStore.setState drops any
+  // snapshot whose seq is older than the current state. So state$ feeds
+  // setState unconditionally and ordering safety lives in the store (see
+  // game.store.spec — "GameStore seq gate").
 
   it('a connecting→open transition while Playing re-fetches /state', async () => {
     const page = init();
@@ -258,7 +261,7 @@ describe('MatchPage — resilience wiring', () => {
     expect(matchSvc.getState.mock.calls.length).toBeGreaterThan(before);
   });
 
-  it('reconnect resync uses a SINGLE writer — state$ does not also flap setState', async () => {
+  it('feeds state$ snapshots to setState unconditionally (seq gate owns ordering — PLAN 04)', async () => {
     const page = init();
     page.ngOnInit();
     await vi.runOnlyPendingTimersAsync();
@@ -270,23 +273,25 @@ describe('MatchPage — resilience wiring', () => {
     const setStateAfterInitial = game.setState.mock.calls.length;
     const getStateBefore = matchSvc.getState.mock.calls.length;
 
-    // Reconnect: connecting → open. The /state refetch is the ONE writer.
+    // Reconnect: connecting → open triggers the /state refetch.
     stateSig.set('connecting');
     TestBed.tick();
-    // A late/stale buffered snapshot lands on state$ DURING the reconnect
-    // window — it must NOT reach setState (no backward flap).
-    state$.next({ gameId: 'g-1', YouPlayerId: 'STALE' });
+    // A buffered snapshot lands on state$ during the reconnect window. PLAN
+    // 04 — the page no longer suppresses it; it IS forwarded to setState.
+    // Whether it actually mutates the board is decided by the store's seq
+    // gate (covered in game.store.spec), not by the page.
+    state$.next({ gameId: 'g-1', YouPlayerId: 'LATE' });
     stateSig.set('open');
     TestBed.tick();
     await vi.runOnlyPendingTimersAsync();
 
-    // Exactly one resync writer fired on reconnect: the /state refetch.
+    // The /state refetch still runs on reconnect.
     expect(matchSvc.getState.mock.calls.length).toBe(getStateBefore + 1);
-    // The stale state$ push did NOT write setState.
-    const staleWrites = (game.setState.mock.calls as any[])
+    // The state$ push WAS forwarded to setState (no page-level suppression).
+    const lateWrites = (game.setState.mock.calls as any[])
       .slice(setStateAfterInitial)
-      .filter((c: any[]) => c[0]?.youPlayerId === 'STALE');
-    expect(staleWrites).toHaveLength(0);
+      .filter((c: any[]) => c[0]?.youPlayerId === 'LATE');
+    expect(lateWrites.length).toBeGreaterThanOrEqual(1);
   });
 
   // --- session expiry recovery --------------------------------------

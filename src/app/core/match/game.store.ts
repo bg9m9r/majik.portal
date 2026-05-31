@@ -217,16 +217,31 @@ export const GameStore = signalStore(
   })),
   withMethods((store) => ({
     setState(next: GameState | null): void {
-      patchState(store, s => ({
-        state: next,
-        stateVersion: s.stateVersion + 1,
-        // When the snapshot carries an authoritative youPlayerId (set by
-        // the server since Slice 2a), use it to derive selfPlayerIds.
-        // Fall back to the existing selfPlayerIds when the snapshot lacks
-        // the field (e.g. spectator view, older server). Never clear on
-        // a null snapshot — reset() is the explicit teardown path.
-        selfPlayerIds: next?.youPlayerId ? [next.youPlayerId] : s.selfPlayerIds,
-      }));
+      patchState(store, s => {
+        // PLAN 04 — drop a stale snapshot. If we already hold a state with a
+        // newer seq, a later-arriving older snapshot (e.g. a slow /state
+        // response that lost a race with a fresh event-driven patch) must NOT
+        // clobber it. Only gate when BOTH seqs are meaningfully present
+        // (> 0); a 0 on either side means the server omitted seq (pre-deploy)
+        // and we degrade to the prior always-accept behaviour. A null
+        // snapshot always applies (explicit clear path).
+        const cur = s.state;
+        const nextSeq = next?.seq ?? 0;
+        const curSeq = cur?.seq ?? 0;
+        if (next && cur && nextSeq > 0 && curSeq > 0 && nextSeq < curSeq) {
+          return {};
+        }
+        return {
+          state: next,
+          stateVersion: s.stateVersion + 1,
+          // When the snapshot carries an authoritative youPlayerId (set by
+          // the server since Slice 2a), use it to derive selfPlayerIds.
+          // Fall back to the existing selfPlayerIds when the snapshot lacks
+          // the field (e.g. spectator view, older server). Never clear on
+          // a null snapshot — reset() is the explicit teardown path.
+          selfPlayerIds: next?.youPlayerId ? [next.youPlayerId] : s.selfPlayerIds,
+        };
+      });
     },
     setSelfPlayerIds(ids: string[]): void {
       patchState(store, { selfPlayerIds: ids });
@@ -254,6 +269,20 @@ export const GameStore = signalStore(
       if (!evt) return false;
       const current = store.state();
       if (!current) return false;
+      // PLAN 04 — seq gate. Only engages when BOTH the event and the current
+      // snapshot carry a meaningful seq (> 0); a 0 on either side means the
+      // server omitted seq (pre-deploy) and we fall through to the legacy
+      // unconditional apply path so behaviour is unchanged.
+      //   * evt.seq <= current.seq  → already folded in (duplicate / stale):
+      //       success no-op (do NOT re-apply, do NOT refetch).
+      //   * evt.seq === current.seq + 1 → the next contiguous event: apply.
+      //   * evt.seq >  current.seq + 1 → a gap (we missed an event): return
+      //       false so the caller refetches /state and resyncs.
+      const currentSeq = current.seq ?? 0;
+      if (evt.seq > 0 && currentSeq > 0) {
+        if (evt.seq <= currentSeq) return true;
+        if (evt.seq > currentSeq + 1) return false;
+      }
       // Lands-played-this-turn bookkeeping runs regardless of whether the
       // structural patch below succeeds — TurnStartedEvent and viewer
       // land drops are both observable from the event payload alone, and
@@ -269,9 +298,14 @@ export const GameStore = signalStore(
         }
         return false;
       }
-      const announcement = announcementFor(evt, current, next, store.selfPlayerIds());
+      // PLAN 04 — advance the snapshot's seq to the applied event's seq so the
+      // gate's current.seq tracks the latest folded-in event. When evt.seq is
+      // 0 (pre-deploy server) we keep the patched state's seq (0), preserving
+      // the always-accept degradation.
+      const advanced: GameState = evt.seq > 0 ? { ...next, seq: evt.seq } : next;
+      const announcement = announcementFor(evt, current, advanced, store.selfPlayerIds());
       patchState(store, s => {
-        const base: Partial<GameStoreState> = { state: next, stateVersion: s.stateVersion + 1 };
+        const base: Partial<GameStoreState> = { state: advanced, stateVersion: s.stateVersion + 1 };
         if (landsDelta !== null) {
           base.landsPlayedThisTurn = applyLandsDelta(s.landsPlayedThisTurn, landsDelta);
         }
