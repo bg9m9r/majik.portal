@@ -6,7 +6,7 @@
   },
   "servers": [
     {
-      "url": "https://majik-api.onrender.com/"
+      "url": "http://localhost/"
     }
   ],
   "paths": {
@@ -337,6 +337,29 @@
         }
       }
     },
+    "/matches/archetypes": {
+      "get": {
+        "tags": [
+          "Matches"
+        ],
+        "operationId": "ListBotArchetypes",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/BotArchetypeDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/matches/{id}": {
       "get": {
         "tags": [
@@ -533,6 +556,40 @@
         }
       }
     },
+    "/matches/{id}/me/prefs": {
+      "put": {
+        "tags": [
+          "Matches"
+        ],
+        "operationId": "SetAutoPassPrefs",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AutoPassPrefs"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/matches/{id}/state": {
       "get": {
         "tags": [
@@ -638,6 +695,46 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/MatchError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/matches/_eventschemas": {
+      "get": {
+        "tags": [
+          "Matches"
+        ],
+        "operationId": "GetEventPayloadSchemas",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventPayloadCatalog"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/matches/_promptschema": {
+      "get": {
+        "tags": [
+          "Matches"
+        ],
+        "operationId": "GetPromptSchema",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromptDto"
                 }
               }
             }
@@ -893,29 +990,6 @@
           }
         }
       }
-    },
-    "/matches/archetypes": {
-      "get": {
-        "tags": [
-          "Matches"
-        ],
-        "operationId": "ListBotArchetypes",
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/BotArchetypeDto"
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
     }
   },
   "components": {
@@ -932,6 +1006,13 @@
           },
           "description": {
             "type": "string"
+          },
+          "id": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
           }
         }
       },
@@ -952,6 +1033,24 @@
           }
         }
       },
+      "AutoPassPrefs": {
+        "required": [
+          "fullControl",
+          "phaseStops"
+        ],
+        "type": "object",
+        "properties": {
+          "fullControl": {
+            "type": "boolean"
+          },
+          "phaseStops": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "BlockerDeclarationDto": {
         "required": [
           "blockerInstanceId",
@@ -966,6 +1065,21 @@
           "attackerInstanceId": {
             "type": "string",
             "format": "uuid"
+          }
+        }
+      },
+      "BotArchetypeDto": {
+        "required": [
+          "key",
+          "label"
+        ],
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
           }
         }
       },
@@ -1038,6 +1152,52 @@
           }
         }
       },
+      "CardDrawnPayload": {
+        "required": [
+          "playerId"
+        ],
+        "type": "object",
+        "properties": {
+          "playerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "cardId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "cardName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "manaCost": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "types": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "hidden": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          }
+        }
+      },
       "CardDto": {
         "required": [
           "name",
@@ -1105,6 +1265,150 @@
               "null",
               "string"
             ]
+          }
+        }
+      },
+      "CardMovedPayload": {
+        "required": [
+          "from",
+          "to"
+        ],
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "ownerId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "cardId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "cardName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "manaCost": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "types": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "power": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "toughness": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "tapped": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "summoningSickness": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "abilities": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/AbilityDto"
+            }
+          },
+          "producedManaColors": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "counters": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "additionalProperties": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          "hidden": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          }
+        }
+      },
+      "CardRevealedPayload": {
+        "required": [
+          "cardId",
+          "cardName",
+          "playerId",
+          "from",
+          "reason"
+        ],
+        "type": "object",
+        "properties": {
+          "cardId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "cardName": {
+            "type": "string"
+          },
+          "playerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "from": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
           }
         }
       },
@@ -1202,6 +1506,52 @@
           "producedManaColors": {
             "type": "string",
             "default": ""
+          },
+          "counters": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "additionalProperties": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          }
+        }
+      },
+      "CounterAddedPayload": {
+        "required": [
+          "targetInstanceId",
+          "counterType",
+          "amount"
+        ],
+        "type": "object",
+        "properties": {
+          "targetInstanceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "counterType": {
+            "type": "string"
+          },
+          "amount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "controllerId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
           }
         }
       },
@@ -1266,6 +1616,40 @@
                 "$ref": "#/components/schemas/BotOpponentRequest"
               }
             ]
+          }
+        }
+      },
+      "DamageDealtPayload": {
+        "required": [
+          "sourceInstanceId",
+          "targetInstanceId",
+          "targetIsPlayer",
+          "amount",
+          "damageType"
+        ],
+        "type": "object",
+        "properties": {
+          "sourceInstanceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "targetInstanceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "targetIsPlayer": {
+            "type": "boolean"
+          },
+          "amount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "damageType": {
+            "type": "string"
           }
         }
       },
@@ -1381,6 +1765,101 @@
           },
           "payload": {
             "$ref": "#/components/schemas/JsonElement"
+          },
+          "seq": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64",
+            "default": 0
+          }
+        }
+      },
+      "EventPayloadCatalog": {
+        "required": [
+          "cardMoved",
+          "cardDrawn",
+          "cardRevealed",
+          "lifeChanged",
+          "phaseStarted",
+          "phaseEnded",
+          "phaseChanged",
+          "turnStateChanged",
+          "stepStarted",
+          "stepEnded",
+          "turnStarted",
+          "turnEnded",
+          "extraPhaseAdded",
+          "playerLost",
+          "stackObject",
+          "damageDealt",
+          "counterAdded"
+        ],
+        "type": "object",
+        "properties": {
+          "cardMoved": {
+            "$ref": "#/components/schemas/CardMovedPayload"
+          },
+          "cardDrawn": {
+            "$ref": "#/components/schemas/CardDrawnPayload"
+          },
+          "cardRevealed": {
+            "$ref": "#/components/schemas/CardRevealedPayload"
+          },
+          "lifeChanged": {
+            "$ref": "#/components/schemas/LifeChangedPayload"
+          },
+          "phaseStarted": {
+            "$ref": "#/components/schemas/PhaseStartedPayload"
+          },
+          "phaseEnded": {
+            "$ref": "#/components/schemas/PhaseEndedPayload"
+          },
+          "phaseChanged": {
+            "$ref": "#/components/schemas/PhaseChangedPayload"
+          },
+          "turnStateChanged": {
+            "$ref": "#/components/schemas/TurnStateChangedPayload"
+          },
+          "stepStarted": {
+            "$ref": "#/components/schemas/StepStartedPayload"
+          },
+          "stepEnded": {
+            "$ref": "#/components/schemas/StepEndedPayload"
+          },
+          "turnStarted": {
+            "$ref": "#/components/schemas/TurnStartedPayload"
+          },
+          "turnEnded": {
+            "$ref": "#/components/schemas/TurnEndedPayload"
+          },
+          "extraPhaseAdded": {
+            "$ref": "#/components/schemas/ExtraPhaseAddedPayload"
+          },
+          "playerLost": {
+            "$ref": "#/components/schemas/PlayerLostPayload"
+          },
+          "stackObject": {
+            "$ref": "#/components/schemas/StackObjectPayload"
+          },
+          "damageDealt": {
+            "$ref": "#/components/schemas/DamageDealtPayload"
+          },
+          "counterAdded": {
+            "$ref": "#/components/schemas/CounterAddedPayload"
+          }
+        }
+      },
+      "ExtraPhaseAddedPayload": {
+        "required": [
+          "phase"
+        ],
+        "type": "object",
+        "properties": {
+          "phase": {
+            "type": "string"
           }
         }
       },
@@ -1437,6 +1916,18 @@
           },
           {
             "$ref": "#/components/schemas/GameCommandChooseLibraryPickCommand"
+          },
+          {
+            "$ref": "#/components/schemas/GameCommandChooseSurveilCommand"
+          },
+          {
+            "$ref": "#/components/schemas/GameCommandChooseYesNoCommand"
+          },
+          {
+            "$ref": "#/components/schemas/GameCommandChooseFromRevealedCommand"
+          },
+          {
+            "$ref": "#/components/schemas/GameCommandChoiceCommand"
           }
         ],
         "discriminator": {
@@ -1457,7 +1948,11 @@
             "attackers": "#/components/schemas/GameCommandDeclareAttackersCommand",
             "blockers": "#/components/schemas/GameCommandDeclareBlockersCommand",
             "bottom": "#/components/schemas/GameCommandChooseCardsToBottomCommand",
-            "chooseLibraryPick": "#/components/schemas/GameCommandChooseLibraryPickCommand"
+            "chooseLibraryPick": "#/components/schemas/GameCommandChooseLibraryPickCommand",
+            "chooseSurveil": "#/components/schemas/GameCommandChooseSurveilCommand",
+            "chooseYesNo": "#/components/schemas/GameCommandChooseYesNoCommand",
+            "chooseFromRevealed": "#/components/schemas/GameCommandChooseFromRevealedCommand",
+            "choice": "#/components/schemas/GameCommandChoiceCommand"
           }
         }
       },
@@ -1575,6 +2070,38 @@
           }
         }
       },
+      "GameCommandChoiceCommand": {
+        "required": [
+          "kind",
+          "selectedInstanceIds"
+        ],
+        "properties": {
+          "$type": {
+            "enum": [
+              "choice"
+            ],
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "selectedInstanceIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "yesNo": {
+            "type": "boolean",
+            "default": false
+          },
+          "playerId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
       "GameCommandChooseCardsToBottomCommand": {
         "required": [
           "cardInstanceIds"
@@ -1592,6 +2119,30 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          "playerId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "GameCommandChooseFromRevealedCommand": {
+        "required": [
+          "instanceId"
+        ],
+        "properties": {
+          "$type": {
+            "enum": [
+              "chooseFromRevealed"
+            ],
+            "type": "string"
+          },
+          "instanceId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
           },
           "playerId": {
             "type": "string",
@@ -1672,6 +2223,38 @@
           }
         }
       },
+      "GameCommandChooseSurveilCommand": {
+        "required": [
+          "toGraveyardInstanceIds",
+          "topOrderInstanceIds"
+        ],
+        "properties": {
+          "$type": {
+            "enum": [
+              "chooseSurveil"
+            ],
+            "type": "string"
+          },
+          "toGraveyardInstanceIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "topOrderInstanceIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "playerId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
       "GameCommandChooseTargetsCommand": {
         "required": [
           "targetInstanceIds"
@@ -1714,6 +2297,26 @@
               "string"
             ],
             "format": "int32"
+          },
+          "playerId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "GameCommandChooseYesNoCommand": {
+        "required": [
+          "answer"
+        ],
+        "properties": {
+          "$type": {
+            "enum": [
+              "chooseYesNo"
+            ],
+            "type": "string"
+          },
+          "answer": {
+            "type": "boolean"
           },
           "playerId": {
             "type": "string",
@@ -1897,6 +2500,15 @@
               "string"
             ],
             "format": "uuid"
+          },
+          "seq": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64",
+            "default": 0
           }
         }
       },
@@ -1912,6 +2524,36 @@
         }
       },
       "JsonElement": { },
+      "LifeChangedPayload": {
+        "required": [
+          "playerId",
+          "previous",
+          "current"
+        ],
+        "type": "object",
+        "properties": {
+          "playerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "previous": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "current": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
       "ManaPoolDto": {
         "required": [
           "generic",
@@ -2085,6 +2727,56 @@
           }
         }
       },
+      "PhaseChangedPayload": {
+        "required": [
+          "from",
+          "to"
+        ],
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "to": {
+            "type": "string"
+          }
+        }
+      },
+      "PhaseEndedPayload": {
+        "required": [
+          "phase",
+          "playerId"
+        ],
+        "type": "object",
+        "properties": {
+          "phase": {
+            "type": "string"
+          },
+          "playerId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "PhaseStartedPayload": {
+        "required": [
+          "phase",
+          "playerId"
+        ],
+        "type": "object",
+        "properties": {
+          "phase": {
+            "type": "string"
+          },
+          "playerId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
       "PlayDrawRequest": {
         "required": [
           "choice"
@@ -2149,6 +2841,18 @@
           }
         }
       },
+      "PlayerLostPayload": {
+        "required": [
+          "playerId"
+        ],
+        "type": "object",
+        "properties": {
+          "playerId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
       "ProfileDto": {
         "required": [
           "sub",
@@ -2188,6 +2892,92 @@
               "null",
               "string"
             ]
+          }
+        }
+      },
+      "PromptDto": {
+        "required": [
+          "gameId",
+          "playerId",
+          "expectedKinds"
+        ],
+        "type": "object",
+        "properties": {
+          "gameId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "playerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expectedKinds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "candidates": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/CardSnapshotDto"
+            }
+          },
+          "label": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "libraryView": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/CardSnapshotDto"
+            }
+          },
+          "surveilView": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/CardSnapshotDto"
+            }
+          },
+          "yesNoView": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/YesNoViewDto"
+              }
+            ]
+          },
+          "revealView": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RevealView"
+              }
+            ]
+          },
+          "bottomCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
           }
         }
       },
@@ -2249,6 +3039,36 @@
           }
         }
       },
+      "RevealView": {
+        "required": [
+          "revealed",
+          "eligibleInstanceIds",
+          "optional",
+          "label"
+        ],
+        "type": "object",
+        "properties": {
+          "revealed": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CardSnapshotDto"
+            }
+          },
+          "eligibleInstanceIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "optional": {
+            "type": "boolean"
+          },
+          "label": {
+            "type": "string"
+          }
+        }
+      },
       "StackObjectDto": {
         "required": [
           "id",
@@ -2273,6 +3093,136 @@
             "format": "uuid"
           },
           "description": {
+            "type": "string"
+          }
+        }
+      },
+      "StackObjectPayload": {
+        "required": [
+          "stackId",
+          "controllerId",
+          "kind",
+          "description"
+        ],
+        "type": "object",
+        "properties": {
+          "stackId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "controllerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "cardId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "cardName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "StepEndedPayload": {
+        "required": [
+          "step",
+          "playerId"
+        ],
+        "type": "object",
+        "properties": {
+          "step": {
+            "type": "string"
+          },
+          "playerId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "StepStartedPayload": {
+        "required": [
+          "step",
+          "playerId"
+        ],
+        "type": "object",
+        "properties": {
+          "step": {
+            "type": "string"
+          },
+          "playerId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "TurnEndedPayload": {
+        "required": [
+          "playerId",
+          "turn"
+        ],
+        "type": "object",
+        "properties": {
+          "playerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "turn": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "TurnStartedPayload": {
+        "required": [
+          "playerId",
+          "turn"
+        ],
+        "type": "object",
+        "properties": {
+          "playerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "turn": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "TurnStateChangedPayload": {
+        "required": [
+          "from",
+          "to"
+        ],
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "to": {
             "type": "string"
           }
         }
@@ -2302,6 +3252,31 @@
           }
         }
       },
+      "YesNoViewDto": {
+        "required": [
+          "question"
+        ],
+        "type": "object",
+        "properties": {
+          "question": {
+            "type": "string"
+          },
+          "yesLabel": {
+            "type": "string",
+            "default": "Yes"
+          },
+          "noLabel": {
+            "type": "string",
+            "default": "No"
+          },
+          "sourceCardName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "ZoneDto": {
         "required": [
           "cards"
@@ -2313,21 +3288,6 @@
             "items": {
               "$ref": "#/components/schemas/CardSnapshotDto"
             }
-          }
-        }
-      },
-      "BotArchetypeDto": {
-        "required": [
-          "key",
-          "label"
-        ],
-        "type": "object",
-        "properties": {
-          "key": {
-            "type": "string"
-          },
-          "label": {
-            "type": "string"
           }
         }
       }

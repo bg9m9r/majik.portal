@@ -41,12 +41,17 @@ export function normaliseEvent(raw: unknown): NormalisedEventDto | null {
   return { eventId, type, payload, seq };
 }
 
-// Convenience helpers for payload reads — payload keys are camelCase on
-// the wire but we accept the PascalCase variant defensively so a future
-// server JSON config flip doesn't silently break patch routing.
+// Convenience helpers for payload reads. PLAN 07 — the INNER payload keys
+// are now guaranteed camelCase: the server serializes typed *Payload
+// records through a single JsonNamingPolicy.CamelCase policy, so the
+// PascalCase fallback that used to hedge each read has been removed for
+// the migrated event types. The OUTER-envelope casing tolerance still
+// lives in `normaliseEvent` above (the envelope can arrive Pascal- or
+// camelCase depending on server JSON config); only the per-payload key
+// hedge is dropped here.
 export function pickString(payload: Record<string, unknown>, ...keys: string[]): string | null {
   for (const k of keys) {
-    const v = payload[k] ?? payload[k.charAt(0).toUpperCase() + k.slice(1)];
+    const v = payload[k];
     if (typeof v === 'string') return v;
   }
   return null;
@@ -54,7 +59,7 @@ export function pickString(payload: Record<string, unknown>, ...keys: string[]):
 
 export function pickNumber(payload: Record<string, unknown>, ...keys: string[]): number | null {
   for (const k of keys) {
-    const v = payload[k] ?? payload[k.charAt(0).toUpperCase() + k.slice(1)];
+    const v = payload[k];
     if (typeof v === 'number' && Number.isFinite(v)) return v;
   }
   return null;
@@ -62,7 +67,7 @@ export function pickNumber(payload: Record<string, unknown>, ...keys: string[]):
 
 export function pickBoolean(payload: Record<string, unknown>, ...keys: string[]): boolean | null {
   for (const k of keys) {
-    const v = payload[k] ?? payload[k.charAt(0).toUpperCase() + k.slice(1)];
+    const v = payload[k];
     if (typeof v === 'boolean') return v;
   }
   return null;
@@ -70,7 +75,7 @@ export function pickBoolean(payload: Record<string, unknown>, ...keys: string[])
 
 export function pickStringArray(payload: Record<string, unknown>, ...keys: string[]): string[] | null {
   for (const k of keys) {
-    const v = payload[k] ?? payload[k.charAt(0).toUpperCase() + k.slice(1)];
+    const v = payload[k];
     if (Array.isArray(v) && v.every(item => typeof item === 'string')) {
       return v as string[];
     }

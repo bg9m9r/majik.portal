@@ -499,10 +499,25 @@ describe('patchGameState', () => {
     });
   });
 
-  it('tolerates PascalCase payload keys defensively', () => {
+  // PLAN 07 — the INNER payload keys are now camelCase-only (the server
+  // serializes typed *Payload records through a single CamelCase policy),
+  // so the reducer reads camelCase and no longer hedges on PascalCase
+  // inner keys. The OUTER-envelope casing tolerance still lives in
+  // normaliseEvent (covered by event.types.spec.ts).
+  it('reads camelCase payload keys (typed wire contract)', () => {
+    const next = patchGameState(baseState(), evt('LifeChangedEvent', {
+      playerId: BOB, previous: 17, current: 9,
+    }));
+    expect(next!.players.find(p => p.id === BOB)!.life).toBe(9);
+  });
+
+  it('does NOT read PascalCase inner payload keys (hedge removed)', () => {
+    // A PascalCase inner payload no longer matches — the reducer signals a
+    // refetch (null) rather than silently mis-patching. This guards the
+    // intentional removal of the inner Pascal fallback.
     const next = patchGameState(baseState(), evt('LifeChangedEvent', {
       PlayerId: BOB, Previous: 17, Current: 9,
     }));
-    expect(next!.players.find(p => p.id === BOB)!.life).toBe(9);
+    expect(next).toBeNull();
   });
 });
