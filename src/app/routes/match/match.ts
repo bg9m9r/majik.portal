@@ -218,21 +218,6 @@ export class MatchPage implements OnInit, OnDestroy {
   // marking a single pending request.
   private statePending = false;
 
-  // Single-writer reconnect guard (Important 3). On the INITIAL hub join
-  // the server pushes an authoritative GameState on the "state" channel
-  // (snapshot-on-join, Slice 4b) which seeds the board. But SignalR's
-  // withAutomaticReconnect() does NOT re-invoke JoinMatch on auto-reconnect
-  // (the client's onreconnected handler only resets latches), so the
-  // server never re-pushes that snapshot on reconnect — the authoritative
-  // reconnect resync is the connecting→open /state REST refetch below.
-  //
-  // To avoid a dual-writer race (a stale buffered "state" snapshot landing
-  // after the fresher /state refetch, flapping the board backward), we
-  // collapse to ONE writer: once a reconnect has occurred, the /state
-  // refetch owns resync and state$ is no longer fed into setState. state$
-  // still seeds the initial join (when this flag is false).
-  private reconnectResyncOwnsState = false;
-
   // Trimmed-down view of the prompt for the action-bar's `currentPrompt`
   // input. The board's <app-action-bar> only cares about the kinds and
   // a description; the full envelope is consumed by the overlay.
@@ -301,23 +286,20 @@ export class MatchPage implements OnInit, OnDestroy {
         sessionExpiredHandled = false;
       }
     });
-    // Reconnect resync (SINGLE authoritative writer — Important 3). The
-    // page bootstraps /state once on entering Playing; a mid-game transport
-    // drop + automatic reconnect would otherwise leave the board frozen on
-    // the pre-drop snapshot. JoinMatch is NOT re-invoked on auto-reconnect,
-    // so the server's "state" snapshot push does NOT arrive on reconnect —
-    // the /state REST refetch on the connecting→open transition is the one
-    // and only reconnect resync. We flip `reconnectResyncOwnsState` the
-    // moment we enter the reconnect window so the state$ subscription (which
-    // seeds the initial join) stops writing setState and can't flap the
-    // board backward with a stale buffered snapshot.
+    // Reconnect resync. The page bootstraps /state once on entering
+    // Playing; a mid-game transport drop + automatic reconnect would
+    // otherwise leave the board frozen on the pre-drop snapshot. JoinMatch
+    // is NOT re-invoked on auto-reconnect, so the server's "state" snapshot
+    // push does NOT arrive on reconnect — the /state REST refetch on the
+    // connecting→open transition is the reconnect resync. PLAN 04 — the
+    // monotonic seq gate in GameStore.setState now guards against a stale
+    // buffered state$ snapshot flapping the board backward, so no
+    // single-writer flag is needed; both writers are safe to run.
     let wasConnecting = false;
     effect(() => {
       const st = this.signalr.state();
       if (st === 'connecting') {
         wasConnecting = true;
-        // Reconnect window opened: /state refetch now owns resync.
-        this.reconnectResyncOwnsState = true;
       } else if (st === 'open' && wasConnecting) {
         wasConnecting = false;
         // Only resync once we're actually playing — earlier states are
@@ -507,22 +489,16 @@ export class MatchPage implements OnInit, OnDestroy {
     // this realistically fires once: the initial-join seed. ReplaySubject(1)
     // on the service hands the buffered snapshot to this late subscriber.
     //
-    // Single-writer guard (Important 3): once a reconnect window has opened,
-    // the connecting→open /state REST refetch is the sole authoritative
-    // resync. Suppress state$ writes from that point so a stale buffered
-    // snapshot can't land after the fresher refetch and flap the board
-    // backward.
-    //
-    // TODO(reconnect-seq): the ideal long-term fix is a monotonic sequence
-    //   gate on GameStore.setState (drop any snapshot whose tick <= the last
-    //   applied tick), which would make ordering robust regardless of how
-    //   many writers feed it. The server doesn't expose a per-snapshot tick
-    //   yet; add one to GameState and gate setState on it, then this
-    //   reconnect-window flag can go away.
+    // PLAN 04 — ordering is now owned by the monotonic seq gate in
+    // GameStore.setState (a snapshot with an older seq than the current
+    // state is dropped). That makes state$ safe to feed unconditionally:
+    // the old single-writer reconnect flag (reconnectResyncOwnsState) is
+    // retired — a stale buffered snapshot landing after a fresher /state
+    // refetch is simply dropped by seq, regardless of how many writers feed
+    // setState. Resolves the former TODO(reconnect-seq).
     this.signalr.state$
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(s => {
-        if (this.reconnectResyncOwnsState) return;
         this.game.setState(normaliseStateSnapshot(s));
       });
   }
@@ -1007,9 +983,15 @@ function normaliseAbility(raw: unknown): Ability {
 function normaliseCardSnapshot(raw: unknown): CardSnapshot {
   const c = raw as Record<string, unknown>;
   const abilities = (c['abilities'] ?? c['Abilities']) as unknown[] | undefined;
+  // PLAN 04 — counter map ({"+1/+1": 2, …}); tolerate either casing.
+  const counters = (c['counters'] ?? c['Counters']) as Record<string, number> | undefined;
   const base = raw as CardSnapshot;
-  if (!abilities) return base;
-  return { ...base, abilities: abilities.map(normaliseAbility) };
+  if (!abilities && !counters) return base;
+  return {
+    ...base,
+    ...(abilities ? { abilities: abilities.map(normaliseAbility) } : {}),
+    ...(counters ? { counters } : {}),
+  };
 }
 
 export function normaliseStateSnapshot(raw: unknown): GameState {
@@ -1023,10 +1005,14 @@ export function normaliseStateSnapshot(raw: unknown): GameState {
       cards: (p.battlefield?.cards ?? []).map(normaliseCardSnapshot),
     },
   }));
+  // PLAN 04 — parse the snapshot seq (0 when the server omits it).
+  const seqRaw = r['seq'] ?? r['Seq'];
+  const seq = typeof seqRaw === 'number' && Number.isFinite(seqRaw) ? seqRaw : 0;
   return {
     ...base,
     players,
     youPlayerId: (r['youPlayerId'] ?? r['YouPlayerId'] ?? null) as string | null,
+    seq,
   };
 }
 

@@ -103,6 +103,12 @@ export interface CardSnapshot {
   // engine's AbilityDto snapshot. Present on battlefield permanents once
   // the companion core PR deploys; absent (undefined) on older snapshots.
   abilities?: Ability[];
+  // PLAN 04 / PLAN 07 — counters on this permanent keyed by counter-type
+  // name ("+1/+1", "Loyalty", "Charge", …) → count. Populated from the
+  // engine's CardSnapshotDto.Counters. The reducer's patchCounterAdded arm
+  // bumps this map for a display-only badge; authoritative P/T still come
+  // from the next snapshot. Absent (undefined) on older server builds.
+  counters?: Record<string, number>;
 }
 
 export interface ZoneSnapshot { cards: CardSnapshot[] }
@@ -139,6 +145,17 @@ export interface GameState {
   // instead of the client-side name-match heuristic. Null for
   // spectators and for snapshots fetched from older server versions.
   youPlayerId: string | null;
+  // PLAN 04 — per-game monotonic sequence number stamped by the server on
+  // the /state DTO (equals the seq of the last event folded into this
+  // snapshot). The store drops a snapshot whose seq is older than its
+  // current state and uses event contiguity (seq == current+1) to detect
+  // gaps. Optional: `normaliseStateSnapshot` always populates it (0 when the
+  // server omits it, pre-deploy), and the store's seq gates only engage when
+  // BOTH sides are > 0, so an absent/undefined seq degrades cleanly to the
+  // prior always-accept behaviour. Optional here keeps hand-built test
+  // fixtures (and any other GameState literal) valid without a churn of
+  // seq: 0 everywhere.
+  seq?: number;
 }
 
 // Prompt envelope as sent by MatchFacadeBridge on the "prompt" SignalR

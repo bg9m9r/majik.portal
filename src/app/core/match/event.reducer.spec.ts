@@ -51,11 +51,12 @@ function baseState(): GameState {
     ],
     stack: [],
     youPlayerId: null,
+    seq: 0,
   };
 }
 
 function evt(type: string, payload: Record<string, unknown>): NormalisedEventDto {
-  return { eventId: 'e-1', type, payload };
+  return { eventId: 'e-1', type, payload, seq: 0 };
 }
 
 describe('patchGameState', () => {
@@ -266,21 +267,62 @@ describe('patchGameState', () => {
       expect(alice.graveyard.cards[0].types).toEqual(['Instant']);
     });
 
-    it('returns null when destination is Battlefield (needs richer card data)', () => {
-      // Battlefield needs P/T, tapped, summoning sickness, abilities —
-      // none of which travel on CardMovedEvent. Refetch.
-      const bolt = knownCard('c-bear', 'Grizzly Bears');
+    it('patches a Hand→Battlefield ETB in place from the enriched payload (PLAN 04)', () => {
+      // PLAN 04 — the revealed → Battlefield move now carries the full
+      // permanent fields, so the ETB is applied in place instead of
+      // forcing a refetch. The reducer output for the patched battlefield
+      // zone must equal what a fresh /state snapshot returns for the card.
+      const bear = knownCard('c-bear', 'Grizzly Bears');
       const seeded: GameState = {
         ...baseState(),
         players: baseState().players.map(p => p.id === ALICE
-          ? { ...p, hand: { cards: [bolt] } }
+          ? { ...p, hand: { cards: [bear] } }
+          : p),
+      };
+      // Payload shaped exactly like StateSnapshotter.BuildPermanentFields
+      // emits on the revealed CardMovedEvent.
+      const next = patchGameState(seeded, evt('CardMovedEvent', {
+        cardId: 'c-bear', cardName: 'Grizzly Bears', ownerId: ALICE,
+        manaCost: '1G', types: ['Creature'],
+        from: 'Hand', to: 'Battlefield',
+        power: 2, toughness: 2, tapped: false, summoningSickness: true,
+        abilities: [{ kind: 'Static', description: 'static ability', id: null }],
+        producedManaColors: '', counters: {},
+      }));
+      expect(next).not.toBeNull();
+      const alice = next!.players.find(p => p.id === ALICE)!;
+      expect(alice.hand.cards).toHaveLength(0);
+      expect(alice.battlefield.cards).toHaveLength(1);
+
+      const card = alice.battlefield.cards[0];
+      // Reducer output == the fresh-/state CardSnapshot shape for this card.
+      const expected: CardSnapshot = {
+        instanceId: 'c-bear', name: 'Grizzly Bears', manaCost: '1G',
+        types: ['Creature'], power: 2, toughness: 2, tapped: false,
+        summoningSickness: true, producedManaColors: '',
+        abilities: [{ kind: 'Static', description: 'static ability', id: null }],
+        counters: {},
+      };
+      expect(card).toEqual(expected);
+    });
+
+    it('reads counters on a Battlefield ETB into the patched snapshot', () => {
+      const hydra = knownCard('c-hydra', 'Counter Hydra');
+      const seeded: GameState = {
+        ...baseState(),
+        players: baseState().players.map(p => p.id === ALICE
+          ? { ...p, hand: { cards: [hydra] } }
           : p),
       };
       const next = patchGameState(seeded, evt('CardMovedEvent', {
-        cardId: 'c-bear', cardName: 'Grizzly Bears', ownerId: ALICE,
+        cardId: 'c-hydra', cardName: 'Counter Hydra', ownerId: ALICE,
+        manaCost: '2GG', types: ['Creature'],
         from: 'Hand', to: 'Battlefield',
+        power: 0, toughness: 0, tapped: false, summoningSickness: true,
+        producedManaColors: '', counters: { '+1/+1': 3 },
       }));
-      expect(next).toBeNull();
+      const card = next!.players.find(p => p.id === ALICE)!.battlefield.cards[0];
+      expect(card.counters).toEqual({ '+1/+1': 3 });
     });
 
     it('treats Stack as already-handled (no double-patch)', () => {
@@ -385,6 +427,53 @@ describe('patchGameState', () => {
       const next = patchGameState(baseState(), evt('CardMovedEvent', {
         cardId: 'missing', cardName: 'Ghost', ownerId: ALICE,
         from: 'Hand', to: 'Graveyard',
+      }));
+      expect(next).toBeNull();
+    });
+  });
+
+  describe('CounterAddedEvent (PLAN 04)', () => {
+    it('bumps the target permanent\'s counter badge on the battlefield', () => {
+      const ballista = knownCard('c-ballista', 'Walking Ballista', {
+        types: ['Creature'], power: 2, toughness: 2, counters: { '+1/+1': 2 },
+      });
+      const seeded: GameState = {
+        ...baseState(),
+        players: baseState().players.map(p => p.id === ALICE
+          ? { ...p, battlefield: { cards: [ballista] } }
+          : p),
+      };
+      const next = patchGameState(seeded, evt('CounterAddedEvent', {
+        targetInstanceId: 'c-ballista', counterType: '+1/+1', amount: 1,
+        controllerId: ALICE,
+      }));
+      expect(next).not.toBeNull();
+      const card = next!.players.find(p => p.id === ALICE)!.battlefield.cards[0];
+      // Display-only badge bumped 2 → 3.
+      expect(card.counters).toEqual({ '+1/+1': 3 });
+      // P/T are NOT recomputed in the reducer (authoritative from snapshot).
+      expect(card.power).toBe(2);
+      expect(card.toughness).toBe(2);
+    });
+
+    it('initialises the counter map when the card had none', () => {
+      const bear = knownCard('c-bear', 'Bear', { types: ['Creature'], power: 2, toughness: 2 });
+      const seeded: GameState = {
+        ...baseState(),
+        players: baseState().players.map(p => p.id === ALICE
+          ? { ...p, battlefield: { cards: [bear] } }
+          : p),
+      };
+      const next = patchGameState(seeded, evt('CounterAddedEvent', {
+        targetInstanceId: 'c-bear', counterType: 'Charge', amount: 2, controllerId: ALICE,
+      }));
+      const card = next!.players.find(p => p.id === ALICE)!.battlefield.cards[0];
+      expect(card.counters).toEqual({ Charge: 2 });
+    });
+
+    it('returns null when the target is not on any battlefield (stale snapshot)', () => {
+      const next = patchGameState(baseState(), evt('CounterAddedEvent', {
+        targetInstanceId: 'ghost', counterType: '+1/+1', amount: 1, controllerId: ALICE,
       }));
       expect(next).toBeNull();
     });

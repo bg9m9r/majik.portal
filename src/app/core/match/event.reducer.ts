@@ -18,7 +18,11 @@
 //   * CardMovedEvent — move card between zones; CR 706 masking handled
 //     via the `hidden: true` discriminator. For masked moves we push /
 //     pop a `(hidden)` placeholder matching StateSnapshotter.HiddenZone
-//     so opponent counts stay accurate without leaking identity.
+//     so opponent counts stay accurate without leaking identity. PLAN 04 —
+//     → Battlefield (revealed) moves now patch in place from the enriched
+//     payload (power/toughness/tapped/summoningSickness/abilities/counters).
+//   * CounterAddedEvent — bump the target permanent's counter badge
+//     (display only; authoritative P/T still come from the next snapshot).
 //   * CardDrawnEvent — no-op (the engine emits CardMovedEvent first to
 //     describe the Library → Hand transition; CardDrawn is treated as a
 //     redundant signal). Returns `state` so the caller doesn't refetch.
@@ -53,6 +57,7 @@ export function patchGameState(state: GameState, evt: NormalisedEventDto): Patch
     case 'StackObjectAddedEvent': return patchStackPush(state, evt);
     case 'StackObjectResolvedEvent': return patchStackPop(state, evt);
     case 'CardMovedEvent': return patchCardMoved(state, evt);
+    case 'CounterAddedEvent': return patchCounterAdded(state, evt);
     case 'CardDrawnEvent':
       // CardMovedEvent already described the Library → Hand transition.
       // CardDrawn carries no new state delta — return current state so
@@ -194,13 +199,13 @@ function patchStackPop(state: GameState, evt: NormalisedEventDto): PatchResult {
 //   * unknown owner / unknown zone string
 //   * card not found in the source zone when we expected it to be
 //
-// Some moves can't be patched in-place because the destination zone
-// needs richer card data than the wire payload carries today — most
-// notably Battlefield needs power / toughness / tapped / summoning-
-// sickness / abilities, none of which travel on CardMovedEvent. For
-// Battlefield destinations we fall back to refetch (return null). The
-// other zones (Hand, Graveyard, Exile, Library, Stack) only need the
-// CardSnapshot fields the wire payload provides.
+// PLAN 04 — since the companion core PR, a → Battlefield (revealed) move
+// carries the full permanent fields (power / toughness / tapped /
+// summoningSickness / abilities / producedManaColors / counters) shared with
+// the snapshotter, so the ETB is patched in place like every other zone. The
+// Stack destination still routes through the SpellCast / StackObjectAdded
+// events; everything else only needs the CardSnapshot fields the payload now
+// provides.
 // -----------------------------------------------------------------------
 function patchCardMoved(state: GameState, evt: NormalisedEventDto): PatchResult {
   const fromStr = pickString(evt.payload, 'from');
@@ -222,9 +227,8 @@ function patchCardMoved(state: GameState, evt: NormalisedEventDto): PatchResult 
     return state;
   }
 
-  // Battlefield as destination needs richer card data (P/T, abilities)
-  // that CardMovedEvent doesn't carry — refetch.
-  if (toStr === 'Battlefield') return null;
+  // PLAN 04 — Battlefield destinations are now patchable: the revealed
+  // CardMovedEvent carries the permanent fields buildCardSnapshot reads.
 
   // If either side maps to an unrecognised zone we can't patch.
   if (fromZone === null && fromStr !== 'Command') return null;
@@ -264,6 +268,41 @@ function patchCardMoved(state: GameState, evt: NormalisedEventDto): PatchResult 
   };
   const players = replaceAt<GamePlayer>(state.players, ownerIdx, nextPlayer);
   return { ...state, players };
+}
+
+// -----------------------------------------------------------------------
+// CounterAddedEvent — bump the target permanent's counter badge in place.
+//
+// Payload: { targetInstanceId, counterType, amount, controllerId }. The
+// counter map is a DISPLAY-ONLY badge: we bump counters[counterType] by
+// amount and do NOT recompute power / toughness here — authoritative P/T
+// always come from the next /state snapshot (the engine's layer system
+// owns +1/+1 arithmetic). The card lives on a battlefield zone (counters
+// are only placed on battlefield permanents); we scan every player's
+// battlefield for the target instance. A target we don't know about
+// (snapshot stale vs. server) returns null → refetch.
+// -----------------------------------------------------------------------
+function patchCounterAdded(state: GameState, evt: NormalisedEventDto): PatchResult {
+  const targetId = pickString(evt.payload, 'targetInstanceId');
+  const counterType = pickString(evt.payload, 'counterType');
+  const amount = pickNumber(evt.payload, 'amount');
+  if (!targetId || !counterType || amount === null) return null;
+
+  for (let pi = 0; pi < state.players.length; pi++) {
+    const player = state.players[pi];
+    const ci = player.battlefield.cards.findIndex(c => c.instanceId === targetId);
+    if (ci < 0) continue;
+    const card = player.battlefield.cards[ci];
+    const counters = { ...(card.counters ?? {}) };
+    counters[counterType] = (counters[counterType] ?? 0) + amount;
+    const nextCard: CardSnapshot = { ...card, counters };
+    const cards = replaceAt(player.battlefield.cards, ci, nextCard);
+    const nextPlayer: GamePlayer = { ...player, battlefield: { cards } };
+    const players = replaceAt<GamePlayer>(state.players, pi, nextPlayer);
+    return { ...state, players };
+  }
+  // Target not found on any battlefield — snapshot is stale, refetch.
+  return null;
 }
 
 function zoneKeyForName(name: string): ZoneKey | null {
@@ -327,17 +366,61 @@ function buildCardSnapshot(
 ): CardSnapshot {
   const manaCost = pickString(payload, 'manaCost') ?? '';
   const types = pickStringArray(payload, 'types') ?? [];
-  return {
+  // PLAN 04 — the revealed → Battlefield CardMovedEvent now carries the
+  // permanent fields (shared with StateSnapshotter.BuildPermanentFields), so a
+  // patched ETB matches what a fresh /state would return for the same card.
+  // Non-Battlefield moves omit these fields; the picks degrade to the prior
+  // null / false / "" defaults, so those zones are unchanged.
+  const snapshot: CardSnapshot = {
     instanceId: cardId,
     name: cardName,
     manaCost,
     types,
-    power: null,
-    toughness: null,
-    tapped: false,
-    summoningSickness: false,
+    power: pickNumber(payload, 'power'),
+    toughness: pickNumber(payload, 'toughness'),
+    tapped: pickBoolean(payload, 'tapped') ?? false,
+    summoningSickness: pickBoolean(payload, 'summoningSickness') ?? false,
     producedManaColors: pickString(payload, 'producedManaColors') ?? '',
   };
+  const abilities = pickAbilities(payload, 'abilities');
+  if (abilities) snapshot.abilities = abilities;
+  const counters = pickCounters(payload, 'counters');
+  if (counters) snapshot.counters = counters;
+  return snapshot;
+}
+
+// Parse the abilities array off a CardMovedEvent payload into the portal's
+// Ability shape. Tolerates camelCase / PascalCase keys (matching the
+// pickString helpers + the snapshot normaliser in match.ts).
+function pickAbilities(
+  payload: Record<string, unknown>,
+  key: string,
+): { kind: string; description: string; id: string | null }[] | null {
+  const raw = payload[key] ?? payload[key.charAt(0).toUpperCase() + key.slice(1)];
+  if (!Array.isArray(raw)) return null;
+  return raw.map(item => {
+    const a = (item ?? {}) as Record<string, unknown>;
+    return {
+      kind: String(a['kind'] ?? a['Kind'] ?? ''),
+      description: String(a['description'] ?? a['Description'] ?? ''),
+      id: (a['id'] ?? a['Id'] ?? null) as string | null,
+    };
+  });
+}
+
+// Parse the counters map ({"+1/+1": 2, …}) off a payload. Tolerant of
+// either casing; drops non-numeric values defensively.
+function pickCounters(
+  payload: Record<string, unknown>,
+  key: string,
+): Record<string, number> | null {
+  const raw = payload[key] ?? payload[key.charAt(0).toUpperCase() + key.slice(1)];
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const out: Record<string, number> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof v === 'number' && Number.isFinite(v)) out[k] = v;
+  }
+  return out;
 }
 
 function replaceAt<T>(arr: readonly T[], idx: number, value: T): T[] {

@@ -123,6 +123,7 @@ function snapshot(): GameState {
     ],
     stack: [],
     youPlayerId: null,
+    seq: 0,
   };
 }
 
@@ -220,6 +221,89 @@ describe('GameStore.applyEvent', () => {
     store.setState(snapshot());
     const ok = store.applyEvent({ type: 'LifeChangedEvent', payload: { current: 5 } });
     expect(ok).toBe(false);
+  });
+});
+
+// ----------------------------------------------------------------
+// PLAN 04 — monotonic seq gates on setState + applyEvent.
+// ----------------------------------------------------------------
+describe('GameStore seq gate (PLAN 04)', () => {
+  let store: InstanceType<typeof GameStore>;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({ providers: storeProviders() });
+    store = TestBed.inject(GameStore);
+    store.reset();
+  });
+
+  it('setState drops a stale snapshot whose seq is older than current', () => {
+    store.setState({ ...snapshot(), seq: 5, turnNumber: 5 });
+    const v0 = store.stateVersion();
+    // An older snapshot (lost a race) must be dropped.
+    store.setState({ ...snapshot(), seq: 3, turnNumber: 3 });
+    expect(store.state()!.seq).toBe(5);
+    expect(store.state()!.turnNumber).toBe(5);
+    expect(store.stateVersion()).toBe(v0); // no write happened
+  });
+
+  it('setState accepts a newer snapshot', () => {
+    store.setState({ ...snapshot(), seq: 5, turnNumber: 5 });
+    store.setState({ ...snapshot(), seq: 6, turnNumber: 6 });
+    expect(store.state()!.seq).toBe(6);
+    expect(store.state()!.turnNumber).toBe(6);
+  });
+
+  it('setState always accepts when either seq is 0 (pre-deploy degradation)', () => {
+    store.setState({ ...snapshot(), seq: 0, turnNumber: 9 });
+    // Older "turn" but seq 0 → gate disengaged, snapshot accepted.
+    store.setState({ ...snapshot(), seq: 0, turnNumber: 2 });
+    expect(store.state()!.turnNumber).toBe(2);
+  });
+
+  it('applyEvent applies the next contiguous event (seq == current+1) and advances seq', () => {
+    store.setState({ ...snapshot(), seq: 10 });
+    const ok = store.applyEvent({
+      type: 'LifeChangedEvent', seq: 11,
+      payload: { playerId: BOB, previous: 20, current: 18 },
+    });
+    expect(ok).toBe(true);
+    expect(store.state()!.players.find(p => p.id === BOB)!.life).toBe(18);
+    expect(store.state()!.seq).toBe(11);
+  });
+
+  it('applyEvent is a success no-op for a duplicate / stale event (seq <= current)', () => {
+    store.setState({ ...snapshot(), seq: 10 });
+    const v0 = store.stateVersion();
+    // Duplicate (seq == current): returns true (no refetch) but does NOT
+    // re-apply the delta.
+    const ok = store.applyEvent({
+      type: 'LifeChangedEvent', seq: 10,
+      payload: { playerId: BOB, previous: 20, current: 1 },
+    });
+    expect(ok).toBe(true);
+    expect(store.state()!.players.find(p => p.id === BOB)!.life).toBe(20); // unchanged
+    expect(store.stateVersion()).toBe(v0); // no state write
+  });
+
+  it('applyEvent returns false (→ refetch) on a gap (seq > current+1)', () => {
+    store.setState({ ...snapshot(), seq: 10 });
+    const v0 = store.stateVersion();
+    const ok = store.applyEvent({
+      type: 'LifeChangedEvent', seq: 13,
+      payload: { playerId: BOB, previous: 20, current: 18 },
+    });
+    expect(ok).toBe(false); // gap → caller refetches /state
+    expect(store.stateVersion()).toBe(v0); // nothing applied
+  });
+
+  it('applyEvent ignores the gate when seqs are absent (0) — legacy apply path', () => {
+    store.setState(snapshot()); // seq 0
+    const ok = store.applyEvent({
+      type: 'LifeChangedEvent', // no seq → 0
+      payload: { playerId: BOB, previous: 20, current: 17 },
+    });
+    expect(ok).toBe(true);
+    expect(store.state()!.players.find(p => p.id === BOB)!.life).toBe(17);
   });
 });
 
