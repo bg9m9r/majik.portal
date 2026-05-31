@@ -28,6 +28,7 @@ import { ToastService } from '../../ui/toast.service';
 import {
   Ability, BotDecision, CardSnapshot, GameCommand, GameState, Match, MatchError, PromptEnvelope
 } from '../../core/match/match.types';
+import { PromptDto } from '../../core/api';
 import { ConnectionState } from '../../core/signalr/signalr.service';
 
 @Component({
@@ -444,41 +445,41 @@ export class MatchPage implements OnInit, OnDestroy {
     this.signalr.prompt$
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(p => {
-        // The wire DTO uses PascalCase or camelCase depending on
-        // System.Text.Json options on the server; tolerate both.
-        const raw = p as Record<string, unknown>;
-        // Library-search prompts (CR 701.19a) carry an engine-pre-
-        // filtered candidate list + a human label on the wire. Mirror
-        // both into the envelope so the prompt overlay can render the
-        // picker without re-deriving the candidate set from a hidden
-        // zone (CR 706).
+        // PLAN 07 — consume the generated PromptDto model. The inner DTO
+        // keys are now guaranteed camelCase (typed server serializer), so
+        // the `?? raw['Pascal']` hedges are gone — we read the typed
+        // fields directly. The card arrays / nested views are
+        // structurally compatible with the portal's PromptEnvelope shapes
+        // (rendering reads instanceId / name / question / etc.), so they
+        // pass through with a single structural cast rather than a
+        // field-by-field copy.
+        const dto = p as PromptDto;
+        // `description` is a portal-only forward-compat field not yet on
+        // the wire DTO (see PromptEnvelope.description) — read it off the
+        // raw object so a future server annotation surfaces without a
+        // generated-model change.
+        const descr = (p as Record<string, unknown>)['description'];
         const envelope: PromptEnvelope = {
-          gameId: String(raw['gameId'] ?? raw['GameId'] ?? ''),
-          playerId: String(raw['playerId'] ?? raw['PlayerId'] ?? ''),
-          expectedKinds: (raw['expectedKinds'] ?? raw['ExpectedKinds'] ?? []) as string[],
-          description: (raw['description'] ?? raw['Description']) as string | undefined,
-          candidates: (raw['candidates'] ?? raw['Candidates']) as CardSnapshot[] | undefined,
-          label: (raw['label'] ?? raw['Label']) as string | undefined,
+          gameId: dto.gameId ?? '',
+          playerId: dto.playerId ?? '',
+          expectedKinds: dto.expectedKinds ?? [],
+          description: typeof descr === 'string' ? descr : undefined,
+          // CR 701.19a — engine-pre-filtered candidate list + human label.
+          candidates: (dto.candidates ?? undefined) as CardSnapshot[] | undefined,
+          label: dto.label ?? undefined,
           // CR 701.19a — full library snapshot for library-search prompts.
-          // Absent until the companion core PR deploys; fallback renders
-          // the flat candidates list in the transient deploy window.
-          libraryView: (raw['libraryView'] ?? raw['LibraryView']) as CardSnapshot[] | undefined,
-          // CR 701.42 — peeked top-N for surveil prompts. Absent on every
-          // other prompt kind; absent on older server builds (the surveil
-          // modal simply won't render until the companion core PR ships).
-          surveilView: (raw['surveilView'] ?? raw['SurveilView']) as CardSnapshot[] | undefined,
+          libraryView: (dto.libraryView ?? undefined) as CardSnapshot[] | undefined,
+          // CR 701.42 — peeked top-N for surveil prompts.
+          surveilView: (dto.surveilView ?? undefined) as CardSnapshot[] | undefined,
           // CR 117.x / 605.1 — Yes/No "may" prompt envelope (shock-land
-          // "pay 2 life?" is the seed caller). Absent on every other
-          // prompt kind; absent on older server builds (the modal won't
-          // render until the companion core PR deploys).
-          yesNoView: (raw['yesNoView'] ?? raw['YesNoView']) as PromptEnvelope['yesNoView'] | undefined,
+          // "pay 2 life?" is the seed caller).
+          yesNoView: (dto.yesNoView ?? undefined) as PromptEnvelope['yesNoView'] | undefined,
           // CR 701.15 — reveal-and-choose prompt envelope (Malevolent
           // Rumble, Impulse, Sleight of Hand, See the Unwritten, …).
-          // Absent on every other prompt kind; absent on older server
-          // builds (the modal won't render until the companion core PR
-          // deploys).
-          revealView: (raw['revealView'] ?? raw['RevealView']) as PromptEnvelope['revealView'] | undefined,
-          bottomCount: (raw['bottomCount'] ?? raw['BottomCount']) as number | undefined,
+          revealView: (dto.revealView ?? undefined) as PromptEnvelope['revealView'] | undefined,
+          // CR 103.4 — London-mulligan bottom count (gen widens int to
+          // number | string; coerce to a number).
+          bottomCount: dto.bottomCount == null ? undefined : Number(dto.bottomCount),
         };
         this.game.setPrompt(envelope);
       });

@@ -30,8 +30,35 @@
 // Deferred to refetch: *EndedEvent, ExtraPhaseAddedEvent,
 // GameStartedEvent, and any unknown type.
 
-import { NormalisedEventDto, pickBoolean, pickNumber, pickString, pickStringArray } from './event.types';
+import {
+  CardMovedPayload,
+  LifeChangedPayload,
+  PhaseChangedPayload,
+  PhaseStartedPayload,
+  PlayerLostPayload,
+  StackObjectPayload,
+  StepStartedPayload,
+  TurnStartedPayload,
+} from '../api';
+import { NormalisedEventDto, pickNumber, pickString } from './event.types';
 import { CardSnapshot, GamePlayer, GameState, StackItem, ZoneSnapshot } from './match.types';
+
+// PLAN 07 — the OpenAPI generator types integer fields as `number | string`
+// (System.Text.Json int <-> JSON number, but the generator widens). Coerce
+// to a finite number, returning null on anything unusable so the caller
+// refetches rather than patching with garbage.
+function asNumber(v: number | string | null | undefined): number | null {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  if (typeof v === 'string') {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+function asString(v: string | null | undefined): string | null {
+  return typeof v === 'string' ? v : null;
+}
 
 export type PatchResult = GameState | null;
 
@@ -70,8 +97,9 @@ export function patchGameState(state: GameState, evt: NormalisedEventDto): Patch
 }
 
 function patchLifeChanged(state: GameState, evt: NormalisedEventDto): PatchResult {
-  const playerId = pickString(evt.payload, 'playerId');
-  const current = pickNumber(evt.payload, 'current');
+  const p = evt.payload as unknown as LifeChangedPayload;
+  const playerId = asString(p.playerId);
+  const current = asNumber(p.current);
   if (!playerId || current === null) return null;
   const idx = state.players.findIndex(p => p.id === playerId);
   if (idx < 0) return null;
@@ -80,17 +108,19 @@ function patchLifeChanged(state: GameState, evt: NormalisedEventDto): PatchResul
 }
 
 function patchPhaseChanged(state: GameState, evt: NormalisedEventDto): PatchResult {
-  const to = pickString(evt.payload, 'to');
+  const p = evt.payload as unknown as PhaseChangedPayload;
+  const to = asString(p.to);
   if (!to) return null;
   return { ...state, phase: to };
 }
 
 function patchPhaseStarted(state: GameState, evt: NormalisedEventDto): PatchResult {
-  const phase = pickString(evt.payload, 'phase');
+  const p = evt.payload as unknown as PhaseStartedPayload;
+  const phase = asString(p.phase);
   if (!phase) return null;
   // PhaseStartedEvent fires on the entry to a phase — by definition the
   // active player owns that phase, so keep activePlayerId in sync.
-  const playerId = pickString(evt.payload, 'playerId');
+  const playerId = asString(p.playerId);
   return {
     ...state,
     phase,
@@ -103,9 +133,10 @@ function patchStepStarted(state: GameState, evt: NormalisedEventDto): PatchResul
   // steps both surface there (see StateSnapshotter / PhaseStateMachine).
   // StepStartedEvent supplies the granular label, so we treat it like a
   // phase change for the purposes of the snapshot's `phase` string.
-  const step = pickString(evt.payload, 'step');
+  const p = evt.payload as unknown as StepStartedPayload;
+  const step = asString(p.step);
   if (!step) return null;
-  const playerId = pickString(evt.payload, 'playerId');
+  const playerId = asString(p.playerId);
   return {
     ...state,
     phase: step,
@@ -114,8 +145,9 @@ function patchStepStarted(state: GameState, evt: NormalisedEventDto): PatchResul
 }
 
 function patchTurnStarted(state: GameState, evt: NormalisedEventDto): PatchResult {
-  const turn = pickNumber(evt.payload, 'turn');
-  const playerId = pickString(evt.payload, 'playerId');
+  const p = evt.payload as unknown as TurnStartedPayload;
+  const turn = asNumber(p.turn);
+  const playerId = asString(p.playerId);
   if (turn === null || !playerId) return null;
   // Verify the active player is one we know about; if not, the snapshot
   // is out of date and a refetch is safer than silently mismatching.
@@ -124,7 +156,8 @@ function patchTurnStarted(state: GameState, evt: NormalisedEventDto): PatchResul
 }
 
 function patchPlayerLost(state: GameState, evt: NormalisedEventDto): PatchResult {
-  const playerId = pickString(evt.payload, 'playerId');
+  const p = evt.payload as unknown as PlayerLostPayload;
+  const playerId = asString(p.playerId);
   if (!playerId) return null;
   const idx = state.players.findIndex(p => p.id === playerId);
   if (idx < 0) return null;
@@ -142,9 +175,10 @@ function patchStackPush(state: GameState, evt: NormalisedEventDto): PatchResult 
   // dedupe on stackId so the entry isn't pushed twice. Other StackItem
   // sources (triggers, activated abilities) only emit
   // StackObjectAddedEvent.
-  const id = pickString(evt.payload, 'stackId', 'id');
-  const kind = pickString(evt.payload, 'kind');
-  const description = pickString(evt.payload, 'description');
+  const p = evt.payload as unknown as StackObjectPayload;
+  const id = asString(p.stackId);
+  const kind = asString(p.kind);
+  const description = asString(p.description);
   if (!id || !kind || description === null) return null;
   if (state.stack.some(item => item.id === id)) {
     // Already present (e.g. SpellCast arrived after StackObjectAdded for
@@ -165,7 +199,8 @@ function patchStackPop(state: GameState, evt: NormalisedEventDto): PatchResult {
   // entering the battlefield) arrive as their own events (CardMoved,
   // LifeChanged, etc.) — those are not yet patchable so the caller will
   // refetch for them as before. Stack panel stays in sync regardless.
-  const id = pickString(evt.payload, 'stackId', 'id');
+  const p = evt.payload as unknown as StackObjectPayload;
+  const id = asString(p.stackId);
   if (!id) return null;
   const idx = state.stack.findIndex(item => item.id === id);
   if (idx < 0) {
@@ -208,9 +243,10 @@ function patchStackPop(state: GameState, evt: NormalisedEventDto): PatchResult {
 // provides.
 // -----------------------------------------------------------------------
 function patchCardMoved(state: GameState, evt: NormalisedEventDto): PatchResult {
-  const fromStr = pickString(evt.payload, 'from');
-  const toStr = pickString(evt.payload, 'to');
-  const ownerId = pickString(evt.payload, 'ownerId');
+  const p = evt.payload as unknown as CardMovedPayload;
+  const fromStr = asString(p.from);
+  const toStr = asString(p.to);
+  const ownerId = asString(p.ownerId);
   if (!fromStr || !toStr || !ownerId) return null;
 
   const ownerIdx = state.players.findIndex(p => p.id === ownerId);
@@ -237,9 +273,9 @@ function patchCardMoved(state: GameState, evt: NormalisedEventDto): PatchResult 
   // refetch so we don't lose the move.
   if (fromZone === null || toZone === null) return null;
 
-  const hidden = pickBoolean(evt.payload, 'hidden') === true;
-  const cardId = pickString(evt.payload, 'cardId');
-  const cardName = pickString(evt.payload, 'cardName');
+  const hidden = p.hidden === true;
+  const cardId = asString(p.cardId);
+  const cardName = asString(p.cardName);
 
   // Owner of the moving card is also the owner of both zones — every
   // zone in GameState is per-player and CardMovedEvent is fired by the
@@ -257,7 +293,7 @@ function patchCardMoved(state: GameState, evt: NormalisedEventDto): PatchResult 
     appended = appendToZone(player[toZone], hiddenPlaceholder());
   } else {
     if (!cardName || !cardId) return null;
-    const snapshot = buildCardSnapshot(cardId, cardName, evt.payload);
+    const snapshot = buildCardSnapshot(cardId, cardName, p);
     appended = appendToZone(player[toZone], snapshot);
   }
 
@@ -362,29 +398,31 @@ function hiddenPlaceholder(): CardSnapshot {
 function buildCardSnapshot(
   cardId: string,
   cardName: string,
-  payload: Record<string, unknown>,
+  payload: CardMovedPayload,
 ): CardSnapshot {
-  const manaCost = pickString(payload, 'manaCost') ?? '';
-  const types = pickStringArray(payload, 'types') ?? [];
-  // PLAN 04 — the revealed → Battlefield CardMovedEvent now carries the
-  // permanent fields (shared with StateSnapshotter.BuildPermanentFields), so a
-  // patched ETB matches what a fresh /state would return for the same card.
-  // Non-Battlefield moves omit these fields; the picks degrade to the prior
-  // null / false / "" defaults, so those zones are unchanged.
+  // PLAN 07 — typed reads off the generated CardMovedPayload (the
+  // generator widens int -> number | string, so coerce via asNumber).
+  // PLAN 04 — the revealed -> Battlefield CardMovedEvent carries the full
+  // permanent field set (shared with StateSnapshotter.BuildPermanentFields),
+  // so a patched ETB matches what a fresh /state would return for the same
+  // card. Non-Battlefield moves omit these fields; they degrade to the
+  // prior null / false / "" defaults, so those zones are unchanged.
+  const manaCost = asString(payload.manaCost) ?? '';
+  const types = Array.isArray(payload.types) ? payload.types : [];
   const snapshot: CardSnapshot = {
     instanceId: cardId,
     name: cardName,
     manaCost,
     types,
-    power: pickNumber(payload, 'power'),
-    toughness: pickNumber(payload, 'toughness'),
-    tapped: pickBoolean(payload, 'tapped') ?? false,
-    summoningSickness: pickBoolean(payload, 'summoningSickness') ?? false,
-    producedManaColors: pickString(payload, 'producedManaColors') ?? '',
+    power: asNumber(payload.power),
+    toughness: asNumber(payload.toughness),
+    tapped: payload.tapped ?? false,
+    summoningSickness: payload.summoningSickness ?? false,
+    producedManaColors: asString(payload.producedManaColors) ?? '',
   };
-  const abilities = pickAbilities(payload, 'abilities');
+  const abilities = pickAbilities(payload as unknown as Record<string, unknown>, 'abilities');
   if (abilities) snapshot.abilities = abilities;
-  const counters = pickCounters(payload, 'counters');
+  const counters = pickCounters(payload as unknown as Record<string, unknown>, 'counters');
   if (counters) snapshot.counters = counters;
   return snapshot;
 }
