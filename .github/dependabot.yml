@@ -1,0 +1,36 @@
+# Dependabot version updates.
+# Docs: https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+#
+# Each ecosystem groups all bumps into a single weekly PR to keep noise low.
+# NOTE: Dependabot does not sign off its commits, so the required `dco` check
+# is configured to skip the Signed-off-by verification for dependabot[bot]
+# (see .github/workflows/dco.yml) — otherwise these PRs would never merge.
+version: 2
+updates:
+  # npm packages (Angular app — package.json at repo root).
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      # Keep Angular's coordinated packages together; everything else grouped too.
+      angular:
+        patterns:
+          - "@angular/*"
+          - "@angular-*/*"
+          - "ng-*"
+      npm:
+        patterns:
+          - "*"
+
+  # GitHub Actions used by the workflows under .github/workflows/.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      github-actions:
+        patterns:
+          - "*"
