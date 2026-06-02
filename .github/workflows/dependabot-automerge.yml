@@ -1,0 +1,35 @@
+name: Dependabot auto-merge
+
+# Enables auto-merge on Dependabot PRs. Auto-merge still waits for the required
+# status checks to pass before the PR actually merges, so a red bump never
+# lands. Patch + minor bumps auto-merge; major bumps are left for manual review
+# (they can break in ways CI doesn't catch).
+#
+# Uses pull_request_target so the GITHUB_TOKEN is write-capable (a plain
+# pull_request event from Dependabot gets a read-only token). This job never
+# checks out or runs PR code — it only calls the GitHub API to flip auto-merge,
+# so pull_request_target is safe here.
+on:
+  pull_request_target
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    if: ${{ github.actor == 'dependabot[bot]' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch Dependabot metadata
+        id: meta
+        uses: dependabot/fetch-metadata@d7267f607e9d3fb96fc2fbe83e0af444713e90b7 # v2.3.0
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Enable auto-merge (patch + minor only)
+        if: ${{ steps.meta.outputs.update-type != 'version-update:semver-major' }}
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
