@@ -37,12 +37,12 @@
     "@playwright/test": "^1.60.0",
     "@tailwindcss/postcss": "^4.3.0",
     "autoprefixer": "^10.5.0",
-    "jsdom": "^28.0.0",
+    "jsdom": "^29.1.1",
     "ng-openapi-gen": "^1.0.5",
     "postcss": "^8.5.15",
     "prettier": "^3.8.1",
     "tailwindcss": "^4.3.0",
-    "typescript": "~5.9.2",
-    "vitest": "^4.0.8"
+    "typescript": "~6.0.3",
+    "vitest": "^4.1.8"
   }
 }
