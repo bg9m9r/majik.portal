@@ -13,6 +13,14 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    ignore:
+      # TypeScript's version is gated by Angular's peer range (e.g.
+      # @angular/build pins typescript ">=5.9 <6.0"). A TS *major* bump ahead of
+      # Angular breaks `npm ci` with an ERESOLVE peer conflict. Let TS move only
+      # within the Angular-compatible minor/patch range; a TS major arrives with
+      # an Angular upgrade, not on its own.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
     groups:
       # Keep Angular's coordinated packages together; everything else grouped too.
       angular:
