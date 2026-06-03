@@ -426,7 +426,7 @@ export class MatchPage implements OnInit, OnDestroy {
         }
       });
     // Engine "event" channel — first try to apply the event as an
-    // in-place delta on the existing snapshot (LifeChanged, PhaseStarted,
+    // in-place delta on the existing snapshot (LifeChanged, StepStarted,
     // TurnStarted, etc.). Only fall back to a full /state refetch when
     // the patch reducer can't handle the event type or the payload
     // doesn't match the local snapshot. See event.reducer.ts for the
