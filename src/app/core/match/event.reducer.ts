@@ -10,7 +10,7 @@
 //
 // Patched event types:
 //   * LifeChangedEvent — set player.life
-//   * PhaseStartedEvent / StepStartedEvent — phase
+//   * StepStartedEvent — phase
 //   * TurnStartedEvent — turnNumber + activePlayerId
 //   * PlayerLostEvent — player.hasLost
 //   * SpellCastEvent / StackObjectAddedEvent — push StackItem
@@ -35,7 +35,6 @@
 import {
   CardMovedPayload,
   LifeChangedPayload,
-  PhaseStartedPayload,
   PlayerLostPayload,
   StackObjectPayload,
   StepStartedPayload,
@@ -76,7 +75,6 @@ type ZoneKey = 'hand' | 'library' | 'graveyard' | 'exile' | 'battlefield';
 export function patchGameState(state: GameState, evt: NormalisedEventDto): PatchResult {
   switch (evt.type) {
     case 'LifeChangedEvent': return patchLifeChanged(state, evt);
-    case 'PhaseStartedEvent': return patchPhaseStarted(state, evt);
     case 'StepStartedEvent': return patchStepStarted(state, evt);
     case 'TurnStartedEvent': return patchTurnStarted(state, evt);
     case 'PlayerLostEvent': return patchPlayerLost(state, evt);
@@ -105,20 +103,6 @@ function patchLifeChanged(state: GameState, evt: NormalisedEventDto): PatchResul
   if (idx < 0) return null;
   const players = replaceAt(state.players, idx, { ...state.players[idx], life: current });
   return { ...state, players };
-}
-
-function patchPhaseStarted(state: GameState, evt: NormalisedEventDto): PatchResult {
-  const p = evt.payload as unknown as PhaseStartedPayload;
-  const phase = asString(p.phase);
-  if (!phase) return null;
-  // PhaseStartedEvent fires on the entry to a phase — by definition the
-  // active player owns that phase, so keep activePlayerId in sync.
-  const playerId = asString(p.playerId);
-  return {
-    ...state,
-    phase,
-    activePlayerId: playerId ?? state.activePlayerId,
-  };
 }
 
 function patchStepStarted(state: GameState, evt: NormalisedEventDto): PatchResult {

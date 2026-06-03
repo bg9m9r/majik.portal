@@ -100,25 +100,6 @@ describe('patchGameState', () => {
     });
   });
 
-  describe('PhaseStartedEvent', () => {
-    it('updates phase and follows the active player from payload', () => {
-      const state = baseState();
-      const next = patchGameState(state, evt('PhaseStartedEvent', {
-        phase: 'Beginning', playerId: BOB,
-      }));
-      expect(next!.phase).toBe('Beginning');
-      expect(next!.activePlayerId).toBe(BOB);
-    });
-
-    it('preserves activePlayerId when payload omits playerId', () => {
-      const next = patchGameState(baseState(), evt('PhaseStartedEvent', {
-        phase: 'PostCombatMain',
-      }));
-      expect(next!.activePlayerId).toBe(ALICE);
-      expect(next!.phase).toBe('PostCombatMain');
-    });
-  });
-
   describe('StepStartedEvent', () => {
     it('writes the step label into state.phase (steps share that slot)', () => {
       const next = patchGameState(baseState(), evt('StepStartedEvent', {

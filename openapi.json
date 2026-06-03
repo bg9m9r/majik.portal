@@ -1783,12 +1783,9 @@
           "cardDrawn",
           "cardRevealed",
           "lifeChanged",
-          "phaseStarted",
-          "phaseEnded",
           "gameStateChanged",
           "phaseStateChanged",
           "stepStarted",
-          "stepEnded",
           "turnStarted",
           "turnEnded",
           "extraPhaseAdded",
@@ -1811,12 +1808,6 @@
           "lifeChanged": {
             "$ref": "#/components/schemas/LifeChangedPayload"
           },
-          "phaseStarted": {
-            "$ref": "#/components/schemas/PhaseStartedPayload"
-          },
-          "phaseEnded": {
-            "$ref": "#/components/schemas/PhaseEndedPayload"
-          },
           "gameStateChanged": {
             "$ref": "#/components/schemas/GameStateChangedPayload"
           },
@@ -1825,9 +1816,6 @@
           },
           "stepStarted": {
             "$ref": "#/components/schemas/StepStartedPayload"
-          },
-          "stepEnded": {
-            "$ref": "#/components/schemas/StepEndedPayload"
           },
           "turnStarted": {
             "$ref": "#/components/schemas/TurnStartedPayload"
@@ -2745,38 +2733,6 @@
           }
         }
       },
-      "PhaseEndedPayload": {
-        "required": [
-          "phase",
-          "playerId"
-        ],
-        "type": "object",
-        "properties": {
-          "phase": {
-            "type": "string"
-          },
-          "playerId": {
-            "type": "string",
-            "format": "uuid"
-          }
-        }
-      },
-      "PhaseStartedPayload": {
-        "required": [
-          "phase",
-          "playerId"
-        ],
-        "type": "object",
-        "properties": {
-          "phase": {
-            "type": "string"
-          },
-          "playerId": {
-            "type": "string",
-            "format": "uuid"
-          }
-        }
-      },
       "PlayDrawRequest": {
         "required": [
           "choice"
@@ -3132,22 +3088,6 @@
               "null",
               "string"
             ]
-          }
-        }
-      },
-      "StepEndedPayload": {
-        "required": [
-          "step",
-          "playerId"
-        ],
-        "type": "object",
-        "properties": {
-          "step": {
-            "type": "string"
-          },
-          "playerId": {
-            "type": "string",
-            "format": "uuid"
           }
         }
       },

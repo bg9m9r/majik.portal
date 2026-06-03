@@ -187,13 +187,13 @@ describe('SignalrService prompt$/event$ replay semantics', () => {
   it('replays the most recent event to late subscribers', () => {
     type Internal = { _event$: { next: (v: unknown) => void } };
     const internal = svc as unknown as Internal;
-    internal._event$.next({ type: 'PhaseStarted', payload: { phase: 'Beginning' } });
+    internal._event$.next({ type: 'StepStarted', payload: { step: 'Upkeep' } });
 
     let received: unknown = null;
     svc.event$.subscribe(e => { received = e; });
 
     expect(received).not.toBeNull();
-    expect((received as { type: string }).type).toBe('PhaseStarted');
+    expect((received as { type: string }).type).toBe('StepStarted');
   });
 
   // Snapshot-on-join (Slice 4b): the server pushes an authoritative
