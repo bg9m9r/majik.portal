@@ -1786,7 +1786,7 @@
           "phaseStarted",
           "phaseEnded",
           "gameStateChanged",
-          "turnStateChanged",
+          "phaseStateChanged",
           "stepStarted",
           "stepEnded",
           "turnStarted",
@@ -1820,8 +1820,8 @@
           "gameStateChanged": {
             "$ref": "#/components/schemas/GameStateChangedPayload"
           },
-          "turnStateChanged": {
-            "$ref": "#/components/schemas/TurnStateChangedPayload"
+          "phaseStateChanged": {
+            "$ref": "#/components/schemas/PhaseStateChangedPayload"
           },
           "stepStarted": {
             "$ref": "#/components/schemas/StepStartedPayload"
@@ -3209,7 +3209,7 @@
           }
         }
       },
-      "TurnStateChangedPayload": {
+      "PhaseStateChangedPayload": {
         "required": [
           "from",
           "to"
