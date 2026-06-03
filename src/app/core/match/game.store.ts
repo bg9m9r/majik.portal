@@ -518,9 +518,8 @@ function announcementFor(
       return `Turn ${turn ?? next.turnNumber} — ${isMine ? 'your turn' : "opponent's turn"}`;
     }
     case 'PhaseStartedEvent':
-    case 'StepStartedEvent':
-    case 'PhaseChangedEvent': {
-      const phase = pickString(evt.payload, 'phase', 'step', 'to') ?? next.phase;
+    case 'StepStartedEvent': {
+      const phase = pickString(evt.payload, 'phase', 'step') ?? next.phase;
       const active = next.activePlayerId;
       const isMine = selfIds.includes(active);
       return `Now: ${phase} — ${isMine ? 'your turn' : "opponent's turn"}`;

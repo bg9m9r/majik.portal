@@ -88,16 +88,15 @@ describe('patchGameState', () => {
     });
   });
 
-  describe('PhaseChangedEvent', () => {
-    it('sets state.phase to payload.to', () => {
-      const next = patchGameState(baseState(), evt('PhaseChangedEvent', {
-        from: 'PreCombatMain', to: 'Combat',
+  describe('GameStateChangedEvent', () => {
+    it('defers to a /state refetch (game-lifecycle channel, not structurally patched)', () => {
+      // Initializing/Mulligan/Playing/GameOver must NOT touch the phase
+      // label; the reducer returns null so the caller re-pulls the snapshot.
+      const next = patchGameState(baseState(), evt('GameStateChangedEvent', {
+        from: 'Mulligan', to: 'Playing',
       }));
-      expect(next!.phase).toBe('Combat');
-    });
-
-    it('returns null without a `to` field', () => {
-      expect(patchGameState(baseState(), evt('PhaseChangedEvent', { from: 'X' }))).toBeNull();
+      expect(next).toBeNull();
+      expect(baseState().phase).not.toBe('Playing');
     });
   });
 
