@@ -210,8 +210,8 @@ describe('GameStore.applyEvent', () => {
   it('tolerates PascalCase EventDto envelope keys', () => {
     store.setState(snapshot());
     const ok = store.applyEvent({
-      EventId: 'e', Type: 'PhaseChangedEvent', At: '2026-01-01T00:00:00Z',
-      Payload: { from: 'X', to: 'Combat' },
+      EventId: 'e', Type: 'StepStartedEvent', At: '2026-01-01T00:00:00Z',
+      Payload: { step: 'Combat', playerId: 'p1' },
     });
     expect(ok).toBe(true);
     expect(store.state()!.phase).toBe('Combat');

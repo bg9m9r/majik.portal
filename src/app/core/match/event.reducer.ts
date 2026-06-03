@@ -10,7 +10,7 @@
 //
 // Patched event types:
 //   * LifeChangedEvent — set player.life
-//   * PhaseChangedEvent / PhaseStartedEvent / StepStartedEvent — phase
+//   * PhaseStartedEvent / StepStartedEvent — phase
 //   * TurnStartedEvent — turnNumber + activePlayerId
 //   * PlayerLostEvent — player.hasLost
 //   * SpellCastEvent / StackObjectAddedEvent — push StackItem
@@ -28,12 +28,13 @@
 //     redundant signal). Returns `state` so the caller doesn't refetch.
 //
 // Deferred to refetch: *EndedEvent, ExtraPhaseAddedEvent,
-// GameStartedEvent, and any unknown type.
+// GameStartedEvent, GameStateChangedEvent (game-lifecycle channel —
+// Initializing/Mulligan/Playing/GameOver; not structurally patchable, the
+// snapshot carries it), and any unknown type.
 
 import {
   CardMovedPayload,
   LifeChangedPayload,
-  PhaseChangedPayload,
   PhaseStartedPayload,
   PlayerLostPayload,
   StackObjectPayload,
@@ -75,7 +76,6 @@ type ZoneKey = 'hand' | 'library' | 'graveyard' | 'exile' | 'battlefield';
 export function patchGameState(state: GameState, evt: NormalisedEventDto): PatchResult {
   switch (evt.type) {
     case 'LifeChangedEvent': return patchLifeChanged(state, evt);
-    case 'PhaseChangedEvent': return patchPhaseChanged(state, evt);
     case 'PhaseStartedEvent': return patchPhaseStarted(state, evt);
     case 'StepStartedEvent': return patchStepStarted(state, evt);
     case 'TurnStartedEvent': return patchTurnStarted(state, evt);
@@ -105,13 +105,6 @@ function patchLifeChanged(state: GameState, evt: NormalisedEventDto): PatchResul
   if (idx < 0) return null;
   const players = replaceAt(state.players, idx, { ...state.players[idx], life: current });
   return { ...state, players };
-}
-
-function patchPhaseChanged(state: GameState, evt: NormalisedEventDto): PatchResult {
-  const p = evt.payload as unknown as PhaseChangedPayload;
-  const to = asString(p.to);
-  if (!to) return null;
-  return { ...state, phase: to };
 }
 
 function patchPhaseStarted(state: GameState, evt: NormalisedEventDto): PatchResult {

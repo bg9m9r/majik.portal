@@ -1785,7 +1785,7 @@
           "lifeChanged",
           "phaseStarted",
           "phaseEnded",
-          "phaseChanged",
+          "gameStateChanged",
           "turnStateChanged",
           "stepStarted",
           "stepEnded",
@@ -1817,8 +1817,8 @@
           "phaseEnded": {
             "$ref": "#/components/schemas/PhaseEndedPayload"
           },
-          "phaseChanged": {
-            "$ref": "#/components/schemas/PhaseChangedPayload"
+          "gameStateChanged": {
+            "$ref": "#/components/schemas/GameStateChangedPayload"
           },
           "turnStateChanged": {
             "$ref": "#/components/schemas/TurnStateChangedPayload"
@@ -2727,7 +2727,7 @@
           }
         }
       },
-      "PhaseChangedPayload": {
+      "GameStateChangedPayload": {
         "required": [
           "from",
           "to"
