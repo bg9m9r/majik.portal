@@ -1520,6 +1520,15 @@
               ],
               "format": "int32"
             }
+          },
+          "imprintedCards": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/CardSnapshotDto"
+            }
           }
         }
       },

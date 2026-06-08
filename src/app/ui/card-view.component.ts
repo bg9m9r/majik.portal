@@ -18,6 +18,7 @@ export type CardViewZone = 'battlefield' | 'hand' | 'stack' | 'other';
   standalone: true,
   imports: [ManaCostComponent],
   template: `
+    <div class="flex flex-col items-stretch">
     <div #host
       class="card relative overflow-hidden flex flex-col justify-between p-1 text-[10px] text-stone-900"
       [class.is-tapped]="snapshot()?.tapped"
@@ -60,6 +61,18 @@ export type CardViewZone = 'battlefield' | 'hand' | 'stack' | 'other';
         }
       }
     </div>
+    @if (imprintedCards().length) {
+      <div class="card__imprints mt-0.5 flex flex-wrap items-center justify-center gap-0.5"
+           role="list"
+           [attr.aria-label]="imprintsAriaLabel()">
+        @for (im of imprintedCards(); track im.instanceId) {
+          <span class="card__imprint-chip max-w-full truncate rounded-sm bg-stone-900/80 px-1 py-px text-[8px] leading-tight text-amber-200/90 ring-1 ring-amber-400/30"
+                role="listitem"
+                [title]="im.name">{{ im.name }}</span>
+        }
+      </div>
+    }
+    </div>
   `
 })
 export class CardViewComponent {
@@ -95,6 +108,20 @@ export class CardViewComponent {
   private readonly popover = inject(CardPopoverService);
   private readonly host = inject(ElementRef<HTMLElement>);
   private hoverTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // Cards exiled WITH this permanent (e.g. creatures imprinted under
+  // Agatha's Soul Cauldron — the engine surfaces them on
+  // CardSnapshotDto.imprintedCards). They grant the permanent extra
+  // abilities, so we render their names as chips beneath the tile to
+  // show the player where those abilities come from. Empty/undefined
+  // for ordinary permanents (and detached to plain exile when the
+  // host leaves the battlefield, so non-battlefield views show none).
+  readonly imprintedCards = computed<CardSnapshot[]>(() => this.snapshot()?.imprintedCards ?? []);
+
+  readonly imprintsAriaLabel = computed<string>(() => {
+    const names = this.imprintedCards().map(c => c.name);
+    return names.length ? `exiled with this permanent: ${names.join(', ')}` : '';
+  });
 
   readonly typeLine = computed(() => (this.snapshot()?.types ?? []).join(' '));
 

@@ -109,6 +109,12 @@ export interface CardSnapshot {
   // bumps this map for a display-only badge; authoritative P/T still come
   // from the next snapshot. Absent (undefined) on older server builds.
   counters?: Record<string, number>;
+  // Cards exiled WITH this permanent — e.g. creatures imprinted under
+  // Agatha's Soul Cauldron (engine CardSnapshotDto.imprintedCards). These
+  // grant the host its abilities; the board renders their names beneath
+  // the permanent so the player sees the source. Empty/undefined for
+  // ordinary permanents, and absent on older server builds.
+  imprintedCards?: CardSnapshot[];
 }
 
 export interface ZoneSnapshot { cards: CardSnapshot[] }

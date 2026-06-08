@@ -986,12 +986,17 @@ function normaliseCardSnapshot(raw: unknown): CardSnapshot {
   const abilities = (c['abilities'] ?? c['Abilities']) as unknown[] | undefined;
   // PLAN 04 — counter map ({"+1/+1": 2, …}); tolerate either casing.
   const counters = (c['counters'] ?? c['Counters']) as Record<string, number> | undefined;
+  // Cards exiled WITH this permanent (Agatha's Soul Cauldron imprints).
+  // Recurse so each imprinted card's own abilities/counters normalise too;
+  // tolerate either casing. Absent on older server builds.
+  const imprinted = (c['imprintedCards'] ?? c['ImprintedCards']) as unknown[] | undefined;
   const base = raw as CardSnapshot;
-  if (!abilities && !counters) return base;
+  if (!abilities && !counters && !imprinted) return base;
   return {
     ...base,
     ...(abilities ? { abilities: abilities.map(normaliseAbility) } : {}),
     ...(counters ? { counters } : {}),
+    ...(imprinted ? { imprintedCards: imprinted.map(normaliseCardSnapshot) } : {}),
   };
 }
 
