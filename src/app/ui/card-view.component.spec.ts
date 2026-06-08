@@ -209,4 +209,52 @@ describe('CardViewComponent', () => {
       expect(fixture.nativeElement.querySelector('.card__tap-pin')).toBeNull();
     });
   });
+
+  describe('imprinted cards (Agatha\'s Soul Cauldron)', () => {
+    it('renders a chip per imprinted card beneath the permanent', () => {
+      const { fixture } = render(
+        makeSnapshot({
+          name: "Agatha's Soul Cauldron",
+          types: ['Artifact'],
+          power: null,
+          toughness: null,
+          imprintedCards: [
+            makeSnapshot({ instanceId: 'im1', name: 'Grizzly Bears', types: ['Creature'] }),
+            makeSnapshot({ instanceId: 'im2', name: 'Llanowar Elves', types: ['Creature'] }),
+          ],
+        }),
+        false, makeCacheStub(), 'battlefield');
+      const chips = fixture.nativeElement.querySelectorAll('.card__imprint-chip');
+      expect(chips.length).toBe(2);
+      const names = Array.from(chips as NodeListOf<Element>).map((c) => c.textContent?.trim());
+      expect(names).toContain('Grizzly Bears');
+      expect(names).toContain('Llanowar Elves');
+    });
+
+    it('exposes an aria-label naming the exiled cards', () => {
+      const { fixture } = render(
+        makeSnapshot({
+          name: "Agatha's Soul Cauldron",
+          imprintedCards: [makeSnapshot({ instanceId: 'im1', name: 'Grizzly Bears' })],
+        }),
+        false, makeCacheStub(), 'battlefield');
+      const strip = fixture.nativeElement.querySelector('.card__imprints');
+      expect(strip).not.toBeNull();
+      expect(strip.getAttribute('aria-label')).toContain('Grizzly Bears');
+    });
+
+    it('renders no imprint strip for an ordinary permanent', () => {
+      const { fixture } = render(
+        makeSnapshot({ types: ['Creature'] }),
+        false, makeCacheStub(), 'battlefield');
+      expect(fixture.nativeElement.querySelector('.card__imprints')).toBeNull();
+    });
+
+    it('renders no imprint strip when imprintedCards is empty', () => {
+      const { fixture } = render(
+        makeSnapshot({ types: ['Artifact'], imprintedCards: [] }),
+        false, makeCacheStub(), 'battlefield');
+      expect(fixture.nativeElement.querySelector('.card__imprints')).toBeNull();
+    });
+  });
 });
