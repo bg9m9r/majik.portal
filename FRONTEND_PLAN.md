@@ -45,30 +45,37 @@ majik.portal/
   angular.json, package.json
 ```
 
-## State shape (NgRx feature `match`)
+## State shape (NgRx Signals store `GameStore`)
+
+> The shipped store is an NgRx **Signals** `signalStore`, not a classic
+> reducer/action feature. Source of truth: `src/app/core/match/game.store.ts`
+> (`GameStoreState`). The shape below is a condensed view — read the file for the
+> authoritative, commented definition.
 
 ```ts
-interface MatchState {
-  id: string | null;                 // current match id
-  selfSeat: 'p1' | 'p2' | null;
-  snapshot: MatchStateDto | null;    // last /state response
-  events: EventDto[];                // append-only event log (capped)
-  currentPrompt: PromptDto | null;   // null when not our turn to choose
-  connection: 'idle' | 'connecting' | 'open' | 'closed';
-  error: string | null;
-}
+type GameStoreState = {
+  state: GameState | null;       // latest engine snapshot
+  prompt: PromptEnvelope | null; // active decision prompt (null when not ours)
+  stateVersion: number;          // bumps on every setState/patch (freshness marker)
+  selfPlayerIds: string[];       // engine player ids the viewer owns
+  recentDecisions: BotDecision[];// capped ring buffer of bot decisions (SignalR)
+  phaseStops: PhaseStops;        // per-step stop toggles
+  landsPlayedThisTurn: number;   // client-derived land-drop count (CR 305.2)
+  lastAnnouncement: string;      // aria-live text …
+  lastAnnouncementSeq: number;   // … + seq so screen readers re-announce
+  fullControl: boolean;          // MTGO-style Full Control toggle
+  clockAnchor: ClockAnchor | null;   // local clock anchor, re-stamped per snapshot
+  lastStackMutatedAt: number | null; // stack-display timing (server-contract ref)
+  lastStackSig: string;          // cheap stack signature to detect mutation
+  tick: number; autoPassTick: number; // 1Hz heartbeats (withHooks interval)
+};
 ```
 
-Reducers respond to:
-
-- `matchCreated`, `matchJoined`, `seatClaimed`, `matchStarted`
-- `snapshotReceived` (REST response)
-- `eventReceived` (SignalR `event`)
-- `promptReceived` (SignalR `prompt`)
-- `commandSubmitted`, `commandAccepted`, `commandRejected`
-- `connectionStateChanged`
-
-Effects bridge SignalR to the store; selectors expose derived view models (one per zone), keeping components dumb.
+The store exposes mutations via `withMethods` (e.g. `patchGameState`,
+`applyEvent`, `setPrompt`, `pushBotDecision`) and derived view models via `withComputed`, rather
+than reducer actions. SignalR + REST feed the store through the match services;
+`withHooks` drives the clock tick. Components stay dumb — they read computed
+signals and call methods.
 
 ## Component hierarchy (match route)
 
