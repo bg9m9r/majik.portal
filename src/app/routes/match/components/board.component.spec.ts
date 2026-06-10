@@ -203,10 +203,20 @@ function permanentCard(over: Partial<CardSnapshot> & Pick<CardSnapshot, 'instanc
     summoningSickness: false,
     producedManaColors: over.producedManaColors ?? '',
     abilities: over.abilities,
+    counters: over.counters,
   };
 }
 
-function mountBoardWithCard(card: CardSnapshot) {
+// A loyalty ability descriptor — kind 'Loyalty', signed-cost description
+// (the engine renders minus with the U+2212 MINUS SIGN).
+function loyaltyAbility(id: string, description: string): Ability {
+  return { kind: 'Loyalty', description, id };
+}
+
+function mountBoardWithCard(
+  card: CardSnapshot,
+  prompt?: { expectedKinds?: string[]; description?: string } | null,
+) {
   const me = {
     id: 'me',
     name: 'Alice',
@@ -232,6 +242,7 @@ function mountBoardWithCard(card: CardSnapshot) {
   const ref: ComponentRef<BoardComponent> = fixture.componentRef;
   ref.setInput('state', state);
   ref.setInput('selfPlayerIds', ['me']);
+  if (prompt !== undefined) ref.setInput('currentPrompt', prompt);
   fixture.detectChanges();
   return { component: fixture.componentInstance, fixture };
 }
@@ -401,7 +412,7 @@ describe('BoardComponent — context-menu activate entries', () => {
 
     const abilities = component.activeContextActivatableAbilities();
     expect(abilities).toEqual([
-      { id: 'abil-1', description: '{T}, Pay 1 life, Sacrifice: search' },
+      { id: 'abil-1', description: '{T}, Pay 1 life, Sacrifice: search', kind: 'activated' },
     ]);
   });
 
@@ -424,8 +435,8 @@ describe('BoardComponent — context-menu activate entries', () => {
 
     const abilities = component.activeContextActivatableAbilities();
     expect(abilities).toEqual([
-      { id: 'pw-1-plus', description: '+1: scry' },
-      { id: 'pw-1-minus', description: '-3: bolt' },
+      { id: 'pw-1-plus', description: '+1: scry', kind: 'activated' },
+      { id: 'pw-1-minus', description: '-3: bolt', kind: 'activated' },
     ]);
   });
 
@@ -475,7 +486,7 @@ describe('BoardComponent — context-menu activate entries', () => {
     );
 
     expect(component.activeContextActivatableAbilities()).toEqual([
-      { id: 'abil-with-id', description: 'sac' },
+      { id: 'abil-with-id', description: 'sac', kind: 'activated' },
     ]);
   });
 
@@ -493,7 +504,7 @@ describe('BoardComponent — context-menu activate entries', () => {
     const activateSpy = vi.fn();
     component.activateAbilityRequested.subscribe(activateSpy);
 
-    component.onContextActivateAbility('abil-1');
+    component.onContextActivateAbility({ id: 'abil-1', description: 'search', kind: 'activated' });
 
     expect(activateSpy).toHaveBeenCalledOnce();
     expect(activateSpy).toHaveBeenCalledWith({
@@ -521,6 +532,164 @@ describe('BoardComponent — context-menu activate entries', () => {
     ) as HTMLButtonElement[];
     const labels = buttons.map(b => b.textContent?.trim());
     expect(labels).toContain('Activate search your library');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// BoardComponent — planeswalkers: no Tap, loyalty abilities in context menu
+//
+// (b) A planeswalker (CR 306) does not tap to any purpose, so the
+//     context menu must NOT offer Tap / Untap on one — canTapActiveContext
+//     gates on (owner === self AND !isPlaneswalker).
+// (c) Loyalty abilities (engine PR #2585: AbilityDto kind === 'Loyalty',
+//     signed-cost description) surface as Activate entries, but only when
+//     the current prompt advertises the loyalty-activation kind AND the
+//     player can afford a −N ability (current loyalty ≥ N from the
+//     "Loyalty" counter). Selecting one emits activateLoyaltyAbilityRequested.
+// ---------------------------------------------------------------------------
+const LOYALTY_PROMPT = { expectedKinds: ['activateLoyaltyAbility'] };
+
+describe('BoardComponent — planeswalker: no Tap entry', () => {
+  it('canTapActiveContext is false for a self-owned planeswalker', () => {
+    const pw = permanentCard({
+      instanceId: 'grist-1',
+      types: ['Planeswalker'],
+      counters: { Loyalty: 3 },
+    });
+    const { component } = mountBoardWithCard(pw);
+    component.onContextMenu(
+      new MouseEvent('contextmenu', { clientX: 10, clientY: 10 }),
+      pw,
+      'self',
+    );
+    expect(component.canTapActiveContext()).toBe(false);
+  });
+
+  it('canTapActiveContext stays true for a self-owned non-planeswalker permanent', () => {
+    const land = permanentCard({ instanceId: 'forest-1', types: ['Land'] });
+    const { component } = mountBoardWithCard(land);
+    component.onContextMenu(
+      new MouseEvent('contextmenu', { clientX: 10, clientY: 10 }),
+      land,
+      'self',
+    );
+    expect(component.canTapActiveContext()).toBe(true);
+  });
+
+  it('does NOT render a Tap / Untap entry for a planeswalker context menu', () => {
+    const pw = permanentCard({
+      instanceId: 'grist-1',
+      types: ['Planeswalker'],
+      counters: { Loyalty: 3 },
+    });
+    const { component, fixture } = mountBoardWithCard(pw);
+    component.onContextMenu(
+      new MouseEvent('contextmenu', { clientX: 10, clientY: 10 }),
+      pw,
+      'self',
+    );
+    fixture.detectChanges();
+    const labels = (Array.from(
+      fixture.nativeElement.querySelectorAll('app-card-context-menu button'),
+    ) as HTMLButtonElement[]).map(b => b.textContent?.trim());
+    expect(labels).not.toContain('Tap / Untap');
+  });
+});
+
+describe('BoardComponent — planeswalker loyalty abilities in context menu', () => {
+  function grist(counters: Record<string, number> = { Loyalty: 3 }): CardSnapshot {
+    return permanentCard({
+      instanceId: 'grist-1',
+      name: 'Grist, the Hunger Tide',
+      types: ['Legendary', 'Planeswalker'],
+      counters,
+      abilities: [
+        loyaltyAbility('grist-plus', '+1'),
+        loyaltyAbility('grist-minus2', '−2'),
+        loyaltyAbility('grist-minus5', '−5'),
+      ],
+    });
+  }
+
+  it('lists all affordable loyalty abilities when the prompt advertises the loyalty kind', () => {
+    const pw = grist({ Loyalty: 3 });
+    const { component } = mountBoardWithCard(pw, LOYALTY_PROMPT);
+    component.onContextMenu(
+      new MouseEvent('contextmenu', { clientX: 10, clientY: 10 }),
+      pw,
+      'self',
+    );
+    // Loyalty 3: +1 (always), −2 (3 ≥ 2) shown; −5 (3 < 5) hidden.
+    expect(component.activeContextActivatableAbilities()).toEqual([
+      { id: 'grist-plus', description: '+1', kind: 'loyalty' },
+      { id: 'grist-minus2', description: '−2', kind: 'loyalty' },
+    ]);
+  });
+
+  it('does NOT offer a −N ability the player cannot afford', () => {
+    const pw = grist({ Loyalty: 1 });
+    const { component } = mountBoardWithCard(pw, LOYALTY_PROMPT);
+    component.onContextMenu(
+      new MouseEvent('contextmenu', { clientX: 10, clientY: 10 }),
+      pw,
+      'self',
+    );
+    // Loyalty 1: only +1 affordable; both minus abilities hidden.
+    expect(component.activeContextActivatableAbilities()).toEqual([
+      { id: 'grist-plus', description: '+1', kind: 'loyalty' },
+    ]);
+  });
+
+  it('offers NO loyalty abilities when the prompt does not advertise the loyalty kind', () => {
+    const pw = grist({ Loyalty: 3 });
+    const { component } = mountBoardWithCard(pw, { expectedKinds: ['none'] });
+    component.onContextMenu(
+      new MouseEvent('contextmenu', { clientX: 10, clientY: 10 }),
+      pw,
+      'self',
+    );
+    expect(component.activeContextActivatableAbilities()).toEqual([]);
+  });
+
+  it('emits activateLoyaltyAbilityRequested (not activateAbilityRequested) when a loyalty entry fires', () => {
+    const pw = grist({ Loyalty: 3 });
+    const { component } = mountBoardWithCard(pw, LOYALTY_PROMPT);
+    component.onContextMenu(
+      new MouseEvent('contextmenu', { clientX: 10, clientY: 10 }),
+      pw,
+      'self',
+    );
+    const loyaltySpy = vi.fn();
+    const activatedSpy = vi.fn();
+    component.activateLoyaltyAbilityRequested.subscribe(loyaltySpy);
+    component.activateAbilityRequested.subscribe(activatedSpy);
+
+    component.onContextActivateAbility({ id: 'grist-minus2', description: '−2', kind: 'loyalty' });
+
+    expect(loyaltySpy).toHaveBeenCalledOnce();
+    expect(loyaltySpy).toHaveBeenCalledWith({
+      permanentInstanceId: 'grist-1',
+      loyaltyAbilityId: 'grist-minus2',
+    });
+    expect(activatedSpy).not.toHaveBeenCalled();
+  });
+
+  it('renders the loyalty abilities as Activate entries in the menu (but no Tap)', () => {
+    const pw = grist({ Loyalty: 5 });
+    const { component, fixture } = mountBoardWithCard(pw, LOYALTY_PROMPT);
+    component.onContextMenu(
+      new MouseEvent('contextmenu', { clientX: 10, clientY: 10 }),
+      pw,
+      'self',
+    );
+    fixture.detectChanges();
+    const labels = (Array.from(
+      fixture.nativeElement.querySelectorAll('app-card-context-menu button'),
+    ) as HTMLButtonElement[]).map(b => b.textContent?.trim());
+    expect(labels).toContain('Activate +1');
+    expect(labels).toContain('Activate −2');
+    expect(labels).toContain('Activate −5'); // loyalty 5 affords −5
+    expect(labels).not.toContain('Tap / Untap');
   });
 });
 

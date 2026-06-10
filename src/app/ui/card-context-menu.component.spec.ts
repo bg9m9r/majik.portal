@@ -128,13 +128,13 @@ describe('CardContextMenuComponent', () => {
     expect(labels).toContain('Activate ability');
   });
 
-  it('emits activateAbilityRequested with the ability id on click + closes the menu', () => {
+  it('emits activateAbilityRequested with the full ability descriptor on click + closes the menu', () => {
     const fixture = render(makeCard(), { x: 0, y: 0 }, true, [
-      { id: 'abil-1', description: 'search' },
-      { id: 'abil-2', description: 'sac' },
+      { id: 'abil-1', description: 'search', kind: 'activated' },
+      { id: 'abil-2', description: '+1', kind: 'loyalty' },
     ]);
-    const emitted: string[] = [];
-    fixture.componentInstance.activateAbilityRequested.subscribe(id => emitted.push(id));
+    const emitted: ActivatableAbility[] = [];
+    fixture.componentInstance.activateAbilityRequested.subscribe(a => emitted.push(a));
     const closeSeen: boolean[] = [];
     fixture.componentInstance.closed.subscribe(() => closeSeen.push(true));
 
@@ -145,7 +145,12 @@ describe('CardContextMenuComponent', () => {
     activateButtons[0].click();
     activateButtons[1].click();
 
-    expect(emitted).toEqual(['abil-1', 'abil-2']);
+    // The menu re-emits the descriptor verbatim so the parent can route
+    // on `kind` (activated → ActivateAbilityCommand, loyalty → loyalty cmd).
+    expect(emitted).toEqual([
+      { id: 'abil-1', description: 'search', kind: 'activated' },
+      { id: 'abil-2', description: '+1', kind: 'loyalty' },
+    ]);
     // Each activate click also closes the menu, same as every other entry.
     expect(closeSeen.length).toBe(2);
   });

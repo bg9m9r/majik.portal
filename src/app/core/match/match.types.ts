@@ -246,6 +246,7 @@ export type GameCommand =
   | ChooseCardsToBottomCommand
   | ActivateManaAbilityCommand
   | ActivateAbilityCommand
+  | ActivateLoyaltyAbilityCommand
   | ChooseManaCommand
   | CancelCastCommand
   | ChooseLibraryPickCommand
@@ -291,6 +292,18 @@ export interface ActivateAbilityCommand extends CmdBase {
   $type: 'activateAbility';
   permanentInstanceId: string;
   abilityId: string;
+}
+// CR 606 — activate a planeswalker's loyalty ability (engine PR #2585).
+// The AbilityDto entries with kind === 'Loyalty' carry the signed cost
+// in `description` ("+1", "−2", "−5") and a stable `id`. The server only
+// advertises loyalty abilities when they're legal (sorcery speed, once
+// per turn, payable), but the UI gates defensively on affordability too.
+// `playerId` identifies the activating seat; mirrors the server's
+// ActivateLoyaltyAbilityCommand fields.
+export interface ActivateLoyaltyAbilityCommand extends CmdBase {
+  $type: 'activateLoyaltyAbility';
+  permanentInstanceId: string;
+  loyaltyAbilityId: string;
 }
 export interface ChooseManaCommand extends CmdBase {
   $type: 'mana';

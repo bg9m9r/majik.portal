@@ -6,7 +6,7 @@
   },
   "servers": [
     {
-      "url": "http://localhost/"
+      "url": "https://majik-api.onrender.com/"
     }
   ],
   "paths": {
@@ -1900,6 +1900,9 @@
             "$ref": "#/components/schemas/GameCommandActivateAbilityCommand"
           },
           {
+            "$ref": "#/components/schemas/GameCommandActivateLoyaltyAbilityCommand"
+          },
+          {
             "$ref": "#/components/schemas/GameCommandOrderTriggersCommand"
           },
           {
@@ -1941,6 +1944,7 @@
             "cancelCast": "#/components/schemas/GameCommandCancelCastCommand",
             "activateManaAbility": "#/components/schemas/GameCommandActivateManaAbilityCommand",
             "activateAbility": "#/components/schemas/GameCommandActivateAbilityCommand",
+            "activateLoyaltyAbility": "#/components/schemas/GameCommandActivateLoyaltyAbilityCommand",
             "order-triggers": "#/components/schemas/GameCommandOrderTriggersCommand",
             "attackers": "#/components/schemas/GameCommandDeclareAttackersCommand",
             "blockers": "#/components/schemas/GameCommandDeclareBlockersCommand",
@@ -1970,6 +1974,32 @@
             "format": "uuid"
           },
           "abilityId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "playerId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "GameCommandActivateLoyaltyAbilityCommand": {
+        "required": [
+          "permanentInstanceId",
+          "loyaltyAbilityId"
+        ],
+        "properties": {
+          "$type": {
+            "enum": [
+              "activateLoyaltyAbility"
+            ],
+            "type": "string"
+          },
+          "permanentInstanceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "loyaltyAbilityId": {
             "type": "string",
             "format": "uuid"
           },
@@ -2446,6 +2476,24 @@
           }
         }
       },
+      "GameStateChangedPayload": {
+        "required": [
+          "from",
+          "to"
+        ],
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "to": {
+            "type": "string"
+          }
+        }
+      },
       "GameStateDto": {
         "required": [
           "gameId",
@@ -2724,7 +2772,7 @@
           }
         }
       },
-      "GameStateChangedPayload": {
+      "PhaseStateChangedPayload": {
         "required": [
           "from",
           "to"
@@ -3155,24 +3203,6 @@
               "string"
             ],
             "format": "int32"
-          }
-        }
-      },
-      "PhaseStateChangedPayload": {
-        "required": [
-          "from",
-          "to"
-        ],
-        "type": "object",
-        "properties": {
-          "from": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "to": {
-            "type": "string"
           }
         }
       },
