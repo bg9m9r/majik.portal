@@ -38,6 +38,12 @@ export type CardContextMenuAction = 'tap' | 'details' | 'scryfall';
 export interface ActivatableAbility {
   id: string;
   description: string;
+  // Which engine command this entry maps to. 'activated' (default) →
+  // ActivateAbilityCommand; 'loyalty' → ActivateLoyaltyAbilityCommand
+  // (CR 606 planeswalker loyalty ability). The parent routes on this so
+  // one menu list can offer both ability families. Absent = 'activated'
+  // for back-compat with existing callers.
+  kind?: 'activated' | 'loyalty';
 }
 
 @Component({
@@ -67,7 +73,7 @@ export interface ActivatableAbility {
               type="button"
               role="menuitem"
               class="block w-full px-3 py-1.5 text-left hover:bg-white/10 focus:bg-white/10 focus:outline-none"
-              (click)="emitActivate(a.id)">
+              (click)="emitActivate(a)">
               {{ a.description ? 'Activate ' + a.description : 'Activate ability' }}
             </button>
           </li>
@@ -116,11 +122,12 @@ export class CardContextMenuComponent {
   readonly closed = output<void>();
   readonly action = output<CardContextMenuAction>();
   /**
-   * Emitted with the ability id when the user clicks one of the
-   * "Activate …" entries. The parent translates this into an
-   * ActivateAbilityCommand on the engine.
+   * Emitted with the full ability descriptor when the user clicks one of
+   * the "Activate …" entries. The parent routes on `kind` to translate
+   * into either an ActivateAbilityCommand ('activated') or an
+   * ActivateLoyaltyAbilityCommand ('loyalty') on the engine.
    */
-  readonly activateAbilityRequested = output<string>();
+  readonly activateAbilityRequested = output<ActivatableAbility>();
 
   private readonly host = inject(ElementRef<HTMLElement>);
 
@@ -154,11 +161,11 @@ export class CardContextMenuComponent {
   }
 
   /**
-   * Fires the activate output with the ability id and closes the
+   * Fires the activate output with the ability descriptor and closes the
    * menu. Mirrors `emit()` — each click is one beat.
    */
-  emitActivate(abilityId: string): void {
-    this.activateAbilityRequested.emit(abilityId);
+  emitActivate(ability: ActivatableAbility): void {
+    this.activateAbilityRequested.emit(ability);
     this.closed.emit();
   }
 

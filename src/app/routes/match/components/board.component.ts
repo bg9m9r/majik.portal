@@ -522,7 +522,7 @@ import { GraveyardModalComponent } from './graveyard-modal.component';
         <app-card-context-menu
           [card]="activeContextCard()"
           [position]="activeContextPos()"
-          [canTap]="activeContextOwner() === 'self'"
+          [canTap]="canTapActiveContext()"
           [activatableAbilities]="activeContextActivatableAbilities()"
           (closed)="closeContextMenu()"
           (action)="onContextAction($event)"
@@ -594,6 +594,14 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
    * translates this into an ActivateAbilityCommand.
    */
   readonly activateAbilityRequested = output<{ permanentInstanceId: string; abilityId: string }>();
+  /**
+   * Emitted when the viewer activates one of their planeswalker's loyalty
+   * abilities (CR 606) via the context menu. The page translates this
+   * into an ActivateLoyaltyAbilityCommand. `loyaltyAbilityId` is the
+   * AbilityDto.id of the chosen (+N / −N) ability.
+   */
+  readonly activateLoyaltyAbilityRequested =
+    output<{ permanentInstanceId: string; loyaltyAbilityId: string }>();
 
   // Context-menu state. `activeContextCard` doubles as the visibility
   // flag — when null the menu hides. Position is the page coords of the
@@ -619,9 +627,49 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
     const owner = this.activeContextOwner();
     if (!card || owner !== 'self') return [];
     const abilities = card.abilities ?? [];
-    return abilities
+    const activated: ActivatableAbility[] = abilities
       .filter(a => a.kind === 'Activated' && a.id != null)
-      .map(a => ({ id: a.id!, description: a.description ?? '' }));
+      .map(a => ({ id: a.id!, description: a.description ?? '', kind: 'activated' as const }));
+    // CR 606 — planeswalker loyalty abilities. The engine only advertises
+    // these (with a non-null id) when legal rules-wise, and gates the
+    // expected-kind on the player's sorcery-speed priority; we mirror that
+    // by requiring the loyalty-activation kind in the current prompt AND
+    // defensively dropping any −N ability the player can't afford
+    // (current loyalty < N). +N abilities are always affordable.
+    const loyalty: ActivatableAbility[] = this.loyaltyActivationAllowed()
+      ? abilities
+          .filter(a => a.kind === 'Loyalty' && a.id != null)
+          .filter(a => this.loyaltyAbilityAffordable(card, a.description ?? ''))
+          .map(a => ({ id: a.id!, description: a.description ?? '', kind: 'loyalty' as const }))
+      : [];
+    return [...activated, ...loyalty];
+  });
+
+  /**
+   * True when the clicked context card may show a Tap / Untap entry: it
+   * is self-owned AND it can actually tap. Planeswalkers (CR 306) don't
+   * tap to any purpose, so they're excluded — surfacing Tap on a
+   * planeswalker would be a meaningless affordance. (Other non-tappable
+   * permanents could be excluded too once the engine flags them; the
+   * minimum here is Planeswalker.)
+   */
+  readonly canTapActiveContext = computed<boolean>(() => {
+    if (this.activeContextOwner() !== 'self') return false;
+    const card = this.activeContextCard();
+    return !!card && !isPlaneswalker(card);
+  });
+
+  /**
+   * True when the current prompt's expected kinds advertise the
+   * loyalty-activation kind — i.e. the engine says the viewer has
+   * sorcery-speed priority to activate a loyalty ability this turn. The
+   * engine names freeform kind strings over SignalR, so we match any
+   * kind whose lowercased form mentions "loyalty".
+   */
+  private readonly loyaltyActivationAllowed = computed<boolean>(() => {
+    const p = this.currentPrompt();
+    if (!p) return false;
+    return (p.expectedKinds ?? []).some(k => k.toLowerCase().includes('loyalty'));
   });
 
   // Mana color-picker popover state. `manaPicker()` is non-null while
@@ -742,13 +790,36 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
    * computed `activeContextActivatableAbilities` filters opponent
    * permanents out).
    */
-  onContextActivateAbility(abilityId: string): void {
+  onContextActivateAbility(ability: ActivatableAbility): void {
     const card = this.activeContextCard();
     if (!card) return;
+    if (ability.kind === 'loyalty') {
+      this.activateLoyaltyAbilityRequested.emit({
+        permanentInstanceId: card.instanceId,
+        loyaltyAbilityId: ability.id,
+      });
+      return;
+    }
     this.activateAbilityRequested.emit({
       permanentInstanceId: card.instanceId,
-      abilityId,
+      abilityId: ability.id,
     });
+  }
+
+  /**
+   * Whether the player can afford a loyalty ability whose signed-cost
+   * description is `desc` ("+1", "−2", "−5", "0"). A −N ability requires
+   * current loyalty ≥ N (CR 606.5 — you can't pay loyalty you don't
+   * have). +N and 0 abilities are always affordable. Current loyalty
+   * comes from the snapshot's "Loyalty" counter; absent ⇒ treat as 0 so
+   * minus abilities are hidden until the engine reports loyalty.
+   */
+  private loyaltyAbilityAffordable(card: CardSnapshot, desc: string): boolean {
+    const cost = parseLoyaltyCost(desc);
+    if (cost == null) return true; // unparseable ⇒ let the engine arbitrate
+    if (cost >= 0) return true;
+    const loyalty = card.counters?.['Loyalty'] ?? 0;
+    return loyalty >= -cost;
   }
 
   /**
@@ -1076,6 +1147,27 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
     if (!card) return;
     this.castOrPlayRequested.emit(card);
   }
+}
+
+// CR 306 — is this permanent a planeswalker? Type-line match,
+// case-insensitive, tolerant of an absent/empty types array.
+export function isPlaneswalker(card: { types?: string[] | null }): boolean {
+  return (card.types ?? []).some(t => t.toLowerCase() === 'planeswalker');
+}
+
+// Parse a planeswalker loyalty-ability cost from its AbilityDto
+// description ("+1", "−2", "−5", "0"). The engine renders minus signs as
+// the U+2212 MINUS SIGN ("−") rather than ASCII hyphen, so both are
+// accepted. Returns the signed integer, or null when unparseable (callers
+// then defer to the engine for legality).
+export function parseLoyaltyCost(desc: string | null | undefined): number | null {
+  if (!desc) return null;
+  // Normalise the unicode minus sign to ASCII before parsing.
+  const norm = desc.trim().replace(/−/g, '-');
+  const m = /^([+-]?)(\d+)$/.exec(norm);
+  if (!m) return null;
+  const n = parseInt(m[2], 10);
+  return m[1] === '-' ? -n : n;
 }
 
 // Parse a mana-cost token string ("{1}{G}{G}", "{X}{R}", "{W/U}{B}") to

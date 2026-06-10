@@ -136,7 +136,8 @@ import { ConnectionState } from '../../core/signalr/signalr.service';
                 (undoClicked)="onUndoRequested()"
                 (tapToggleRequested)="onTapToggleRequested($event)"
                 (activateManaRequested)="onActivateManaRequested($event)"
-                (activateAbilityRequested)="onActivateAbilityRequested($event)" />
+                (activateAbilityRequested)="onActivateAbilityRequested($event)"
+                (activateLoyaltyAbilityRequested)="onActivateLoyaltyAbilityRequested($event)" />
               @if (game.prompt(); as p) {
                 @if (game.isMyTurnPrompt()) {
                   <app-prompt-overlay
@@ -647,6 +648,24 @@ export class MatchPage implements OnInit, OnDestroy {
       $type: 'activateAbility',
       permanentInstanceId: req.permanentInstanceId,
       abilityId: req.abilityId,
+    });
+  }
+
+  // CR 606 — activate a planeswalker's loyalty ability (engine PR #2585).
+  // The board surfaces the legal (+N / −N) loyalty abilities in the
+  // context menu and emits the chosen one here. We stamp the activating
+  // seat (selfPlayerIds[0]) on the command; the engine raises a follow-up
+  // target prompt if the ability needs targets — handled by the overlay,
+  // so this command carries no targets.
+  async onActivateLoyaltyAbilityRequested(
+    req: { permanentInstanceId: string; loyaltyAbilityId: string }
+  ): Promise<void> {
+    const playerId = this.game.selfPlayerIds()[0];
+    await this.send({
+      $type: 'activateLoyaltyAbility',
+      permanentInstanceId: req.permanentInstanceId,
+      loyaltyAbilityId: req.loyaltyAbilityId,
+      ...(playerId ? { playerId } : {}),
     });
   }
 
