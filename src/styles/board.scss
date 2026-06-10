@@ -281,6 +281,64 @@
   transform-origin: 50% 50%;
 }
 
+// Counter pips. Stacked top-right strip (clear of the top-left tap pin
+// and the bottom-right P/T badge) so all three cues coexist on one tile.
+// Each pip is a small high-contrast plate; colour encodes the counter
+// kind so +1/+1 reads as "bigger" at a glance and -1/-1 as "shrunk".
+// The P/T badge stays authoritative — these pips explain WHY it differs
+// from the printed value.
+.card__counters {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  pointer-events: none;
+}
+.card__counter-pip {
+  padding: 1px 3px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  border-radius: 3px;
+  white-space: nowrap;
+  color: #f5f7f4;
+  background: rgba(15, 23, 34, 0.85);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+
+  &--plus {
+    background: #1f7a3d;
+    color: #eafff0;
+    box-shadow: 0 0 0 1px rgba(46, 204, 113, 0.55);
+  }
+  &--minus {
+    background: #9b2c2c;
+    color: #ffecec;
+    box-shadow: 0 0 0 1px rgba(229, 115, 115, 0.55);
+  }
+  &--loyalty {
+    background: #2a4a73;
+    color: #e7f0ff;
+    box-shadow: 0 0 0 1px rgba(96, 152, 224, 0.55);
+  }
+  &--other {
+    background: rgba(15, 23, 34, 0.85);
+    color: var(--majik-accent-strong);
+    box-shadow: 0 0 0 1px rgba(202, 167, 90, 0.45);
+  }
+}
+// Keep the strip upright when the card is tapped (rotated 90°), matching
+// the tap-pin counter-rotation so the labels stay readable.
+.card.is-tapped .card__counters {
+  transform: rotate(-90deg);
+  transform-origin: 50% 50%;
+}
+
 // =============================================================
 // Stack chip — collapsed-by-default corner badge. Click to expand
 // the contents list. Sits in the top-right of the board area so it
