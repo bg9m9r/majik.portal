@@ -917,7 +917,28 @@ export class PromptOverlayComponent implements AfterViewInit, OnDestroy {
     )
   );
 
+  // CR 115.3 / 608.2c — when the engine ships a machine-readable legal
+  // target pool on the prompt envelope (PromptDto.Candidates, server PR
+  // #2582), the target picker must offer ONLY those cards. An illegal
+  // target (e.g. an enemy land for "target land you control") must not
+  // appear in the list at all. The envelope candidates are bare
+  // CardSnapshots (no zone/controller), so we resolve those facets by
+  // matching instanceId against the visible game state where possible;
+  // an unresolved candidate (e.g. a hidden-zone target) still renders
+  // with sensible fallbacks rather than being dropped.
+  //
+  // Only when the engine ships NO candidate list (a description-only
+  // target prompt from an older/partial build) do we fall back to the
+  // broad "every battlefield permanent" set so the player isn't locked
+  // out — same graceful-degradation contract the library/reveal pickers
+  // use for their respective views.
   readonly candidates = computed<CandidateCard[]>(() => {
+    const promptCandidates = this.prompt()?.candidates;
+    if (promptCandidates) {
+      return promptCandidates.map(c => this.toCandidateCard(c));
+    }
+    // Fallback: no engine-supplied legal pool — offer the broad
+    // battlefield set (legacy behaviour) so the user can still act.
     const s = this.state();
     if (!s) return [];
     const out: CandidateCard[] = [];
@@ -928,6 +949,25 @@ export class PromptOverlayComponent implements AfterViewInit, OnDestroy {
     }
     return out;
   });
+
+  // Resolve a bare envelope candidate's zone + controller by locating it
+  // in the visible game state. Falls back to ('battlefield', '') when the
+  // card isn't found in any visible zone (e.g. a hidden-zone target the
+  // engine still considered legal) so the candidate is always offered.
+  private toCandidateCard(c: CardSnapshot): CandidateCard {
+    const s = this.state();
+    if (s) {
+      for (const player of s.players) {
+        if (player.battlefield.cards.some(x => x.instanceId === c.instanceId)) {
+          return { card: c, zone: 'battlefield', controllerName: player.name };
+        }
+        if (player.hand.cards.some(x => x.instanceId === c.instanceId)) {
+          return { card: c, zone: 'hand', controllerName: player.name };
+        }
+      }
+    }
+    return { card: c, zone: 'battlefield', controllerName: '' };
+  }
 
   // CR 701.19a — library-search candidates ride on the prompt envelope
   // because the library zone is hidden in GameState under CR 706.
