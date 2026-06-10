@@ -522,6 +522,105 @@ describe('PromptOverlayComponent — combat prompts', () => {
   });
 });
 
+// CR 115.3 / 608.2c — a TARGET prompt must offer ONLY the engine's legal
+// target pool. The server ships that pool on PromptDto.Candidates (server
+// PR #2582); the overlay must restrict the picker to those instanceIds and
+// must NOT render illegal permanents (enemy lands/creatures for a "target
+// land you control"-style restriction). When the envelope ships no
+// candidate list (description-only target), the overlay falls back to the
+// broad battlefield set so the player isn't locked out.
+describe('PromptOverlayComponent — target prompt legal candidates', () => {
+  function twoPlayerState(meCards: CardSnapshot[], oppCards: CardSnapshot[]): GameState {
+    const me = player({ id: 'me', name: 'Alice', battlefield: { cards: meCards } });
+    const opp = player({ id: 'opp', name: 'Bob', battlefield: { cards: oppCards } });
+    return {
+      phase: 'PreCombatMain', turnNumber: 1, activePlayerId: 'me',
+      players: [me, opp], stack: [], youPlayerId: null,
+    };
+  }
+
+  it('offers ONLY the prompt Candidates, omitting illegal battlefield permanents', () => {
+    const myLand = card({ instanceId: 'my-land', name: 'Forest', types: ['Land'] });
+    const enemyLand = card({ instanceId: 'enemy-land', name: 'Island', types: ['Land'] });
+    const enemyBear = card({ instanceId: 'enemy-bear', name: 'Grizzly Bears' });
+    const state = twoPlayerState([myLand], [enemyLand, enemyBear]);
+
+    // Engine restricts to "target land you control" -> only myLand legal.
+    const { component, fixture } = mountOverlay(
+      state, ['ChooseTargetsCommand'], ['me'], { candidates: [myLand] },
+    );
+
+    const offered = component.candidates().map(c => c.card.instanceId);
+    expect(offered).toEqual(['my-land']);
+    expect(offered).not.toContain('enemy-land');
+    expect(offered).not.toContain('enemy-bear');
+
+    // The illegal permanents must not be clickable in the rendered grid.
+    const el = fixture.nativeElement as HTMLElement;
+    const buttons = Array.from(el.querySelectorAll('[data-kind="targets"] .grid button'));
+    const labels = buttons.map(b => (b.textContent ?? '').trim());
+    expect(labels.some(t => t.includes('Forest'))).toBe(true);
+    expect(labels.some(t => t.includes('Island'))).toBe(false);
+    expect(labels.some(t => t.includes('Grizzly Bears'))).toBe(false);
+  });
+
+  it('resolves zone + controller for envelope candidates from the visible state', () => {
+    const myLand = card({ instanceId: 'my-land', name: 'Forest', types: ['Land'] });
+    const enemyBear = card({ instanceId: 'enemy-bear', name: 'Grizzly Bears' });
+    const state = twoPlayerState([myLand], [enemyBear]);
+
+    // A removal spell can target either creature/permanent — both legal.
+    const { component } = mountOverlay(
+      state, ['ChooseTargetsCommand'], ['me'], { candidates: [myLand, enemyBear] },
+    );
+
+    const resolved = component.candidates();
+    expect(resolved.find(c => c.card.instanceId === 'my-land')?.controllerName).toBe('Alice');
+    expect(resolved.find(c => c.card.instanceId === 'enemy-bear')?.controllerName).toBe('Bob');
+    expect(resolved.every(c => c.zone === 'battlefield')).toBe(true);
+  });
+
+  it('empty Candidates renders no choices (no fallback to broad battlefield)', () => {
+    const myLand = card({ instanceId: 'my-land', name: 'Forest', types: ['Land'] });
+    const enemyBear = card({ instanceId: 'enemy-bear', name: 'Grizzly Bears' });
+    const state = twoPlayerState([myLand], [enemyBear]);
+
+    // Engine shipped an explicit empty legal pool — nothing is targetable.
+    const { component } = mountOverlay(
+      state, ['ChooseTargetsCommand'], ['me'], { candidates: [] },
+    );
+
+    expect(component.candidates()).toHaveLength(0);
+  });
+
+  it('falls back to broad battlefield set when the envelope ships NO candidates', () => {
+    const myLand = card({ instanceId: 'my-land', name: 'Forest', types: ['Land'] });
+    const enemyBear = card({ instanceId: 'enemy-bear', name: 'Grizzly Bears' });
+    const state = twoPlayerState([myLand], [enemyBear]);
+
+    // Description-only target prompt (no machine-readable pool) — preserve
+    // legacy behaviour so the player isn't locked out.
+    const { component } = mountOverlay(state, ['ChooseTargetsCommand'], ['me']);
+
+    const offered = component.candidates().map(c => c.card.instanceId).sort();
+    expect(offered).toEqual(['enemy-bear', 'my-land']);
+  });
+
+  it('still offers a candidate not present in any visible zone (hidden-zone target)', () => {
+    const state = twoPlayerState([], []);
+    const exiledCard = card({ instanceId: 'exiled-1', name: 'Snapcaster Mage' });
+
+    const { component } = mountOverlay(
+      state, ['ChooseTargetsCommand'], ['me'], { candidates: [exiledCard] },
+    );
+
+    const resolved = component.candidates();
+    expect(resolved).toHaveLength(1);
+    expect(resolved[0].card.instanceId).toBe('exiled-1');
+    expect(resolved[0].controllerName).toBe('');
+  });
+});
+
 // CR 701.19a — library-search picker (Green Sun's Zenith, Mystical
 // Tutor, Path to Exile, …). Server PR adds ChooseLibraryPickCommand on
 // the wire + ships the engine-filtered candidate list + a kindLabel on
