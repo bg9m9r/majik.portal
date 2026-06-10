@@ -13,6 +13,39 @@ import { ManaCostComponent } from './mana-cost.component';
 // carries `summoningSickness: true`.
 export type CardViewZone = 'battlefield' | 'hand' | 'stack' | 'other';
 
+// A rendered counter badge. `variant` drives colour (green +1/+1, red
+// -1/-1, blue loyalty, amber everything else); `label` is the short
+// on-card text; `title` is the verbose tooltip/aria phrasing.
+export interface CounterPip {
+  kind: string;
+  variant: 'plus' | 'minus' | 'loyalty' | 'other';
+  label: string;
+  title: string;
+}
+
+/**
+ * Map an engine counter-type name + count to a renderable pip. The engine
+ * keys +1/+1 and -1/-1 counters as the literal strings "+1/+1" / "-1/-1"
+ * (CR 122 / 704.5q), loyalty as "Loyalty" (CR 306.5b). We special-case
+ * those three and fall back to "Name ×N" for charge / age / fade / etc.
+ * Case-insensitive on the well-known names so a server casing change
+ * doesn't silently downgrade the styling.
+ */
+export function makeCounterPip(kind: string, count: number): CounterPip {
+  const lower = kind.toLowerCase();
+  if (lower === '+1/+1') {
+    return { kind, variant: 'plus', label: `+1/+1 ×${count}`, title: `${count} +1/+1 counter${count === 1 ? '' : 's'}` };
+  }
+  if (lower === '-1/-1') {
+    const n = Math.abs(count);
+    return { kind, variant: 'minus', label: `-1/-1 ×${n}`, title: `${n} -1/-1 counter${n === 1 ? '' : 's'}` };
+  }
+  if (lower === 'loyalty') {
+    return { kind, variant: 'loyalty', label: String(count), title: `loyalty ${count}` };
+  }
+  return { kind, variant: 'other', label: `${kind} ×${count}`, title: `${count} ${kind} counter${count === 1 ? '' : 's'}` };
+}
+
 @Component({
   selector: 'app-card-view',
   standalone: true,
@@ -33,6 +66,19 @@ export type CardViewZone = 'battlefield' | 'hand' | 'stack' | 'other';
       (dblclick)="onDoubleClick()">
       @if (snapshot()?.tapped && !hidden()) {
         <span class="card__tap-pin" aria-hidden="true">TAP</span>
+      }
+      @if (!hidden() && counterPips().length) {
+        <div class="card__counters" role="group" [attr.aria-label]="countersAriaLabel()">
+          @for (pip of counterPips(); track pip.kind) {
+            <span class="card__counter-pip"
+                  [class.card__counter-pip--plus]="pip.variant === 'plus'"
+                  [class.card__counter-pip--minus]="pip.variant === 'minus'"
+                  [class.card__counter-pip--loyalty]="pip.variant === 'loyalty'"
+                  [class.card__counter-pip--other]="pip.variant === 'other'"
+                  [title]="pip.title"
+                  aria-hidden="true">{{ pip.label }}</span>
+          }
+        </div>
       }
       @if (hidden()) {
         <span class="m-auto text-stone-300/70">?</span>
@@ -123,6 +169,30 @@ export class CardViewComponent {
     return names.length ? `exiled with this permanent: ${names.join(', ')}` : '';
   });
 
+  // Counters on this permanent (engine CardSnapshotDto.Counters / the
+  // CounterAddedEvent display patch). Rendered as small pips on the card
+  // so the player sees WHY a creature is bigger than its printed P/T —
+  // the P/T badge stays authoritative (already counter-inclusive) and the
+  // pips are shown IN ADDITION. Zero/negative-cleared entries are dropped
+  // so an emptied counter map (e.g. all +1/+1 removed) shows nothing.
+  // +1/+1 and -1/-1 get a compact "±N" label and distinct colours; loyalty
+  // shows the bare number; every other counter type shows "Name ×N".
+  readonly counterPips = computed<CounterPip[]>(() => {
+    const counters = this.snapshot()?.counters;
+    if (!counters) return [];
+    const pips: CounterPip[] = [];
+    for (const [kind, count] of Object.entries(counters)) {
+      if (!count) continue;
+      pips.push(makeCounterPip(kind, count));
+    }
+    return pips;
+  });
+
+  readonly countersAriaLabel = computed<string>(() => {
+    const pips = this.counterPips();
+    return pips.length ? `counters: ${pips.map(p => p.title).join(', ')}` : '';
+  });
+
   readonly typeLine = computed(() => (this.snapshot()?.types ?? []).join(' '));
 
   readonly imageUrl = computed(() => {
@@ -144,6 +214,8 @@ export class CardViewComponent {
     if (c.power !== null && c.toughness !== null) parts.push(`${c.power}/${c.toughness}`);
     if (c.tapped) parts.push('tapped');
     if (this.showSummoningSickness()) parts.push('summoning sickness');
+    const pips = this.counterPips();
+    if (pips.length) parts.push(`counters: ${pips.map(p => p.title).join(', ')}`);
     return parts.join(', ');
   });
 

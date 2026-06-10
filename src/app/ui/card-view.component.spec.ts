@@ -257,4 +257,101 @@ describe('CardViewComponent', () => {
       expect(fixture.nativeElement.querySelector('.card__imprints')).toBeNull();
     });
   });
+
+  describe('counters', () => {
+    it('renders a green +1/+1 pip with the count', () => {
+      const { fixture } = render(
+        makeSnapshot({ power: 4, toughness: 4, counters: { '+1/+1': 2 } }),
+        false, makeCacheStub(), 'battlefield');
+      const pip = fixture.nativeElement.querySelector('.card__counter-pip--plus');
+      expect(pip).not.toBeNull();
+      expect(pip.textContent).toContain('+1/+1');
+      expect(pip.textContent).toContain('2');
+    });
+
+    it('renders a red -1/-1 pip distinct from +1/+1', () => {
+      const { fixture } = render(
+        makeSnapshot({ power: 1, toughness: 1, counters: { '-1/-1': 1 } }),
+        false, makeCacheStub(), 'battlefield');
+      expect(fixture.nativeElement.querySelector('.card__counter-pip--minus')).not.toBeNull();
+      expect(fixture.nativeElement.querySelector('.card__counter-pip--plus')).toBeNull();
+    });
+
+    it('renders a loyalty pip with the bare loyalty number', () => {
+      const { fixture } = render(
+        makeSnapshot({
+          name: 'Liliana of the Veil',
+          types: ['Planeswalker'],
+          power: null, toughness: null,
+          counters: { Loyalty: 3 },
+        }),
+        false, makeCacheStub(), 'battlefield');
+      const pip = fixture.nativeElement.querySelector('.card__counter-pip--loyalty');
+      expect(pip).not.toBeNull();
+      expect(pip.textContent?.trim()).toBe('3');
+    });
+
+    it('renders a generic "Name ×N" pip for other counter types (e.g. charge)', () => {
+      const { fixture } = render(
+        makeSnapshot({ types: ['Artifact'], power: null, toughness: null, counters: { Charge: 4 } }),
+        false, makeCacheStub(), 'battlefield');
+      const pip = fixture.nativeElement.querySelector('.card__counter-pip--other');
+      expect(pip).not.toBeNull();
+      expect(pip.textContent).toContain('Charge');
+      expect(pip.textContent).toContain('4');
+    });
+
+    it('renders one pip per distinct counter type', () => {
+      const { fixture } = render(
+        makeSnapshot({ counters: { '+1/+1': 1, Charge: 2 } }),
+        false, makeCacheStub(), 'battlefield');
+      expect(fixture.nativeElement.querySelectorAll('.card__counter-pip').length).toBe(2);
+    });
+
+    it('drops zeroed-out counter entries', () => {
+      const { fixture } = render(
+        makeSnapshot({ counters: { '+1/+1': 0 } }),
+        false, makeCacheStub(), 'battlefield');
+      expect(fixture.nativeElement.querySelector('.card__counters')).toBeNull();
+    });
+
+    it('renders no counter strip when there are no counters', () => {
+      const { fixture } = render(
+        makeSnapshot(), false, makeCacheStub(), 'battlefield');
+      expect(fixture.nativeElement.querySelector('.card__counters')).toBeNull();
+    });
+
+    it('suppresses counters on a hidden (face-down) card', () => {
+      const { fixture } = render(
+        makeSnapshot({ counters: { '+1/+1': 2 } }),
+        true, makeCacheStub(), 'battlefield');
+      expect(fixture.nativeElement.querySelector('.card__counters')).toBeNull();
+    });
+
+    it('keeps the authoritative P/T badge alongside the counter pips', () => {
+      const cache = makeCacheStub({ 'Grizzly Bears': 'https://img.example/bears.png' });
+      const { fixture } = render(
+        makeSnapshot({ power: 4, toughness: 4, counters: { '+1/+1': 2 } }),
+        false, cache, 'battlefield');
+      // counter-inclusive P/T still shown in addition to the pips
+      expect(fixture.nativeElement.textContent).toContain('4/4');
+      expect(fixture.nativeElement.querySelector('.card__counter-pip--plus')).not.toBeNull();
+    });
+
+    it('exposes a counters group aria-label naming the counter state', () => {
+      const { fixture } = render(
+        makeSnapshot({ counters: { '+1/+1': 2 } }),
+        false, makeCacheStub(), 'battlefield');
+      const group = fixture.nativeElement.querySelector('.card__counters');
+      expect(group.getAttribute('aria-label')).toContain('+1/+1');
+    });
+
+    it('includes counters in the root card aria-label', () => {
+      const { fixture } = render(
+        makeSnapshot({ counters: { '+1/+1': 2 } }),
+        false, makeCacheStub(), 'battlefield');
+      const card = fixture.nativeElement.querySelector('.card');
+      expect(card.getAttribute('aria-label')).toContain('+1/+1');
+    });
+  });
 });
