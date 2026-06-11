@@ -50,7 +50,7 @@ import { CardFiltersComponent } from './card-filters.component';
           }
         </ul>
 
-        @if (search.results().length > 0) {
+        @if (search.hasMore()) {
           <button type="button"
                   class="self-start rounded border border-[color:var(--majik-line)] px-3 py-1 text-xs hover:border-[color:var(--majik-accent)]"
                   (click)="search.loadMore()">Load more</button>

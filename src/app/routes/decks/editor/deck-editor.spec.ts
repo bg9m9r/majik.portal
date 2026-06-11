@@ -17,7 +17,7 @@ function setup(routeId: string | null) {
       provideHttpClientTesting(),
       provideRouter([]),
       { provide: DecksStore, useValue: { upsert: vi.fn(), all: () => [], count: () => 0, loading: () => false, error: () => null } },
-      { provide: CardSearchStore, useValue: { byName: () => ({}), query: () => '', results: () => [], loading: () => false, prefetching: () => 0, error: () => null, filters: () => ({}), setQuery: vi.fn(), setFilters: vi.fn(), loadMore: vi.fn() } },
+      { provide: CardSearchStore, useValue: { byName: () => ({}), query: () => '', results: () => [], hasMore: () => false, loading: () => false, prefetching: () => 0, error: () => null, filters: () => ({}), setQuery: vi.fn(), setFilters: vi.fn(), loadMore: vi.fn() } },
       { provide: ActivatedRoute, useValue: { snapshot: { paramMap: convertToParamMap(routeId ? { id: routeId } : {}) } } },
     ],
   });
