@@ -65,6 +65,68 @@ describe('CardSearchStore', () => {
     expect(store.nextOffset()).toBe(3);
   });
 
+  it('a short page (fewer than 50 results) sets hasMore false', () => {
+    store.setQuery('a');
+    vi.advanceTimersByTime(400);
+    search$.next([makeCard('A1'), makeCard('A2')]);
+    expect(store.hasMore()).toBe(false);
+  });
+
+  it('a full page (exactly 50 results) sets hasMore true', () => {
+    store.setQuery('a');
+    vi.advanceTimersByTime(400);
+    search$.next(Array.from({ length: 50 }, (_, i) => makeCard(`A${i}`)));
+    expect(store.hasMore()).toBe(true);
+  });
+
+  it('loadMore on a full page keeps hasMore true while new cards keep arriving', () => {
+    store.setQuery('a');
+    vi.advanceTimersByTime(400);
+    search$.next(Array.from({ length: 50 }, (_, i) => makeCard(`A${i}`)));
+    store.loadMore();
+    search$.next(Array.from({ length: 50 }, (_, i) => makeCard(`B${i}`)));
+    expect(store.results()).toHaveLength(100);
+    expect(store.hasMore()).toBe(true);
+    expect(store.nextOffset()).toBe(100);
+  });
+
+  it('loadMore ending on a short page sets hasMore false', () => {
+    store.setQuery('a');
+    vi.advanceTimersByTime(400);
+    search$.next(Array.from({ length: 50 }, (_, i) => makeCard(`A${i}`)));
+    store.loadMore();
+    search$.next([makeCard('B1')]);
+    expect(store.hasMore()).toBe(false);
+  });
+
+  it('loadMore dedups by name — a server re-sending the same page does not duplicate results', () => {
+    // Regression: the live /cards endpoint ignores `offset`, so loadMore
+    // re-fetched page 1 and appended it verbatim, doubling the list.
+    const page = Array.from({ length: 50 }, (_, i) => makeCard(`A${i}`));
+    store.setQuery('a');
+    vi.advanceTimersByTime(400);
+    search$.next(page);
+    store.loadMore();
+    search$.next(page);
+    expect(store.results()).toHaveLength(50);
+    expect(new Set(store.results().map(c => c.name)).size).toBe(50);
+    // A full page that contributed nothing new means pagination is not
+    // progressing — stop offering "Load more".
+    expect(store.hasMore()).toBe(false);
+  });
+
+  it('a new query resets hasMore from the fresh first page', () => {
+    store.setQuery('a');
+    vi.advanceTimersByTime(400);
+    search$.next(Array.from({ length: 50 }, (_, i) => makeCard(`A${i}`)));
+    expect(store.hasMore()).toBe(true);
+    store.setQuery('zzz');
+    vi.advanceTimersByTime(400);
+    search$.next([makeCard('Z1')]);
+    expect(store.hasMore()).toBe(false);
+    expect(store.results()).toHaveLength(1);
+  });
+
   it('error sets error flag', () => {
     store.setQuery('x');
     vi.advanceTimersByTime(400);
