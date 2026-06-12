@@ -1240,3 +1240,50 @@
 .prompt-readout[data-kind="mode"]      { border-left-color: var(--majik-prompt-mode);      .prompt-readout__label { color: var(--majik-prompt-mode); } }
 .prompt-readout[data-kind="bottom"]    { border-left-color: var(--majik-prompt-bottom);    .prompt-readout__label { color: var(--majik-prompt-bottom); } }
 .prompt-readout[data-kind="none"]      { border-left-color: var(--majik-accent); .prompt-readout__label { color: var(--majik-accent-strong); } }
+
+// =============================================================
+// Action-log drawer — collapsible right-edge feed of every game
+// action. Overlays the board (.board-arena is position: relative);
+// closed by default. The wrapper is pointer-events:none so it never
+// steals board clicks; the tab + scroll panel re-enable pointers.
+// =============================================================
+.game-log {
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 100%;
+  display: flex;
+  align-items: flex-start;
+  z-index: 20;
+  pointer-events: none;            // tab + panel re-enable below
+}
+.game-log__tab {
+  pointer-events: auto;
+  writing-mode: vertical-rl;
+  padding: var(--majik-space-2) var(--majik-space-1);
+  margin-top: var(--majik-space-2);
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid var(--majik-line-faint);
+  border-radius: var(--majik-radius-panel) 0 0 var(--majik-radius-panel);
+  font-size: 11px;
+  cursor: pointer;
+}
+.game-log__scroll {
+  pointer-events: auto;
+  width: 260px;
+  height: 100%;
+  overflow-y: auto;
+  padding: var(--majik-space-2);
+  background: rgba(0, 0, 0, 0.72);
+  border-left: 1px solid var(--majik-line-faint);
+  font-size: 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.game-log__row {
+  line-height: 1.3;
+  &.is-self { color: var(--majik-self-rim); }
+  &.is-foe  { color: var(--majik-foe-rim); }
+  &.is-meta { opacity: 0.55; font-style: italic; }
+}

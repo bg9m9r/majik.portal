@@ -1,7 +1,8 @@
 import { InjectionToken, computed, inject } from '@angular/core';
 import { patchState, signalStore, withComputed, withHooks, withMethods, withState } from '@ngrx/signals';
-import { NormalisedEventDto, normaliseEvent, pickBoolean, pickNumber, pickString, pickStringArray } from './event.types';
+import { NormalisedEventDto, normaliseEvent, pickBoolean, pickString, pickStringArray } from './event.types';
 import { patchGameState } from './event.reducer';
+import { LogLine, describeEvent } from './log.types';
 import { AutoPassDeps, shouldAutoPass, stackSignature } from './match-session';
 import { AuthUserStore } from '../auth/auth-user.store';
 import { MatchService } from './match.service';
@@ -119,6 +120,11 @@ type GameStoreState = {
   // keep transitions audible).
   lastAnnouncement: string;
   lastAnnouncementSeq: number;
+  // Full-game action log — every describeEvent line, oldest first. Fed
+  // by applyEvent (captured before the patch attempt so events that force
+  // a /state refetch still log) and rendered by the game-log drawer.
+  // PASSING PRIORITY IS NEVER LOGGED (the engine emits no event for it).
+  logEntries: LogLine[];
   // ---- Match-session state (Slice 2b — moved out of MatchPage) ----
   // Full Control mode — press-once toggle on the Ctrl / Meta key.
   // While true the auto-pass guard short-circuits so the viewer keeps
@@ -163,6 +169,7 @@ const initial: GameStoreState = {
   landsPlayedThisTurn: 0,
   lastAnnouncement: '',
   lastAnnouncementSeq: 0,
+  logEntries: [],
   fullControl: false,
   clockAnchor: null,
   lastStackMutatedAt: null,
@@ -282,6 +289,15 @@ export const GameStore = signalStore(
       if (evt.seq > 0 && currentSeq > 0) {
         if (evt.seq <= currentSeq) return true;
         if (evt.seq > currentSeq + 1) return false;
+      }
+      // Action-log capture. Compute the line BEFORE the patch attempt so
+      // that events which force a /state refetch (unpatchable) still log,
+      // and append it unconditionally. prev == next == current here: the
+      // line is correct because post-state payloads (life "current",
+      // etc.) carry the new value, and describeEvent prefers them.
+      const logLine = describeEvent(evt, current, current, store.selfPlayerIds());
+      if (logLine) {
+        patchState(store, s => ({ logEntries: [...s.logEntries, logLine] }));
       }
       // Lands-played-this-turn bookkeeping runs regardless of whether the
       // structural patch below succeeds — TurnStartedEvent and viewer
@@ -500,9 +516,12 @@ function applyLandsDelta(current: number, delta: LandsDelta): number {
 
 // -----------------------------------------------------------------
 // Compose an aria-live string from a freshly-applied engine event.
+// describeEvent (log.types.ts) is now the single composer for both the
+// aria-live region and the full-game action log; announcementFor is a
+// thin wrapper that projects the structured LogLine onto its `.text`.
 // Returns null when the event doesn't warrant an announcement (most
-// CardMoved variants, hidden-zone deltas, etc.). Keep this terse —
-// screen readers cut off on long polite-region updates.
+// CardMoved variants, hidden-zone deltas, etc.). Signature preserved so
+// existing callers / aria-live specs stay untouched.
 // -----------------------------------------------------------------
 function announcementFor(
   evt: NormalisedEventDto,
@@ -510,49 +529,5 @@ function announcementFor(
   next: GameState,
   selfIds: readonly string[],
 ): string | null {
-  switch (evt.type) {
-    case 'TurnStartedEvent': {
-      const turn = pickNumber(evt.payload, 'turn');
-      const playerId = pickString(evt.payload, 'playerId');
-      const isMine = playerId != null && selfIds.includes(playerId);
-      return `Turn ${turn ?? next.turnNumber} — ${isMine ? 'your turn' : "opponent's turn"}`;
-    }
-    case 'StepStartedEvent': {
-      const phase = pickString(evt.payload, 'step') ?? next.phase;
-      const active = next.activePlayerId;
-      const isMine = selfIds.includes(active);
-      return `Now: ${phase} — ${isMine ? 'your turn' : "opponent's turn"}`;
-    }
-    case 'StackObjectAddedEvent':
-    case 'SpellCastEvent': {
-      const desc = pickString(evt.payload, 'description');
-      const kind = pickString(evt.payload, 'kind');
-      const name = desc ?? kind ?? 'an object';
-      return `${name} added to stack`;
-    }
-    case 'StackObjectResolvedEvent': {
-      const id = pickString(evt.payload, 'stackId', 'id');
-      const item = id ? prev.stack.find(s => s.id === id) : null;
-      const name = item?.description ?? item?.kind ?? 'stack object';
-      return `${name} resolved`;
-    }
-    case 'LifeChangedEvent': {
-      const playerId = pickString(evt.payload, 'playerId');
-      const before = playerId ? prev.players.find(p => p.id === playerId)?.life ?? null : null;
-      const after = playerId ? next.players.find(p => p.id === playerId)?.life ?? null : null;
-      const name = playerId ? next.players.find(p => p.id === playerId)?.name ?? 'player' : 'player';
-      if (after == null || before == null) return null;
-      const delta = after - before;
-      if (delta === 0) return null;
-      const verb = delta > 0 ? `gained ${delta}` : `lost ${-delta}`;
-      return `${name} — ${after} life, ${verb}`;
-    }
-    case 'PlayerLostEvent': {
-      const playerId = pickString(evt.payload, 'playerId');
-      const name = playerId ? next.players.find(p => p.id === playerId)?.name ?? 'player' : 'player';
-      return `${name} lost the game`;
-    }
-    default:
-      return null;
-  }
+  return describeEvent(evt, prev, next, selfIds)?.text ?? null;
 }
