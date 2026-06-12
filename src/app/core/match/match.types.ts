@@ -137,7 +137,22 @@ export interface GamePlayer {
   battlefield: ZoneSnapshot;
 }
 
-export interface StackItem { id: string; kind: string; description: string }
+export interface StackItem {
+  id: string;
+  kind: string;
+  description: string;
+  // Controlling player's seat id (engine StackObjectDto.ControllerId).
+  // Lets the UI distinguish the opponent's spells/abilities from the
+  // viewer's own so a cast the player must respond to is visually loud.
+  // Null/undefined on older server builds (and for ownerless objects) —
+  // consumers degrade to "no controller highlight".
+  controllerId?: string | null;
+  // Human-readable source-card name when the stack object is a spell or a
+  // card-sourced ability (engine StackObjectPayload.CardName). Preferred
+  // over the raw kind/description in the callout. Absent on snapshots and
+  // on older server builds.
+  cardName?: string | null;
+}
 
 export interface GameState {
   gameId?: string;

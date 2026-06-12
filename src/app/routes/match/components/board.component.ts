@@ -18,7 +18,7 @@ import {
   CdkDropList,
   moveItemInArray,
 } from '@angular/cdk/drag-drop';
-import { GameState, GamePlayer, CardSnapshot } from '../../../core/match/match.types';
+import { GameState, GamePlayer, CardSnapshot, StackItem } from '../../../core/match/match.types';
 import { GameStore, PhaseStops } from '../../../core/match/game.store';
 import { isPriorityPrompt } from '../../../core/match/match-session';
 import { CardViewComponent, snapshotToCard } from '../../../ui/card-view.component';
@@ -36,6 +36,19 @@ import { ManaColorPickerComponent } from '../../../ui/mana-color-picker.componen
 import { bucketBattlefield, BattlefieldBuckets } from './bucket-battlefield';
 import { GraveyardPileComponent } from './graveyard-pile.component';
 import { GraveyardModalComponent } from './graveyard-modal.component';
+
+/**
+ * A `StackItem` enriched with display flags the template + the
+ * awaiting-priority callout consume. `mine` / `isOpponent` are derived from
+ * `controllerId` vs the local seat; `label` is the friendliest available
+ * name (card name → description → kind).
+ */
+export interface StackItemView extends StackItem {
+  mine: boolean;
+  isOpponent: boolean;
+  controllerName: string | null;
+  label: string;
+}
 
 @Component({
   selector: 'app-board',
@@ -439,6 +452,7 @@ import { GraveyardModalComponent } from './graveyard-modal.component';
           <aside
             class="stack-chip"
             [class.stack-chip--populated]="s.stack.length > 0"
+            [class.stack-chip--opponent]="opponentObjectOnStack()"
             [class.stack-chip--open]="stackExpanded()"
             aria-label="stack">
             <button
@@ -455,11 +469,25 @@ import { GraveyardModalComponent } from './graveyard-modal.component';
                     class="stack-item py-1 text-xs"
                     [class.stack-item--top]="i === 0"
                     [class.stack-item--trigger]="item.kind === 'TriggeredAbility'"
+                    [class.stack-item--opponent]="item.isOpponent"
+                    [class.stack-item--mine]="item.mine"
                     [attr.data-stack-kind]="item.kind"
+                    [attr.data-stack-controller]="item.isOpponent ? 'opponent' : (item.mine ? 'self' : null)"
                     animate.enter="stack-item-enter"
                     animate.leave="stack-item-leave">
-                    <div class="font-semibold">{{ item.kind }}</div>
-                    <div class="opacity-70">{{ item.description }}</div>
+                    <div class="stack-item__head flex items-center justify-between gap-2">
+                      <span class="font-semibold">{{ item.label }}</span>
+                      @if (i === 0) {
+                        <span class="stack-item__badge">next</span>
+                      }
+                    </div>
+                    <div class="stack-item__meta opacity-70">
+                      @if (item.controllerName) {
+                        <span [class.text-amber-300]="item.isOpponent">{{ item.controllerName }}</span>
+                        <span class="opacity-50"> · </span>
+                      }
+                      <span>{{ item.kind }}</span>
+                    </div>
                   </div>
                 } @empty {
                   <p class="text-xs opacity-40">empty</p>
@@ -479,9 +507,12 @@ import { GraveyardModalComponent } from './graveyard-modal.component';
                     class="stack-item py-1 text-xs"
                     [class.stack-item--top]="i === 0"
                     [class.stack-item--trigger]="item.kind === 'TriggeredAbility'"
-                    [attr.data-stack-kind]="item.kind">
-                    <div class="font-semibold">{{ item.kind }}</div>
-                    <div class="opacity-70">{{ item.description }}</div>
+                    [class.stack-item--opponent]="item.isOpponent"
+                    [class.stack-item--mine]="item.mine"
+                    [attr.data-stack-kind]="item.kind"
+                    [attr.data-stack-controller]="item.isOpponent ? 'opponent' : (item.mine ? 'self' : null)">
+                    <div class="font-semibold">{{ item.label }}</div>
+                    <div class="opacity-70">{{ item.kind }}</div>
                   </div>
                 }
               </div>
@@ -512,6 +543,30 @@ import { GraveyardModalComponent } from './graveyard-modal.component';
             </svg>
           }
         </div>
+
+        <!--
+          Prominent "a spell is on the stack and the engine is waiting on
+          YOU" callout. Sits directly above the action bar so the cast (esp.
+          the opponent's) is impossible to miss without expanding the stack.
+          aria-live=assertive so screen readers announce a new cast the
+          moment priority lands on the player. Rendered ONLY when there's a
+          stack object AND we hold a genuine priority window (see
+          stackPriorityCallout).
+        -->
+        @if (stackPriorityCallout(); as callout) {
+          <div
+            class="stack-callout"
+            [class.stack-callout--opponent]="callout.opponent"
+            role="status"
+            aria-live="assertive"
+            aria-atomic="true">
+            <span class="stack-callout__pip" aria-hidden="true"></span>
+            <span class="stack-callout__text">
+              <span class="stack-callout__headline">{{ callout.headline }}</span>
+              <span class="stack-callout__detail">{{ callout.detail }}</span>
+            </span>
+          </div>
+        }
 
         <app-action-bar
           [canPass]="canPass()"
@@ -909,6 +964,17 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
         this.recomputeCombatLines();
       }
     });
+
+    // Clear any manual stack-expand override once the stack empties, so the
+    // NEXT object added to the stack re-triggers the auto-expand rule (a
+    // user who collapsed an earlier stack still gets the loud auto-open for
+    // a brand-new cast).
+    effect(() => {
+      const empty = (this.state()?.stack.length ?? 0) === 0;
+      if (empty && this.stackExpandOverride() !== null) {
+        this.stackExpandOverride.set(null);
+      }
+    });
   }
 
   ngAfterViewInit(): void {
@@ -1002,15 +1068,28 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
   }
 
   /**
-   * Collapsed-by-default toggle for the floating stack chip. The chip
-   * always shows a count + pulse on the corner; expanding reveals the
-   * items list. Default collapsed = reclaim vertical space for the
-   * battlefield (the whole point of this refactor).
+   * Manual user override for the stack-chip expand state. `null` = "no
+   * explicit choice, follow the auto rule"; `true`/`false` = the user
+   * clicked the toggle and we honour their pick until the stack empties.
+   *
+   * The auto rule (see `stackExpanded`) AUTO-EXPANDS the chip whenever the
+   * stack is non-empty so a freshly-cast spell is never hidden behind a
+   * collapsed chip — the whole point of this slice. When the stack is
+   * empty the chip collapses to reclaim battlefield space.
    */
-  readonly stackExpanded = signal<boolean>(false);
+  private readonly stackExpandOverride = signal<boolean | null>(null);
+
+  readonly stackExpanded = computed<boolean>(() => {
+    const override = this.stackExpandOverride();
+    if (override !== null) return override;
+    // Auto: open while there's anything on the stack, collapsed otherwise.
+    return (this.state()?.stack.length ?? 0) > 0;
+  });
 
   toggleStack(): void {
-    this.stackExpanded.update(v => !v);
+    // Flip relative to the currently-displayed state and pin it as an
+    // explicit override so the auto rule doesn't immediately undo it.
+    this.stackExpandOverride.set(!this.stackExpanded());
   }
 
   readonly self = computed<GamePlayer | null>(() => {
@@ -1055,10 +1134,86 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
   // grows tail-newest (StackObjectAddedEvent appends in event.reducer),
   // so a reversed projection is what the user actually wants to see.
   // The top-of-stack highlight follows: i === 0 instead of length - 1.
-  readonly reversedStack = computed(() => {
+  readonly reversedStack = computed<StackItemView[]>(() => {
     const s = this.state();
     if (!s) return [];
-    return s.stack.slice().reverse();
+    const meId = this.self()?.id ?? null;
+    const opp = this.opponent();
+    const byId = new Map(s.players.map(p => [p.id, p.name]));
+    // Render newest-first; carry whose-object + a friendly label so the
+    // template (and the callout) can mark the opponent's spells and print
+    // a readable name without re-deriving any of this per binding.
+    return s.stack
+      .slice()
+      .reverse()
+      .map(item => {
+        const mine = item.controllerId != null && item.controllerId === meId;
+        const isOpponent =
+          item.controllerId != null && item.controllerId !== meId;
+        const controllerName = item.controllerId
+          ? (byId.get(item.controllerId) ?? (isOpponent ? opp?.name : null) ?? null)
+          : null;
+        return {
+          ...item,
+          mine,
+          isOpponent,
+          controllerName,
+          // Spells carry a real card name; abilities fall back to their
+          // description, then the bare kind.
+          label: item.cardName ?? item.description ?? item.kind,
+        } satisfies StackItemView;
+      });
+  });
+
+  // Top of the stack = next object to resolve (newest-first projection's
+  // first entry). Drives the callout's "Opponent cast X" headline.
+  readonly topOfStack = computed<StackItemView | null>(
+    () => this.reversedStack()[0] ?? null,
+  );
+
+  // Does the stack hold ANY object the opponent controls? Used to colour
+  // the chip + raise the louder "respond or pass" callout.
+  readonly opponentObjectOnStack = computed<boolean>(() =>
+    this.reversedStack().some(i => i.isOpponent),
+  );
+
+  /**
+   * View-model for the prominent "a spell is on the stack and the engine is
+   * waiting on YOU" callout rendered just above the action bar.
+   *
+   * Non-null ONLY when BOTH hold:
+   *   1. there's at least one object on the stack, AND
+   *   2. the engine is awaiting THIS viewer in a genuine priority window
+   *      (match.ts only forwards `currentPrompt` for the local seat, and we
+   *      additionally require it advertise PassPriorityCommand — reusing the
+   *      same gate as the Pass button, PR #123).
+   *
+   * Empty stack, opponent's window, or a non-priority sub-prompt (target /
+   * surveil / mulligan) → null, so the callout never nags spuriously.
+   */
+  readonly stackPriorityCallout = computed<{
+    headline: string;
+    detail: string;
+    opponent: boolean;
+    count: number;
+  } | null>(() => {
+    if (!this.canPass()) return null;
+    const stack = this.reversedStack();
+    if (stack.length === 0) return null;
+    const top = stack[0];
+    const opponent = this.opponentObjectOnStack();
+    const verb = top.kind === 'Spell' ? 'cast' : 'put';
+    const who = top.isOpponent
+      ? (top.controllerName ?? 'Opponent')
+      : 'You';
+    const headline = top.isOpponent
+      ? `${who} ${verb} ${top.label}`
+      : `${top.label} on the stack`;
+    const detail =
+      stack.length > 1
+        ? `${stack.length} on the stack — respond or pass`
+        : 'Respond or pass priority';
+    return { headline, detail, opponent, count: stack.length };
   });
 
   // Client-only ordering for the local player's hand — server emits

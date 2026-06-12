@@ -1072,8 +1072,8 @@ describe('BoardComponent — equal arena-strip footprint across both sides', () 
   });
 });
 
-describe('BoardComponent — collapsed stack chip', () => {
-  it('renders the stack as a corner chip (not a row), starting collapsed', () => {
+describe('BoardComponent — stack chip auto-expand', () => {
+  it('AUTO-EXPANDS the chip whenever the stack is non-empty (a cast is not hidden)', () => {
     const me = player({ id: 'me', name: 'Alice' });
     const opp = player({ id: 'opp', name: 'Bob' });
     const state: GameState = {
@@ -1091,19 +1091,37 @@ describe('BoardComponent — collapsed stack chip', () => {
     const chip = fixture.nativeElement.querySelector('.stack-chip') as HTMLElement;
     expect(chip).toBeTruthy();
     expect(chip.classList.contains('stack-chip--populated')).toBe(true);
-    // Collapsed by default — toggle aria-expanded reads false.
+    // Non-empty stack ⇒ open by default so the spell is visible.
     const toggle = chip.querySelector('.stack-chip__toggle') as HTMLElement;
-    expect(toggle.getAttribute('aria-expanded')).toBe('false');
-    expect(component.stackExpanded()).toBe(false);
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect(component.stackExpanded()).toBe(true);
 
-    // Toggle opens the body.
+    // User can still manually collapse it; the override holds.
     component.toggleStack();
     fixture.detectChanges();
-    expect(component.stackExpanded()).toBe(true);
+    expect(component.stackExpanded()).toBe(false);
     expect(
       (fixture.nativeElement.querySelector('.stack-chip__toggle') as HTMLElement)
         .getAttribute('aria-expanded'),
-    ).toBe('true');
+    ).toBe('false');
+  });
+
+  it('stays collapsed when the stack is EMPTY (reclaims battlefield space)', () => {
+    const me = player({ id: 'me', name: 'Alice' });
+    const opp = player({ id: 'opp', name: 'Bob' });
+    const state: GameState = {
+      phase: 'Main',
+      turnNumber: 1,
+      activePlayerId: 'me',
+      players: [me, opp],
+      stack: [],
+      youPlayerId: null,
+    };
+    const { fixture, component } = mountBoard(state, ['me']);
+
+    expect(component.stackExpanded()).toBe(false);
+    const toggle = fixture.nativeElement.querySelector('.stack-chip__toggle') as HTMLElement;
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
   });
 });
 
@@ -1175,5 +1193,133 @@ describe('BoardComponent — Pass-priority button gate', () => {
     const fixture = mountWithPrompt({ expectedKinds: [kind] });
     expect(fixture.componentInstance.canPass()).toBe(false);
     expect(passButton(fixture).disabled).toBe(true);
+  });
+});
+
+// =============================================================
+// Stack visibility — the prominent "a spell is on the stack and the
+// engine is waiting on YOU" callout + opponent-object highlighting.
+// The callout reuses the same priority gate as the Pass button (#123):
+// a non-null currentPrompt advertising PassPriorityCommand means the
+// engine awaits THIS viewer. It must appear ONLY when there's also at
+// least one object on the stack.
+// =============================================================
+describe('BoardComponent — stack priority callout', () => {
+  function mountStack(opts: {
+    stack: GameState['stack'];
+    prompt: { expectedKinds?: string[]; description?: string } | null;
+    youPlayerId?: string | null;
+  }) {
+    const me = player({ id: 'me', name: 'Alice' });
+    const opp = player({ id: 'opp', name: 'Bob' });
+    const state: GameState = {
+      phase: 'PreCombatMain',
+      turnNumber: 1,
+      activePlayerId: 'opp',
+      players: [me, opp],
+      stack: opts.stack,
+      youPlayerId: opts.youPlayerId ?? 'me',
+    };
+    TestBed.configureTestingModule({ imports: [BoardComponent] });
+    const fixture = TestBed.createComponent(BoardComponent);
+    const ref: ComponentRef<BoardComponent> = fixture.componentRef;
+    ref.setInput('state', state);
+    ref.setInput('selfPlayerIds', ['me']);
+    ref.setInput('currentPrompt', opts.prompt);
+    fixture.detectChanges();
+    return { fixture, component: fixture.componentInstance };
+  }
+
+  const priorityPrompt = { expectedKinds: ['PassPriorityCommand'] };
+
+  it('shows the callout when the OPPONENT cast a spell and it is my priority window', () => {
+    const { fixture, component } = mountStack({
+      stack: [
+        { id: 's-bolt', kind: 'Spell', description: 'Lightning Bolt', controllerId: 'opp', cardName: 'Lightning Bolt' },
+      ],
+      prompt: priorityPrompt,
+    });
+
+    const callout = fixture.nativeElement.querySelector('.stack-callout') as HTMLElement;
+    expect(callout).toBeTruthy();
+    expect(callout.getAttribute('aria-live')).toBe('assertive');
+    // Opponent-controlled ⇒ louder foe variant + names the spell + caster.
+    expect(callout.classList.contains('stack-callout--opponent')).toBe(true);
+    expect(callout.textContent).toContain('Lightning Bolt');
+    expect(callout.textContent).toContain('Bob');
+    expect(component.stackPriorityCallout()?.opponent).toBe(true);
+  });
+
+  it('shows a calmer (non-opponent) callout when only MY own object is on the stack', () => {
+    const { fixture, component } = mountStack({
+      stack: [
+        { id: 's-mine', kind: 'Spell', description: 'Opt', controllerId: 'me', cardName: 'Opt' },
+      ],
+      prompt: priorityPrompt,
+    });
+
+    const callout = fixture.nativeElement.querySelector('.stack-callout') as HTMLElement;
+    expect(callout).toBeTruthy();
+    expect(callout.classList.contains('stack-callout--opponent')).toBe(false);
+    expect(component.stackPriorityCallout()?.opponent).toBe(false);
+  });
+
+  it('does NOT show the callout when the stack is EMPTY (even with my priority)', () => {
+    const { fixture, component } = mountStack({ stack: [], prompt: priorityPrompt });
+    expect(fixture.nativeElement.querySelector('.stack-callout')).toBeNull();
+    expect(component.stackPriorityCallout()).toBeNull();
+  });
+
+  it('does NOT show the callout when it is NOT my priority window (no prompt forwarded)', () => {
+    const { fixture, component } = mountStack({
+      stack: [
+        { id: 's-bolt', kind: 'Spell', description: 'Lightning Bolt', controllerId: 'opp', cardName: 'Lightning Bolt' },
+      ],
+      prompt: null,
+    });
+    expect(fixture.nativeElement.querySelector('.stack-callout')).toBeNull();
+    expect(component.stackPriorityCallout()).toBeNull();
+  });
+
+  it('does NOT show the callout during a non-priority sub-prompt (e.g. target)', () => {
+    const { fixture } = mountStack({
+      stack: [
+        { id: 's-bolt', kind: 'Spell', description: 'Lightning Bolt', controllerId: 'opp', cardName: 'Lightning Bolt' },
+      ],
+      prompt: { expectedKinds: ['ChooseTargetsCommand'] },
+    });
+    expect(fixture.nativeElement.querySelector('.stack-callout')).toBeNull();
+  });
+});
+
+describe('BoardComponent — stack item controller distinction', () => {
+  it('marks the OPPONENT\'s stack objects with stack-item--opponent + data attribute', () => {
+    const me = player({ id: 'me', name: 'Alice' });
+    const opp = player({ id: 'opp', name: 'Bob' });
+    const state: GameState = {
+      phase: 'Main',
+      turnNumber: 1,
+      activePlayerId: 'opp',
+      players: [me, opp],
+      stack: [
+        { id: 's-opp', kind: 'Spell', description: 'Counterspell', controllerId: 'opp', cardName: 'Counterspell' },
+        { id: 's-mine', kind: 'Spell', description: 'Opt', controllerId: 'me', cardName: 'Opt' },
+      ],
+      youPlayerId: 'me',
+    };
+    const { fixture } = mountBoard(state, ['me']);
+
+    const items: HTMLElement[] = Array.from(
+      fixture.nativeElement.querySelectorAll('.stack-item'),
+    );
+    const oppItem = items.find(el => el.getAttribute('data-stack-controller') === 'opponent');
+    const myItem = items.find(el => el.getAttribute('data-stack-controller') === 'self');
+    expect(oppItem).toBeTruthy();
+    expect(myItem).toBeTruthy();
+    expect(oppItem!.classList.contains('stack-item--opponent')).toBe(true);
+    expect(myItem!.classList.contains('stack-item--opponent')).toBe(false);
+    expect(myItem!.classList.contains('stack-item--mine')).toBe(true);
+    // The opponent's card name surfaces in the (auto-expanded) chip.
+    expect(oppItem!.textContent).toContain('Counterspell');
   });
 });

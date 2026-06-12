@@ -470,6 +470,121 @@
   100% { opacity: 0; transform: translateY(8px) scale(0.96); }
 }
 
+// Whose-object accent on each stack item. The opponent's spells/abilities
+// are the ones the player most needs to notice (they trigger a response
+// window), so tint them with the foe red + a left rail; the player's own
+// objects get a calmer accent rail. Layered AFTER --top / --trigger so the
+// controller tint wins the left-border colour.
+.stack-item {
+  &--mine {
+    border-left-color: var(--majik-accent);
+  }
+
+  &--opponent {
+    border-left-color: var(--majik-foe, #fca5a5);
+    background: rgba(252, 165, 165, 0.10);
+  }
+
+  // Top-of-stack badge — "next" to resolve.
+  &__badge {
+    flex: 0 0 auto;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 1px 6px;
+    border-radius: var(--majik-radius-pill);
+    background: var(--majik-accent-strong);
+    color: #1a1a1a;
+  }
+}
+
+// Chip toggle glows RED (not the calm accent) while an opponent-controlled
+// object sits on the stack — a louder corner cue.
+.stack-chip--opponent .stack-chip__toggle {
+  border-color: var(--majik-foe, #fca5a5);
+  color: var(--majik-foe, #fca5a5);
+  box-shadow: 0 0 0 1px rgba(252, 165, 165, 0.45);
+}
+
+// =============================================================
+// Stack priority callout — the loud "a spell is on the stack and the
+// engine is waiting on YOU" banner above the action bar. Impossible to
+// miss without expanding the chip; aria-live announces it to SR users.
+// =============================================================
+.stack-callout {
+  display: flex;
+  align-items: center;
+  gap: var(--majik-space-2);
+  padding: 8px var(--majik-space-3);
+  border-top: 1px solid var(--majik-line-faint);
+  border-left: 4px solid var(--majik-accent-strong);
+  background: rgba(202, 167, 90, 0.12);
+  color: var(--majik-fg);
+  animation: stack-callout-in 260ms ease-out both;
+
+  &--opponent {
+    border-left-color: var(--majik-foe, #fca5a5);
+    background: rgba(252, 165, 165, 0.14);
+  }
+
+  &__pip {
+    flex: 0 0 auto;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--majik-accent-strong);
+    box-shadow: 0 0 0 0 rgba(202, 167, 90, 0.6);
+    animation: stack-callout-pip 1.6s ease-in-out infinite;
+  }
+
+  &--opponent &__pip {
+    background: var(--majik-foe, #fca5a5);
+    box-shadow: 0 0 0 0 rgba(252, 165, 165, 0.6);
+    animation: stack-callout-pip-foe 1.4s ease-in-out infinite;
+  }
+
+  &__text {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.25;
+  }
+
+  &__headline {
+    font-weight: 700;
+    font-size: 13px;
+  }
+
+  &__detail {
+    font-size: 11px;
+    opacity: 0.75;
+  }
+}
+
+@keyframes stack-callout-in {
+  0%   { opacity: 0; transform: translateY(6px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes stack-callout-pip {
+  0%   { box-shadow: 0 0 0 0 rgba(202, 167, 90, 0.55); }
+  70%  { box-shadow: 0 0 0 7px rgba(202, 167, 90, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(202, 167, 90, 0); }
+}
+
+@keyframes stack-callout-pip-foe {
+  0%   { box-shadow: 0 0 0 0 rgba(252, 165, 165, 0.6); }
+  70%  { box-shadow: 0 0 0 8px rgba(252, 165, 165, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(252, 165, 165, 0); }
+}
+
+// Respect reduced-motion: drop the looping pip pulse + entrance slide.
+@media (prefers-reduced-motion: reduce) {
+  .stack-callout { animation: none; }
+  .stack-callout__pip { animation: none; }
+}
+
 // =============================================================
 // Card zone transitions — applied via animate.enter / animate.leave
 // on <app-card-view> nodes. The event.reducer patches GameState in

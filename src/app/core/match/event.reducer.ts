@@ -163,7 +163,12 @@ function patchStackPush(state: GameState, evt: NormalisedEventDto): PatchResult 
     // caller must NOT refetch.
     return state;
   }
-  const item: StackItem = { id, kind, description };
+  // controllerId / cardName let the board flag the OPPONENT's spells and
+  // print the source card name in the "respond or pass" callout. Both are
+  // nullable on the wire (and absent on older builds), so map defensively.
+  const controllerId = asString(p.controllerId);
+  const cardName = asString(p.cardName);
+  const item: StackItem = { id, kind, description, controllerId, cardName };
   return { ...state, stack: [...state.stack, item] };
 }
 
