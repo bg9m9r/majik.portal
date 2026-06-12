@@ -34,8 +34,9 @@ import {
 import { CardPopoverService } from '../../../ui/card-popover.service';
 import { ManaColorPickerComponent } from '../../../ui/mana-color-picker.component';
 import { bucketBattlefield, BattlefieldBuckets } from './bucket-battlefield';
-import { GraveyardPileComponent } from './graveyard-pile.component';
-import { GraveyardModalComponent } from './graveyard-modal.component';
+import { ZoneRailComponent } from './zone-rail.component';
+import { ZoneModalComponent } from './zone-modal.component';
+import { ZoneKind } from './zone-pile.component';
 
 /**
  * A `StackItem` enriched with display flags the template + the
@@ -64,8 +65,8 @@ export interface StackItemView extends StackItem {
     CdkDropList,
     CdkDrag,
     CdkDragPlaceholder,
-    GraveyardPileComponent,
-    GraveyardModalComponent,
+    ZoneRailComponent,
+    ZoneModalComponent,
   ],
   // ----------------------------------------------------------------
   // Host display.
@@ -213,6 +214,17 @@ export interface StackItemView extends StackItem {
             so creatures meet the centerline.
           -->
           <div class="arena-side arena-side--foe">
+            <!--
+              CR 406.3 / 706.2 — opponent's off-battlefield zone rail
+              (Library count + Graveyard + Exile). Docked to the outer
+              (top-right) corner of their half so it doesn't crowd the
+              battlefield. Graveyard / Exile are public, so clicking
+              either browses the full zone in a modal.
+            -->
+            <app-zone-rail
+              [player]="opponent()"
+              ownerSide="opponent"
+              (browse)="openZone('opponent', $event)" />
             <div class="arena-strip">
               <app-player-hud
                 class="arena-strip__hud"
@@ -221,18 +233,6 @@ export interface StackItemView extends StackItem {
                 side="opponent"
                 label="opponent" />
               <app-mana-pool-row class="arena-strip__mana" [player]="opponent()" />
-              <!--
-                CR 706.2 — opponent's graveyard pile (public zone, browsable
-                by either player). Click → modal with the full pile.
-              -->
-              @if (opponent(); as opp) {
-                <app-graveyard-pile
-                  class="arena-strip__graveyard"
-                  [cards]="opp.graveyard.cards"
-                  ownerSide="opponent"
-                  [ownerName]="opp.name"
-                  (expand)="openGraveyard('opponent')" />
-              }
               <!--
                 Opponent hand (face-down). Server emits the opponent's
                 hand as N "(hidden)" placeholder cards via the per-viewer
@@ -323,6 +323,16 @@ export interface StackItemView extends StackItem {
             regardless of which inner bucket the user releases over.
           -->
           <div class="arena-side arena-side--self">
+            <!--
+              CR 406.3 / 706.2 — your off-battlefield zone rail (Library
+              count + Graveyard + Exile). Docked to the outer (bottom-
+              right) corner of your half, mirroring the opponent's rail.
+              Graveyard / Exile click → browse modal.
+            -->
+            <app-zone-rail
+              [player]="self()"
+              ownerSide="self"
+              (browse)="openZone('self', $event)" />
             <div
               #selfBattlefieldList="cdkDropList"
               id="self-battlefield-droplist"
@@ -427,19 +437,6 @@ export interface StackItemView extends StackItem {
                 side="self"
                 label="you" />
               <app-mana-pool-row class="arena-strip__mana" [player]="self()" />
-              <!--
-                CR 706.2 — your own graveyard pile. Click → modal with
-                the full pile. Read-only view (no graveyard-tutor /
-                regrowth wiring yet — separate slice).
-              -->
-              @if (self(); as me) {
-                <app-graveyard-pile
-                  class="arena-strip__graveyard"
-                  [cards]="me.graveyard.cards"
-                  ownerSide="self"
-                  [ownerName]="me.name"
-                  (expand)="openGraveyard('self')" />
-              }
             </div>
           </div>
 
@@ -592,13 +589,14 @@ export interface StackItemView extends StackItem {
             (dismiss)="closeManaPicker()" />
         }
 
-        <!-- CR 706.2 — graveyard browse modal. Whichever side's pile was
-             clicked drives ownerName / cards via openedGraveyard(). -->
-        @if (openedGraveyard(); as gy) {
-          <app-graveyard-modal
-            [ownerName]="gy.ownerName"
-            [cards]="gy.cards"
-            (closed)="closeGraveyard()" />
+        <!-- CR 406.3 / 706.2 — zone browse modal. Whichever side+zone was
+             clicked drives kind / ownerName / cards via openedZone(). -->
+        @if (openedZone(); as oz) {
+          <app-zone-modal
+            [kind]="oz.kind"
+            [ownerName]="oz.ownerName"
+            [cards]="oz.cards"
+            (closed)="closeZone()" />
         }
       </div>
     } @else {
@@ -739,25 +737,33 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
 
   private readonly popover = inject(CardPopoverService);
 
-  // CR 706.2 — currently-expanded graveyard pile. Null = no modal open.
-  // Stores the owner side so openedGraveyard() can re-derive the live
-  // cards / name from the current game state (so cards added while the
-  // modal is open appear without re-clicking).
-  private readonly openedGraveyardSide = signal<'self' | 'opponent' | null>(null);
-  readonly openedGraveyard = computed<{ ownerName: string; cards: CardSnapshot[] } | null>(() => {
-    const side = this.openedGraveyardSide();
-    if (!side) return null;
-    const player = side === 'self' ? this.self() : this.opponent();
+  // CR 406.3 / 706.2 — currently-expanded off-battlefield zone (graveyard
+  // or exile). Null = no modal open. Stores the owner side + zone kind so
+  // openedZone() re-derives the live cards / name from the current game
+  // state (cards moving into the zone while the modal is open appear
+  // without re-clicking).
+  private readonly openedZoneRef = signal<{ side: 'self' | 'opponent'; kind: ZoneKind } | null>(
+    null,
+  );
+  readonly openedZone = computed<{
+    kind: ZoneKind;
+    ownerName: string;
+    cards: CardSnapshot[];
+  } | null>(() => {
+    const ref = this.openedZoneRef();
+    if (!ref) return null;
+    const player = ref.side === 'self' ? this.self() : this.opponent();
     if (!player) return null;
-    return { ownerName: player.name, cards: player.graveyard.cards };
+    const cards = ref.kind === 'exile' ? player.exile.cards : player.graveyard.cards;
+    return { kind: ref.kind, ownerName: player.name, cards };
   });
 
-  openGraveyard(side: 'self' | 'opponent'): void {
-    this.openedGraveyardSide.set(side);
+  openZone(side: 'self' | 'opponent', kind: ZoneKind): void {
+    this.openedZoneRef.set({ side, kind });
   }
 
-  closeGraveyard(): void {
-    this.openedGraveyardSide.set(null);
+  closeZone(): void {
+    this.openedZoneRef.set(null);
   }
 
   onContextMenu(event: MouseEvent, card: CardSnapshot, owner: 'self' | 'opponent'): void {
