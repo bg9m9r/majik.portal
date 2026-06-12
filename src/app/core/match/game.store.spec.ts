@@ -225,6 +225,46 @@ describe('GameStore.applyEvent', () => {
 });
 
 // ----------------------------------------------------------------
+// Action log — describeEvent lines captured into logEntries.
+// ----------------------------------------------------------------
+describe('GameStore.logEntries (action log)', () => {
+  let store: InstanceType<typeof GameStore>;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({ providers: storeProviders() });
+    store = TestBed.inject(GameStore);
+    store.reset();
+  });
+
+  it('appends a log line on a patchable event', () => {
+    store.setState(snapshot());
+    store.applyEvent({ type: 'LifeChangedEvent', payload: { playerId: BOB, current: 17 }, seq: 2 });
+    const log = store.logEntries();
+    expect(log.length).toBe(1);
+    expect(log[0].kind).toBe('life');
+  });
+
+  it('appends a log line even when the event forces a refetch (unpatchable)', () => {
+    store.setState(snapshot());
+    // A genuinely-unpatchable event (a CardMoved to Exile we can't apply —
+    // the card isn't in any known zone) must still log its line.
+    store.applyEvent({
+      type: 'CardMovedEvent',
+      payload: { to: 'Exile', from: 'Battlefield', cardName: 'Bear', ownerId: ALICE },
+      seq: 2,
+    });
+    expect(store.logEntries().some(l => l.kind === 'zone')).toBe(true);
+  });
+
+  it('reset clears the log', () => {
+    store.setState(snapshot());
+    store.applyEvent({ type: 'LifeChangedEvent', payload: { playerId: BOB, current: 17 }, seq: 2 });
+    store.reset();
+    expect(store.logEntries().length).toBe(0);
+  });
+});
+
+// ----------------------------------------------------------------
 // PLAN 04 — monotonic seq gates on setState + applyEvent.
 // ----------------------------------------------------------------
 describe('GameStore seq gate (PLAN 04)', () => {
