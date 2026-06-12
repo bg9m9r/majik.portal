@@ -150,6 +150,7 @@ describe('patchGameState', () => {
       expect(next!.stack).toHaveLength(1);
       expect(next!.stack[0]).toEqual({
         id: 's-bolt', kind: 'Spell', description: 'Lightning Bolt',
+        controllerId: ALICE, cardName: 'Lightning Bolt',
       });
     });
 
@@ -173,6 +174,7 @@ describe('patchGameState', () => {
       expect(next!.stack).toHaveLength(1);
       expect(next!.stack[0]).toEqual({
         id: 's-trigger', kind: 'TriggeredAbility', description: 'Ranger trigger',
+        controllerId: BOB, cardName: null,
       });
     });
 
