@@ -575,8 +575,9 @@ export interface StackItemView extends StackItem {
         <app-card-context-menu
           [card]="activeContextCard()"
           [position]="activeContextPos()"
-          [canTap]="canTapActiveContext()"
-          [activatableAbilities]="activeContextActivatableAbilities()"
+          [canTap]="loyaltyPickerMode() ? false : canTapActiveContext()"
+          [abilitiesOnly]="loyaltyPickerMode()"
+          [activatableAbilities]="activeMenuAbilities()"
           (closed)="closeContextMenu()"
           (action)="onContextAction($event)"
           (activateAbilityRequested)="onContextActivateAbility($event)" />
@@ -665,6 +666,15 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
   // Tracks which side's battlefield the active context card belongs to,
   // so the menu can hide Tap / Untap for opponent permanents.
   readonly activeContextOwner = signal<'self' | 'opponent' | null>(null);
+  /**
+   * True while the menu is open as the double-click-a-planeswalker LOYALTY
+   * PICKER (a focused dropdown of the planeswalker's currently-usable
+   * +N / −N abilities) rather than the right-click context menu. In this
+   * mode the menu renders ONLY the ability list (no Tap / details /
+   * scryfall) and the ability list is the loyalty-only projection. Reset
+   * by closeContextMenu().
+   */
+  readonly loyaltyPickerMode = signal<boolean>(false);
 
   /**
    * Activatable abilities legal to surface in the context menu for the
@@ -690,14 +700,44 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
     // by requiring the loyalty-activation kind in the current prompt AND
     // defensively dropping any −N ability the player can't afford
     // (current loyalty < N). +N abilities are always affordable.
-    const loyalty: ActivatableAbility[] = this.loyaltyActivationAllowed()
-      ? abilities
-          .filter(a => a.kind === 'Loyalty' && a.id != null)
-          .filter(a => this.loyaltyAbilityAffordable(card, a.description ?? ''))
-          .map(a => ({ id: a.id!, description: a.description ?? '', kind: 'loyalty' as const }))
-      : [];
+    const loyalty = this.usableLoyaltyAbilities(card);
     return [...activated, ...loyalty];
   });
+
+  /**
+   * Abilities the OPEN menu should list. The right-click context menu shows
+   * the full activated + loyalty mix (activeContextActivatableAbilities);
+   * the double-click loyalty PICKER (loyaltyPickerMode) shows ONLY the
+   * planeswalker's currently-usable loyalty abilities. Both share the same
+   * gating helpers so the two entry points never disagree on legality.
+   */
+  readonly activeMenuAbilities = computed<ActivatableAbility[]>(() => {
+    if (this.loyaltyPickerMode()) {
+      const card = this.activeContextCard();
+      return card ? this.usableLoyaltyAbilities(card) : [];
+    }
+    return this.activeContextActivatableAbilities();
+  });
+
+  /**
+   * The planeswalker's currently-usable loyalty abilities (CR 606), as
+   * menu-ready ActivatableAbility entries. Gated identically wherever
+   * loyalty is surfaced:
+   *   * the current prompt must advertise the loyalty-activation kind
+   *     (sorcery-speed priority window — loyaltyActivationAllowed); AND
+   *   * each −N ability must be affordable (current loyalty ≥ N).
+   * Empty when the prompt doesn't allow loyalty activation or none are
+   * affordable. Does NOT itself require the card be a planeswalker — the
+   * loyalty-kind filter already excludes non-PW permanents (they have no
+   * kind === 'Loyalty' abilities).
+   */
+  private usableLoyaltyAbilities(card: CardSnapshot): ActivatableAbility[] {
+    if (!this.loyaltyActivationAllowed()) return [];
+    return (card.abilities ?? [])
+      .filter(a => a.kind === 'Loyalty' && a.id != null)
+      .filter(a => this.loyaltyAbilityAffordable(card, a.description ?? ''))
+      .map(a => ({ id: a.id!, description: a.description ?? '', kind: 'loyalty' as const }));
+  }
 
   /**
    * True when the clicked context card may show a Tap / Untap entry: it
@@ -771,6 +811,7 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
     // Pin the hover popover down — it was likely visible at right-click
     // time and the user just expressed intent to interact, not browse.
     this.popover.hide();
+    this.loyaltyPickerMode.set(false);
     this.activeContextCard.set(card);
     this.activeContextPos.set({ x: event.clientX, y: event.clientY });
     this.activeContextOwner.set(owner);
@@ -780,6 +821,7 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
     this.activeContextCard.set(null);
     this.activeContextPos.set(null);
     this.activeContextOwner.set(null);
+    this.loyaltyPickerMode.set(false);
   }
 
   /**
@@ -801,6 +843,21 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
    * TODO: ability picker for multi-ability permanents
    */
   onSelfBattlefieldDoubleClick(card: CardSnapshot): void {
+    // CR 606 — planeswalker loyalty picker. Double-clicking one of YOUR
+    // planeswalkers opens a focused dropdown of its currently-usable
+    // loyalty abilities (reusing the context-menu overlay in
+    // loyaltyPickerMode). Takes precedence over the mana / activated paths
+    // so a planeswalker that also has a (rare) activated ability still
+    // gets the loyalty dropdown when loyalty is the live choice. When no
+    // loyalty ability is usable right now (wrong priority window, or every
+    // −N unaffordable) we fall through to the activated-ability path below
+    // (and ultimately a no-op) rather than opening an empty menu. Note: not
+    // gated on `tapped` for the loyalty path — planeswalkers don't tap to
+    // activate loyalty (CR 606.3).
+    if (isPlaneswalker(card) && this.usableLoyaltyAbilities(card).length > 0) {
+      this.openLoyaltyPicker(card);
+      return;
+    }
     if (card.tapped) return;
     const colors = card.producedManaColors ?? '';
     if (colors.length > 0) {
@@ -831,6 +888,29 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
         abilityId: activatedAbility.id!,
       });
     }
+  }
+
+  /**
+   * Open the loyalty-ability picker dropdown for a self-owned
+   * planeswalker, anchored at the card's on-screen position (falling back
+   * to the viewport origin when the DOM node isn't found — e.g. in unit
+   * tests, or if the bucket hasn't rendered yet). Reuses the context-menu
+   * overlay in loyaltyPickerMode so the rendered list is the loyalty-only
+   * projection with no Tap / details / scryfall rows.
+   */
+  private openLoyaltyPicker(card: CardSnapshot): void {
+    this.popover.hide();
+    const grid = this.boardGridEl?.nativeElement;
+    const el = grid?.querySelector(
+      `.arena-side--self .battlefield [data-card-id="${card.instanceId}"]`,
+    ) as HTMLElement | null;
+    const rect = el?.getBoundingClientRect();
+    // Anchor near the card's top-right so the menu drops alongside it.
+    const pos = rect ? { x: rect.right, y: rect.top } : { x: 0, y: 0 };
+    this.loyaltyPickerMode.set(true);
+    this.activeContextOwner.set('self');
+    this.activeContextCard.set(card);
+    this.activeContextPos.set(pos);
   }
 
   onManaColorPicked(color: string): void {

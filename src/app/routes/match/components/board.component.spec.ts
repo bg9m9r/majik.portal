@@ -694,6 +694,169 @@ describe('BoardComponent — planeswalker loyalty abilities in context menu', ()
 });
 
 // ---------------------------------------------------------------------------
+// BoardComponent — double-click a planeswalker → loyalty-ability dropdown
+//
+// Double-clicking one of YOUR planeswalkers opens a focused dropdown (the
+// context-menu overlay in loyaltyPickerMode) listing only its currently-
+// usable loyalty abilities. Selecting one reuses the SAME
+// activateLoyaltyAbilityRequested path as the right-click menu. Same gating
+// as the context menu: the prompt must advertise the loyalty kind AND each
+// −N must be affordable. Non-planeswalkers keep the mana / activated path;
+// opponents' planeswalkers do nothing.
+// ---------------------------------------------------------------------------
+describe('BoardComponent — double-click planeswalker loyalty dropdown', () => {
+  function grist(counters: Record<string, number> = { Loyalty: 3 }): CardSnapshot {
+    return permanentCard({
+      instanceId: 'grist-1',
+      name: 'Grist, the Hunger Tide',
+      types: ['Legendary', 'Planeswalker'],
+      counters,
+      abilities: [
+        loyaltyAbility('grist-plus', '+1'),
+        loyaltyAbility('grist-minus2', '−2'),
+        loyaltyAbility('grist-minus5', '−5'),
+      ],
+    });
+  }
+
+  it('opens the loyalty picker listing exactly the usable abilities (unaffordable −N excluded)', () => {
+    const pw = grist({ Loyalty: 3 });
+    const { component } = mountBoardWithCard(pw, LOYALTY_PROMPT);
+
+    component.onSelfBattlefieldDoubleClick(pw);
+
+    // The menu is open in loyalty-picker mode, anchored on the card.
+    expect(component.loyaltyPickerMode()).toBe(true);
+    expect(component.activeContextCard()).toBe(pw);
+    expect(component.activeContextPos()).not.toBeNull();
+    // Loyalty 3: +1 and −2 usable; −5 hidden (3 < 5).
+    expect(component.activeMenuAbilities()).toEqual([
+      { id: 'grist-plus', description: '+1', kind: 'loyalty' },
+      { id: 'grist-minus2', description: '−2', kind: 'loyalty' },
+    ]);
+  });
+
+  it('renders the dropdown with ONLY the ability rows (no Tap / details / scryfall)', () => {
+    const pw = grist({ Loyalty: 5 });
+    const { component, fixture } = mountBoardWithCard(pw, LOYALTY_PROMPT);
+
+    component.onSelfBattlefieldDoubleClick(pw);
+    fixture.detectChanges();
+
+    const labels = (Array.from(
+      fixture.nativeElement.querySelectorAll('app-card-context-menu button'),
+    ) as HTMLButtonElement[]).map(b => b.textContent?.trim());
+    expect(labels).toEqual(['Activate +1', 'Activate −2', 'Activate −5']);
+    expect(labels).not.toContain('Tap / Untap');
+    expect(labels).not.toContain('View details');
+    expect(labels).not.toContain('Open on Scryfall');
+  });
+
+  it('selecting an ability emits activateLoyaltyAbilityRequested with the right loyaltyAbilityId', () => {
+    const pw = grist({ Loyalty: 3 });
+    const { component } = mountBoardWithCard(pw, LOYALTY_PROMPT);
+    component.onSelfBattlefieldDoubleClick(pw);
+
+    const loyaltySpy = vi.fn();
+    const activatedSpy = vi.fn();
+    component.activateLoyaltyAbilityRequested.subscribe(loyaltySpy);
+    component.activateAbilityRequested.subscribe(activatedSpy);
+
+    // Picking the second entry (the menu emits the full descriptor).
+    component.onContextActivateAbility({ id: 'grist-minus2', description: '−2', kind: 'loyalty' });
+
+    expect(loyaltySpy).toHaveBeenCalledOnce();
+    expect(loyaltySpy).toHaveBeenCalledWith({
+      permanentInstanceId: 'grist-1',
+      loyaltyAbilityId: 'grist-minus2',
+    });
+    expect(activatedSpy).not.toHaveBeenCalled();
+  });
+
+  it('does nothing when the loyalty kind is not in expectedKinds (no menu opened)', () => {
+    const pw = grist({ Loyalty: 3 });
+    const { component } = mountBoardWithCard(pw, { expectedKinds: ['none'] });
+    const loyaltySpy = vi.fn();
+    component.activateLoyaltyAbilityRequested.subscribe(loyaltySpy);
+
+    component.onSelfBattlefieldDoubleClick(pw);
+
+    expect(component.loyaltyPickerMode()).toBe(false);
+    expect(component.activeContextCard()).toBeNull();
+    expect(loyaltySpy).not.toHaveBeenCalled();
+  });
+
+  it('does nothing when no loyalty ability is affordable (every −N too expensive, no +N)', () => {
+    const pw = permanentCard({
+      instanceId: 'pw-broke',
+      types: ['Planeswalker'],
+      counters: { Loyalty: 1 },
+      abilities: [loyaltyAbility('m2', '−2'), loyaltyAbility('m5', '−5')],
+    });
+    const { component } = mountBoardWithCard(pw, LOYALTY_PROMPT);
+
+    component.onSelfBattlefieldDoubleClick(pw);
+
+    expect(component.loyaltyPickerMode()).toBe(false);
+    expect(component.activeContextCard()).toBeNull();
+  });
+
+  it('a non-planeswalker still takes the mana path on double-click (loyalty path untouched)', () => {
+    const card = permanentCard({
+      instanceId: 'forest-1',
+      types: ['Land'],
+      producedManaColors: 'G',
+    });
+    const { component } = mountBoardWithCard(card, LOYALTY_PROMPT);
+    const manaSpy = vi.fn();
+    component.activateManaRequested.subscribe(manaSpy);
+
+    component.onSelfBattlefieldDoubleClick(card);
+
+    expect(component.loyaltyPickerMode()).toBe(false);
+    expect(manaSpy).toHaveBeenCalledOnce();
+    expect(manaSpy).toHaveBeenCalledWith({ card, color: 'G' });
+  });
+
+  it("does nothing for an OPPONENT's planeswalker (no cardDoubleClick wiring on the foe side)", () => {
+    // The loyalty picker is reachable ONLY through (cardDoubleClick), which
+    // the template wires on the SELF battlefield buckets exclusively — the
+    // opponent's cards bind (contextmenu) but never (cardDoubleClick). So an
+    // opponent planeswalker can't open the picker. Assert the structural
+    // guard via Angular's DebugElement listeners: self PW has a
+    // cardDoubleClick listener; the foe PW does not.
+    const selfPw = grist({ Loyalty: 3 });
+    const foePw: CardSnapshot = { ...grist({ Loyalty: 3 }), instanceId: 'foe-pw' };
+    const me = player({ id: 'me', name: 'Alice', battlefield: { cards: [selfPw] } });
+    const opp = player({ id: 'opp', name: 'Bob', battlefield: { cards: [foePw] } });
+    const state: GameState = {
+      phase: 'Main',
+      turnNumber: 1,
+      activePlayerId: 'me',
+      players: [me, opp],
+      stack: [],
+      youPlayerId: null,
+    };
+    TestBed.configureTestingModule({ imports: [BoardComponent] });
+    const fixture = TestBed.createComponent(BoardComponent);
+    fixture.componentRef.setInput('state', state);
+    fixture.componentRef.setInput('selfPlayerIds', ['me']);
+    fixture.componentRef.setInput('currentPrompt', LOYALTY_PROMPT);
+    fixture.detectChanges();
+
+    const hasDblClick = (instanceId: string): boolean => {
+      const de = fixture.debugElement
+        .queryAll(By.directive(CardViewComponent))
+        .find(d => (d.componentInstance as CardViewComponent).snapshot()?.instanceId === instanceId);
+      return !!de?.listeners.some(l => l.name === 'cardDoubleClick');
+    };
+
+    expect(hasDblClick('grist-1')).toBe(true); // self PW is double-clickable
+    expect(hasDblClick('foe-pw')).toBe(false); // opponent PW is not
+  });
+});
+
+// ---------------------------------------------------------------------------
 // BoardComponent — zoned battlefield layout
 //
 // Frontline (creatures, incl. tokens + Artifact-/Enchantment-Creatures) sits
