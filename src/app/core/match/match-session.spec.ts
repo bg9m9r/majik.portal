@@ -3,6 +3,7 @@ import {
   AutoPassDeps,
   STACK_MUTATION_DISPLAY_MS,
   autoPassPromptKey,
+  isPriorityPrompt,
   shouldAutoPass,
   stackSignature,
 } from './match-session';
@@ -247,5 +248,41 @@ describe('autoPassPromptKey — stable de-dupe key', () => {
       autoPassPromptKey({ ...base, playerId: OPP }));
     expect(autoPassPromptKey(base)).not.toBe(
       autoPassPromptKey({ ...base, expectedKinds: ['PassPriorityCommand', 'PlayLandCommand'] }));
+  });
+});
+
+describe('isPriorityPrompt — Pass-button / Space gate', () => {
+  it('true for the full priority set [Pass, PlayLand, CastSpell]', () => {
+    expect(isPriorityPrompt(['PassPriorityCommand', 'PlayLandCommand', 'CastSpellCommand'])).toBe(true);
+  });
+
+  it('true when PassPriorityCommand is the sole kind', () => {
+    expect(isPriorityPrompt(['PassPriorityCommand'])).toBe(true);
+  });
+
+  it('true for a normalised "pass" discriminator', () => {
+    expect(isPriorityPrompt(['pass'])).toBe(true);
+  });
+
+  it('case-insensitive / namespaced PassPriorityCommand still matches', () => {
+    expect(isPriorityPrompt(['Majik.Core.PassPriorityCommand'])).toBe(true);
+    expect(isPriorityPrompt(['passprioritycommand'])).toBe(true);
+  });
+
+  it('false for a target sub-prompt', () => {
+    expect(isPriorityPrompt(['ChooseTargetsCommand'])).toBe(false);
+  });
+
+  it('false for surveil / yes-no / mulligan / combat sub-prompts', () => {
+    expect(isPriorityPrompt(['ChooseSurveilCommand'])).toBe(false);
+    expect(isPriorityPrompt(['ChooseYesNoCommand'])).toBe(false);
+    expect(isPriorityPrompt(['MulliganCommand'])).toBe(false);
+    expect(isPriorityPrompt(['DeclareAttackersCommand'])).toBe(false);
+    expect(isPriorityPrompt(['DeclareBlockersCommand'])).toBe(false);
+  });
+
+  it('false for empty / undefined kinds (no prompt → no pass)', () => {
+    expect(isPriorityPrompt([])).toBe(false);
+    expect(isPriorityPrompt(undefined)).toBe(false);
   });
 });

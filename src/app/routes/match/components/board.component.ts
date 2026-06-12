@@ -20,6 +20,7 @@ import {
 } from '@angular/cdk/drag-drop';
 import { GameState, GamePlayer, CardSnapshot } from '../../../core/match/match.types';
 import { GameStore, PhaseStops } from '../../../core/match/game.store';
+import { isPriorityPrompt } from '../../../core/match/match-session';
 import { CardViewComponent, snapshotToCard } from '../../../ui/card-view.component';
 import { PlayerHudComponent } from '../../../ui/player-hud.component';
 import { ManaPoolRowComponent } from '../../../ui/mana-pool-row.component';
@@ -513,7 +514,7 @@ import { GraveyardModalComponent } from './graveyard-modal.component';
         </div>
 
         <app-action-bar
-          [canPass]="!!currentPrompt()"
+          [canPass]="canPass()"
           [currentPrompt]="currentPrompt()"
           (pass)="passClicked.emit()"
           (concede)="concedeClicked.emit()"
@@ -1107,6 +1108,23 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
       if (cmcOf(c.manaCost) <= pool) ids.add(c.instanceId);
     }
     return ids;
+  });
+
+  // Pass-priority button gate. The match shell only forwards
+  // `currentPrompt` when the prompt is addressed to THIS viewer (see
+  // match.ts `myPromptSummary`, gated on `isMyTurnPrompt`), so a
+  // non-null prompt here already means "the engine is awaiting me".
+  // We additionally require the prompt advertise `PassPriorityCommand`
+  // so the button is enabled ONLY during a genuine priority window —
+  // never during a target / surveil / yes-no / mulligan / combat
+  // sub-prompt (those carry their own command kinds, not
+  // PassPriorityCommand, and have dedicated overlay UI). When no
+  // prompt is pending (opponent's window, engine resolving the stack,
+  // between turns) the button stays disabled.
+  readonly canPass = computed<boolean>(() => {
+    const p = this.currentPrompt();
+    if (!p) return false;
+    return isPriorityPrompt(p.expectedKinds);
   });
 
   private readonly hasPriority = computed<boolean>(() => {
