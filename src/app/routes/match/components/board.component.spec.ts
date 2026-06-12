@@ -984,6 +984,124 @@ describe('BoardComponent — self-side ordering + host display (zoned layout)', 
 });
 
 // ---------------------------------------------------------------------------
+// BoardComponent — off-battlefield zone rails (Library / Graveyard / Exile)
+//
+// Each player gets a docked rail clustering their three off-battlefield
+// zones. Graveyard + Exile are browsable (CR 406.3 / 706.2 — public); the
+// board lifts a click into the shared zone-browse modal driven by
+// openedZone(). Library is count-only (hidden zone). These assertions lock
+// in: both seats present, exile is first-class, and the modal routes to the
+// right seat + zone with live data.
+// ---------------------------------------------------------------------------
+describe('BoardComponent — off-battlefield zone rails', () => {
+  function withZones() {
+    const me = player({
+      id: 'me',
+      name: 'Alice',
+      library: { cards: [permanent('l1', ['Land']), permanent('l2', ['Land'])] },
+      graveyard: { cards: [permanent('g1', ['Creature'])] },
+      exile: { cards: [permanent('x1', ['Instant']), permanent('x2', ['Sorcery'])] },
+    });
+    const opp = player({
+      id: 'opp',
+      name: 'Bob',
+      graveyard: { cards: [permanent('og1', ['Creature'])] },
+      exile: { cards: [permanent('ox1', ['Artifact'])] },
+    });
+    const state: GameState = {
+      phase: 'Main',
+      turnNumber: 1,
+      activePlayerId: 'me',
+      players: [me, opp],
+      stack: [],
+      youPlayerId: null,
+    };
+    return mountBoard(state, ['me']);
+  }
+
+  it('renders a zone rail for BOTH players (self + opponent)', () => {
+    const { fixture } = withZones();
+    expect(fixture.nativeElement.querySelector('[data-testid="zone-rail-self"]')).toBeTruthy();
+    expect(fixture.nativeElement.querySelector('[data-testid="zone-rail-opponent"]')).toBeTruthy();
+  });
+
+  it('shows library, graveyard AND exile tiles with their counts on the self rail', () => {
+    const { fixture } = withZones();
+    const rail = fixture.nativeElement.querySelector('[data-testid="zone-rail-self"]') as HTMLElement;
+    const countOf = (kind: string) =>
+      (rail.querySelector(
+        `[data-testid="zone-pile-${kind}-self"] [data-testid="zone-pile-count"]`,
+      ) as HTMLElement).textContent?.trim();
+    expect(countOf('library')).toBe('2');
+    expect(countOf('graveyard')).toBe('1');
+    expect(countOf('exile')).toBe('2');
+  });
+
+  it('renders the opponent exile zone too (exile is first-class for both seats)', () => {
+    const { fixture } = withZones();
+    const oppExile = fixture.nativeElement.querySelector(
+      '[data-testid="zone-rail-opponent"] [data-testid="zone-pile-exile-opponent"]',
+    ) as HTMLElement;
+    expect(oppExile).toBeTruthy();
+    expect(
+      (oppExile.querySelector('[data-testid="zone-pile-count"]') as HTMLElement).textContent?.trim(),
+    ).toBe('1');
+  });
+
+  it('clicking the self exile tile opens the zone modal titled by owner + zone with its cards', () => {
+    const { fixture } = withZones();
+    expect(fixture.nativeElement.querySelector('app-zone-modal')).toBeNull();
+
+    (fixture.nativeElement.querySelector(
+      '[data-testid="zone-pile-exile-self"]',
+    ) as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    const heading = fixture.nativeElement.querySelector('app-zone-modal h2') as HTMLElement;
+    expect(heading).toBeTruthy();
+    expect(heading.textContent).toContain("Alice's exile");
+    const grid = fixture.nativeElement.querySelector('[data-testid="zone-modal-grid"]') as HTMLElement;
+    expect(grid.querySelectorAll('app-card-view').length).toBe(2);
+  });
+
+  it('clicking the opponent graveyard tile opens that seat + zone in the modal', () => {
+    const { fixture } = withZones();
+    (fixture.nativeElement.querySelector(
+      '[data-testid="zone-pile-graveyard-opponent"]',
+    ) as HTMLButtonElement).click();
+    fixture.detectChanges();
+    const heading = fixture.nativeElement.querySelector('app-zone-modal h2') as HTMLElement;
+    expect(heading.textContent).toContain("Bob's graveyard");
+  });
+
+  it('closing the modal removes it from the DOM', () => {
+    const { fixture } = withZones();
+    (fixture.nativeElement.querySelector(
+      '[data-testid="zone-pile-graveyard-self"]',
+    ) as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('app-zone-modal')).toBeTruthy();
+
+    (fixture.nativeElement.querySelector('[data-testid="zone-modal-close"]') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('app-zone-modal')).toBeNull();
+  });
+
+  it('renders empty zones sanely (count 0, no thumbnail) when a player has nothing off-battlefield', () => {
+    const { fixture } = mountBoardWithBattlefields([], []);
+    const selfExile = fixture.nativeElement.querySelector(
+      '[data-testid="zone-pile-exile-self"]',
+    ) as HTMLElement;
+    expect(selfExile).toBeTruthy();
+    expect(selfExile.classList.contains('zone-pile--empty')).toBe(true);
+    expect(
+      (selfExile.querySelector('[data-testid="zone-pile-count"]') as HTMLElement).textContent?.trim(),
+    ).toBe('0');
+    expect(selfExile.querySelector('.zone-pile__thumb')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // BoardComponent — symmetric non-battlefield footprint across the two sides
 //
 // Regression coverage for the "self battlefield visibly shorter than opp"
