@@ -86,12 +86,30 @@ describe('CardViewComponent', () => {
     expect(cache.request).toHaveBeenCalledWith(['Lightning Bolt']);
   });
 
-  it('renders face-down marker and no img when hidden', () => {
+  it('renders card-back image and no ? when hidden', () => {
     const cache = makeCacheStub({ 'Grizzly Bears': 'https://img.example/bears.png' });
     const { fixture } = render(makeSnapshot(), true, cache);
-    expect(fixture.nativeElement.querySelector('img')).toBeNull();
-    expect(fixture.nativeElement.textContent).toContain('?');
+    const img = fixture.nativeElement.querySelector('img.card-back') as HTMLImageElement | null;
+    expect(img).not.toBeNull();
+    expect(img!.getAttribute('src')).toBe('/card-back.svg');
+    expect(fixture.nativeElement.textContent).not.toContain('?');
     expect(cache.request).not.toHaveBeenCalled();
+  });
+
+  describe('CardViewComponent hidden render', () => {
+    it('renders the card-back image when hidden', () => {
+      const { fixture } = render(null, true);
+      const img = fixture.nativeElement.querySelector('img.card-back') as HTMLImageElement | null;
+      expect(img).not.toBeNull();
+      expect(img!.getAttribute('src')).toBe('/card-back.svg');
+    });
+
+    it('falls back to "?" if the back image errors', () => {
+      const { fixture } = render(null, true);
+      fixture.componentInstance.onBackError();
+      fixture.detectChanges();
+      expect(fixture.nativeElement.textContent).toContain('?');
+    });
   });
 
   it('shows P/T overlay alongside image', () => {

@@ -1,4 +1,4 @@
-import { Component, ElementRef, EventEmitter, Output, computed, effect, inject, input } from '@angular/core';
+import { Component, ElementRef, EventEmitter, Output, computed, effect, inject, input, signal } from '@angular/core';
 import { CardSnapshot } from '../core/match/match.types';
 import { Card } from '../core/card/card.types';
 import { ScryfallImageCache } from '../core/card/scryfall-image-cache.service';
@@ -81,7 +81,13 @@ export function makeCounterPip(kind: string, count: number): CounterPip {
         </div>
       }
       @if (hidden()) {
-        <span class="m-auto text-stone-300/70">?</span>
+        @if (!backFailed()) {
+          <img class="card-back absolute inset-0 h-full w-full object-cover"
+               src="/card-back.svg" alt="face-down card"
+               (error)="onBackError()" />
+        } @else {
+          <span class="m-auto text-stone-300/70">?</span>
+        }
       } @else if (snapshot(); as c) {
         @if (imageUrl()) {
           <img
@@ -133,6 +139,9 @@ export class CardViewComponent {
   readonly castable = input<boolean>(false);
 
   @Output() readonly cardDoubleClick = new EventEmitter<CardSnapshot>();
+
+  readonly backFailed = signal(false);
+  onBackError(): void { this.backFailed.set(true); }
 
   onDoubleClick(): void {
     const snap = this.snapshot();
