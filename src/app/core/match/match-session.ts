@@ -61,6 +61,37 @@ function isPassOnlyPriorityPrompt(kinds: readonly string[] | undefined): boolean
   return kinds[0] === 'PassPriorityCommand';
 }
 
+/**
+ * Is this prompt a priority window the viewer can answer with Pass?
+ *
+ * CR 117.3 — the engine raises a prompt to a seat only when that seat
+ * actually holds priority (auto-pass windows are skipped server-side),
+ * so a pending prompt whose `expectedKinds` advertises
+ * `PassPriorityCommand` means it is genuinely the viewer's turn to act
+ * and passing is a legal response. The engine ships the full priority
+ * set `[PassPriorityCommand, PlayLandCommand, CastSpellCommand]` (see
+ * `isPassOnlyPriorityPrompt`), so we look for the kind anywhere in the
+ * set rather than requiring it be the sole entry.
+ *
+ * Sub-prompts that demand a specific input — choosing targets,
+ * surveil, a yes/no "may", a mulligan, declaring attackers/blockers —
+ * do NOT carry `PassPriorityCommand`; their `expectedKinds` name the
+ * specific command (`ChooseTargetsCommand`, `ChooseSurveilCommand`,
+ * …). Those have their own UI; Pass is not a legal answer and this
+ * helper returns false, keeping the Pass button disabled.
+ *
+ * Matched case-insensitively against an `endsWith('passprioritycommand')`
+ * suffix so a normalised `pass` discriminator or a namespaced variant
+ * still resolves.
+ */
+export function isPriorityPrompt(kinds: readonly string[] | undefined): boolean {
+  if (!kinds || kinds.length === 0) return false;
+  return kinds.some(k => {
+    const lk = k.toLowerCase();
+    return lk === 'pass' || lk.endsWith('passprioritycommand');
+  });
+}
+
 // ---------------------------------------------------------------------
 // Auto-pass guard.
 //

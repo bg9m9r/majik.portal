@@ -16,6 +16,7 @@ import { MatchService } from '../../core/match/match.service';
 import { SignalrService } from '../../core/signalr/signalr.service';
 import { AuthUserStore } from '../../core/auth/auth-user.store';
 import { GameStore } from '../../core/match/game.store';
+import { isPriorityPrompt } from '../../core/match/match-session';
 import { WaitingStateComponent } from './components/waiting-state.component';
 import { RollingStateComponent } from './components/rolling-state.component';
 import { PlayDrawPromptComponent } from './components/play-draw-prompt.component';
@@ -227,6 +228,17 @@ export class MatchPage implements OnInit, OnDestroy {
     const p = this.game.prompt();
     if (!p || !this.game.isMyTurnPrompt()) return null;
     return { expectedKinds: p.expectedKinds, description: p.description };
+  });
+
+  // True only when the engine is awaiting a priority decision FROM the
+  // viewer — i.e. a prompt addressed to me whose expectedKinds
+  // advertises PassPriorityCommand. Drives both the action-bar Pass
+  // button (via board.canPass) and the Space-to-pass keyboard shortcut,
+  // so neither fires during a target / surveil / yes-no / mulligan
+  // sub-prompt (which carry their own command kinds, not Pass).
+  readonly canPassPriority = computed<boolean>(() => {
+    const p = this.myPromptSummary();
+    return !!p && isPriorityPrompt(p.expectedKinds);
   });
 
   private rollSubmitted = false;
@@ -737,6 +749,7 @@ export class MatchPage implements OnInit, OnDestroy {
     }
     dispatchMatchKey(evt, {
       hasActionPrompt: () => !!this.myPromptSummary(),
+      canPass: () => this.canPassPriority(),
       hasPrompt: () => !!this.game.prompt(),
       isMyTurnPrompt: () => this.game.isMyTurnPrompt(),
       handCards: () => {
@@ -858,8 +871,14 @@ function formatBotDecisionToast(d: BotDecision): string {
  * spec can stub each method without spinning up the entire MatchPage.
  */
 export interface MatchKeyDeps {
-  /** True when an action-bar prompt is active (mirrors action-bar.canPass). */
+  /** True when an action-bar prompt is active (any prompt addressed to me). */
   hasActionPrompt(): boolean;
+  /**
+   * True only when the engine awaits a priority decision from the
+   * viewer (prompt for me advertising PassPriorityCommand). Gates the
+   * Space-to-pass shortcut so it mirrors the action-bar Pass button.
+   */
+  canPass(): boolean;
   /** True when ANY prompt is active (used for Escape cancellation). */
   hasPrompt(): boolean;
   /** True when the active prompt belongs to the viewer. */
@@ -898,7 +917,7 @@ export function dispatchMatchKey(evt: KeyboardEvent, deps: MatchKeyDeps): void {
   const key = evt.key;
 
   if (key === ' ' || key === 'Spacebar') {
-    if (deps.hasActionPrompt()) {
+    if (deps.canPass()) {
       evt.preventDefault();
       deps.pass();
     }

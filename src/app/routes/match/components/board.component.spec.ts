@@ -1106,3 +1106,74 @@ describe('BoardComponent — collapsed stack chip', () => {
     ).toBe('true');
   });
 });
+
+// Pass-priority button gate. match.ts forwards `currentPrompt` only
+// when a prompt is addressed to THIS viewer, so within the board a
+// non-null prompt already means "the engine awaits me". The Pass
+// button must be ENABLED only during a genuine priority window
+// (expectedKinds advertises PassPriorityCommand) and DISABLED for
+// non-priority sub-prompts (target/surveil/yes-no/etc.) and when no
+// prompt is pending.
+describe('BoardComponent — Pass-priority button gate', () => {
+  function mountWithPrompt(prompt: { expectedKinds?: string[]; description?: string } | null) {
+    const me = player({ id: 'me', name: 'Alice' });
+    const opp = player({ id: 'opp', name: 'Bob' });
+    const state: GameState = {
+      phase: 'PreCombatMain', turnNumber: 1, activePlayerId: 'me',
+      players: [me, opp], stack: [], youPlayerId: 'me',
+    };
+    TestBed.configureTestingModule({ imports: [BoardComponent] });
+    const fixture = TestBed.createComponent(BoardComponent);
+    const ref: ComponentRef<BoardComponent> = fixture.componentRef;
+    ref.setInput('state', state);
+    ref.setInput('selfPlayerIds', ['me']);
+    ref.setInput('currentPrompt', prompt);
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  function passButton(fixture: ReturnType<typeof mountWithPrompt>): HTMLButtonElement {
+    const buttons = Array.from(
+      fixture.nativeElement.querySelectorAll('button'),
+    ) as HTMLButtonElement[];
+    const btn = buttons.find(b => b.textContent?.includes('Pass priority'));
+    if (!btn) throw new Error('Pass priority button not found');
+    return btn;
+  }
+
+  it('ENABLED for a priority window [Pass, PlayLand, CastSpell]', () => {
+    const fixture = mountWithPrompt({
+      expectedKinds: ['PassPriorityCommand', 'PlayLandCommand', 'CastSpellCommand'],
+    });
+    expect(fixture.componentInstance.canPass()).toBe(true);
+    expect(passButton(fixture).disabled).toBe(false);
+  });
+
+  it('ENABLED for a pass-only priority prompt', () => {
+    const fixture = mountWithPrompt({ expectedKinds: ['PassPriorityCommand'] });
+    expect(fixture.componentInstance.canPass()).toBe(true);
+    expect(passButton(fixture).disabled).toBe(false);
+  });
+
+  it('DISABLED when no prompt is pending (opponent window / between turns / engine resolving)', () => {
+    const fixture = mountWithPrompt(null);
+    expect(fixture.componentInstance.canPass()).toBe(false);
+    expect(passButton(fixture).disabled).toBe(true);
+  });
+
+  it('DISABLED during a target sub-prompt (own UI; Pass is not the action)', () => {
+    const fixture = mountWithPrompt({ expectedKinds: ['ChooseTargetsCommand'] });
+    expect(fixture.componentInstance.canPass()).toBe(false);
+    expect(passButton(fixture).disabled).toBe(true);
+  });
+
+  it.each([
+    'ChooseSurveilCommand',
+    'ChooseYesNoCommand',
+    'MulliganCommand',
+  ])('DISABLED during a %s sub-prompt', (kind) => {
+    const fixture = mountWithPrompt({ expectedKinds: [kind] });
+    expect(fixture.componentInstance.canPass()).toBe(false);
+    expect(passButton(fixture).disabled).toBe(true);
+  });
+});

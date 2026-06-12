@@ -32,6 +32,7 @@ function card(id: string): CardSnapshot {
 function makeDeps(overrides: Partial<MatchKeyDeps> = {}): MatchKeyDeps {
   return {
     hasActionPrompt: () => true,
+    canPass: () => true,
     hasPrompt: () => true,
     isMyTurnPrompt: () => true,
     handCards: () => [],
@@ -53,7 +54,7 @@ function ev(key: string, init: KeyboardEventInit = {}, code = ''): KeyboardEvent
 }
 
 describe('dispatchMatchKey — match-page keyboard shortcuts', () => {
-  it('Space passes priority when an action prompt is active', () => {
+  it('Space passes priority when a priority window is active', () => {
     const pass = vi.fn();
     const e = ev(' ');
     const preventSpy = vi.spyOn(e, 'preventDefault');
@@ -62,11 +63,23 @@ describe('dispatchMatchKey — match-page keyboard shortcuts', () => {
     expect(preventSpy).toHaveBeenCalled();
   });
 
-  it('Space is a no-op when no action prompt is active', () => {
+  it('Space is a no-op when no priority window is active', () => {
     const pass = vi.fn();
     const e = ev(' ');
     const preventSpy = vi.spyOn(e, 'preventDefault');
-    dispatchMatchKey(e, makeDeps({ pass, hasActionPrompt: () => false }));
+    dispatchMatchKey(e, makeDeps({ pass, canPass: () => false }));
+    expect(pass).not.toHaveBeenCalled();
+    expect(preventSpy).not.toHaveBeenCalled();
+  });
+
+  it('Space does NOT pass during a non-priority sub-prompt (canPass false even though a prompt is active)', () => {
+    // A target / surveil / yes-no prompt is addressed to me
+    // (hasActionPrompt true) but is not a priority window
+    // (canPass false). Space must not fire a Pass.
+    const pass = vi.fn();
+    const e = ev(' ');
+    const preventSpy = vi.spyOn(e, 'preventDefault');
+    dispatchMatchKey(e, makeDeps({ pass, hasActionPrompt: () => true, canPass: () => false }));
     expect(pass).not.toHaveBeenCalled();
     expect(preventSpy).not.toHaveBeenCalled();
   });
