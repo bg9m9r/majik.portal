@@ -78,24 +78,26 @@ export interface ActivatableAbility {
             </button>
           </li>
         }
-        <li role="none">
-          <button
-            type="button"
-            role="menuitem"
-            class="block w-full px-3 py-1.5 text-left hover:bg-white/10 focus:bg-white/10 focus:outline-none"
-            (click)="emit('details')">
-            View details
-          </button>
-        </li>
-        <li role="none">
-          <button
-            type="button"
-            role="menuitem"
-            class="block w-full px-3 py-1.5 text-left hover:bg-white/10 focus:bg-white/10 focus:outline-none"
-            (click)="emit('scryfall')">
-            Open on Scryfall
-          </button>
-        </li>
+        @if (!abilitiesOnly()) {
+          <li role="none">
+            <button
+              type="button"
+              role="menuitem"
+              class="block w-full px-3 py-1.5 text-left hover:bg-white/10 focus:bg-white/10 focus:outline-none"
+              (click)="emit('details')">
+              View details
+            </button>
+          </li>
+          <li role="none">
+            <button
+              type="button"
+              role="menuitem"
+              class="block w-full px-3 py-1.5 text-left hover:bg-white/10 focus:bg-white/10 focus:outline-none"
+              (click)="emit('scryfall')">
+              Open on Scryfall
+            </button>
+          </li>
+        }
       </ul>
     }
   `,
@@ -118,6 +120,14 @@ export class CardContextMenuComponent {
    * permanents. Empty array hides the Activate entries entirely.
    */
   readonly activatableAbilities = input<ActivatableAbility[]>([]);
+  /**
+   * When true the menu renders ONLY the ability list (no Tap, no View
+   * details, no Open on Scryfall) — a focused "pick an ability" dropdown.
+   * Used by the double-click-a-planeswalker → loyalty-ability picker, which
+   * reuses this same overlay but wants just the (+N / −N) choices. Defaults
+   * to false so the right-click context menu keeps its full action set.
+   */
+  readonly abilitiesOnly = input<boolean>(false);
 
   readonly closed = output<void>();
   readonly action = output<CardContextMenuAction>();
