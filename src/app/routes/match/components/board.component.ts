@@ -37,6 +37,7 @@ import { bucketBattlefield, BattlefieldBuckets } from './bucket-battlefield';
 import { ZoneRailComponent } from './zone-rail.component';
 import { ZoneModalComponent } from './zone-modal.component';
 import { ZoneKind } from './zone-pile.component';
+import { GameLogComponent } from './game-log.component';
 
 /**
  * A `StackItem` enriched with display flags the template + the
@@ -67,6 +68,7 @@ export interface StackItemView extends StackItem {
     CdkDragPlaceholder,
     ZoneRailComponent,
     ZoneModalComponent,
+    GameLogComponent,
   ],
   // ----------------------------------------------------------------
   // Host display.
@@ -539,6 +541,15 @@ export interface StackItemView extends StackItem {
               }
             </svg>
           }
+
+          <!--
+            Full-game action log — collapsible right-edge drawer overlaying
+            the board (closed by default). Reuses the SignalR event stream
+            via GameStore.logEntries(); passing priority is never logged.
+          -->
+          <app-game-log
+            [entries]="logEntries()"
+            [selfIds]="selfPlayerIds()" />
         </div>
 
         <!--
@@ -931,6 +942,10 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
     // sees a fresh string even on repeat content.
     return seq % 2 === 0 ? text : text + ' ';
   });
+
+  // Full-game action log feed for the right-edge drawer. Public alias of
+  // the store signal so the template can bind it (gameStore is private).
+  readonly logEntries = this.gameStore.logEntries;
 
   @ViewChild('boardGrid') private boardGridEl?: ElementRef<HTMLElement>;
 
