@@ -474,6 +474,17 @@ describe('patchGameState', () => {
     });
   });
 
+  describe('ContinuousEffect add/remove (log-only)', () => {
+    it('treats ContinuousEffect add/remove as handled no-ops (no refetch)', () => {
+      const s = baseState();
+      // Log-only events: consumed by describeEvent, no snapshot delta.
+      // Returns the same state object so applyEvent reports success and
+      // does NOT trigger a /state refetch on every layer mutation.
+      expect(patchGameState(s, evt('ContinuousEffectAddedEvent', {}))).toBe(s);
+      expect(patchGameState(s, evt('ContinuousEffectRemovedEvent', {}))).toBe(s);
+    });
+  });
+
   describe('deferred / unknown events', () => {
     it('returns null for any unknown event type', () => {
       const next = patchGameState(baseState(), evt('SomethingNobodyImplementedYet', {}));

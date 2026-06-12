@@ -26,6 +26,10 @@
 //   * CardDrawnEvent — no-op (the engine emits CardMovedEvent first to
 //     describe the Library → Hand transition; CardDrawn is treated as a
 //     redundant signal). Returns `state` so the caller doesn't refetch.
+//   * ContinuousEffectAddedEvent / ContinuousEffectRemovedEvent — log-only
+//     events (CR 613 layer add/remove) consumed by describeEvent for the
+//     action log. No snapshot delta, so they return `state` unchanged to
+//     avoid a /state refetch storm on every layer mutation.
 //
 // Deferred to refetch: *EndedEvent, ExtraPhaseAddedEvent,
 // GameStartedEvent, GameStateChangedEvent (game-lifecycle channel —
@@ -87,6 +91,12 @@ export function patchGameState(state: GameState, evt: NormalisedEventDto): Patch
       // CardMovedEvent already described the Library → Hand transition.
       // CardDrawn carries no new state delta — return current state so
       // the caller treats it as a successful patch (no refetch).
+      return state;
+    case 'ContinuousEffectAddedEvent':
+    case 'ContinuousEffectRemovedEvent':
+      // Log-only events (consumed by describeEvent). No snapshot delta —
+      // return state unchanged so applyEvent reports success and does NOT
+      // trigger a /state refetch on every layer mutation.
       return state;
     default:
       // Unknown / deferred type — caller refetches the snapshot.
