@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 140" preserveAspectRatio="xMidYMid slice" role="img" aria-label="card back">
+  <defs>
+    <linearGradient id="cb" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2b3450"/>
+      <stop offset="1" stop-color="#161b2c"/>
+    </linearGradient>
+    <linearGradient id="glow" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6b7bb0" stop-opacity="0.4"/>
+      <stop offset="1" stop-color="#4a5680" stop-opacity="0.1"/>
+    </linearGradient>
+  </defs>
+  <!-- Card body -->
+  <rect width="100" height="140" rx="7" fill="url(#cb)"/>
+  <!-- Outer border frame -->
+  <rect x="4" y="4" width="92" height="132" rx="5" fill="none" stroke="#4a5680" stroke-width="1.5" opacity="0.7"/>
+  <!-- Inner border frame -->
+  <rect x="8" y="8" width="84" height="124" rx="3" fill="none" stroke="#3a4570" stroke-width="0.75" opacity="0.5"/>
+  <!-- Decorative diamond lattice -->
+  <g fill="none" stroke="#4a5680" stroke-width="0.6" opacity="0.4">
+    <line x1="50" y1="12" x2="88" y2="70"/>
+    <line x1="50" y1="12" x2="12" y2="70"/>
+    <line x1="88" y1="70" x2="50" y2="128"/>
+    <line x1="12" y1="70" x2="50" y2="128"/>
+    <line x1="12" y1="70" x2="50" y2="40"/>
+    <line x1="88" y1="70" x2="50" y2="40"/>
+    <line x1="50" y1="100" x2="12" y2="70"/>
+    <line x1="50" y1="100" x2="88" y2="70"/>
+  </g>
+  <!-- Central emblem: circle with diamond -->
+  <g fill="none" stroke="#6b7bb0" stroke-width="1.8" opacity="0.85">
+    <circle cx="50" cy="70" r="22"/>
+    <path d="M50 50 L62 70 L50 90 L38 70 Z"/>
+  </g>
+  <!-- Inner diamond highlight -->
+  <g fill="none" stroke="#8b9ad0" stroke-width="0.8" opacity="0.6">
+    <path d="M50 58 L57 70 L50 82 L43 70 Z"/>
+  </g>
+  <!-- Center dot -->
+  <circle cx="50" cy="70" r="3" fill="#6b7bb0" opacity="0.7"/>
+  <!-- Brand text -->
+  <text x="50" y="124" text-anchor="middle" font-family="serif" font-size="9" fill="#8b9ad0" opacity="0.8" letter-spacing="2">MAJIK</text>
+</svg>
