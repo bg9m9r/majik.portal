@@ -600,6 +600,12 @@ export class MatchPage implements OnInit, OnDestroy {
 
   async onPass(): Promise<void> {
     await this.send({ $type: 'pass' });
+    // Clear the local prompt right after sending (mirrors onPromptDecision /
+    // onPromptCancel). Without this the stale GameStore.prompt keeps
+    // isMyTurnPrompt() true, so the Pass button + Space shortcut stay enabled
+    // and the viewer could fire a SECOND pass off-priority. If the engine
+    // still wants the viewer it re-arrives on the next prompt$ message.
+    this.game.clearPrompt();
   }
 
   // Concede — hits the existing REST endpoint. Engine emits the

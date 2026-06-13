@@ -543,8 +543,10 @@ export interface StackItemView extends StackItem {
           }
 
           <!--
-            Full-game action log — collapsible right-edge drawer overlaying
-            the board (closed by default). Reuses the SignalR event stream
+            Full-game action log — collapsible left-edge drawer overlaying
+            the board (closed by default; anchored left so it never collides
+            with the right-anchored stack chip / zone rail). Reuses the
+            SignalR event stream
             via GameStore.logEntries(); passing priority is never logged.
           -->
           <app-game-log

@@ -1,7 +1,7 @@
 import { Component, ElementRef, effect, input, signal, viewChild } from '@angular/core';
 import { LogLine } from '../../../core/match/log.types';
 
-// Collapsible right-edge action-log drawer. Closed by default; the tab
+// Collapsible left-edge action-log drawer. Closed by default; the tab
 // toggles it open. Rows are color-coded by actor (self / foe) and
 // turn/phase "meta" lines are dimmed. Auto-scrolls to the newest entry
 // while open. Bound by the board to GameStore.logEntries() +
@@ -13,7 +13,7 @@ import { LogLine } from '../../../core/match/log.types';
     <div class="game-log" [class.game-log--open]="open()">
       <button type="button" class="game-log__tab" (click)="toggle()"
               [attr.aria-expanded]="open()" aria-label="Toggle action log">
-        {{ open() ? '›' : '‹' }} Log
+        {{ open() ? '‹' : '›' }} Log
       </button>
       @if (open()) {
         <div #scroll class="game-log__scroll" role="log" aria-live="off">

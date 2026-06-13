@@ -83,8 +83,9 @@
 
 // Backline — two columns. Lands LEFT, utility (artifacts / enchants /
 // planeswalkers) RIGHT. Same LR for both players — only the vertical
-// axis flips. Each column scrolls vertically when a heavy board
-// overflows instead of bursting past the rim.
+// axis flips. Each column is a SINGLE horizontal row that scrolls
+// horizontally on overflow (mirrors .frontline) — nothing ever scrolls
+// vertically inside the rim.
 .backline {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -95,11 +96,12 @@
   &__lands,
   &__utility {
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     align-items: center;
     gap: var(--majik-space-2);
     min-height: 0;
-    overflow-y: auto;
+    overflow-x: auto;
+    overflow-y: hidden;
     padding: var(--majik-space-1);
     border-radius: var(--majik-radius-panel);
     border: 1px dashed transparent; // hover-affordance slot
@@ -1247,10 +1249,13 @@
 // closed by default. The wrapper is pointer-events:none so it never
 // steals board clicks; the tab + scroll panel re-enable pointers.
 // =============================================================
+// Anchored to the LEFT edge of the board arena so the tab + open panel
+// never collide with the right-anchored .stack-chip / .zone-rail. Tab
+// sits at the left edge (protruding right), panel slides in rightward.
 .game-log {
   position: absolute;
   top: 0;
-  right: 0;
+  left: 0;
   height: 100%;
   display: flex;
   align-items: flex-start;
@@ -1264,7 +1269,7 @@
   margin-top: var(--majik-space-2);
   background: rgba(0, 0, 0, 0.55);
   border: 1px solid var(--majik-line-faint);
-  border-radius: var(--majik-radius-panel) 0 0 var(--majik-radius-panel);
+  border-radius: 0 var(--majik-radius-panel) var(--majik-radius-panel) 0;
   font-size: 11px;
   cursor: pointer;
 }
@@ -1275,7 +1280,7 @@
   overflow-y: auto;
   padding: var(--majik-space-2);
   background: rgba(0, 0, 0, 0.72);
-  border-left: 1px solid var(--majik-line-faint);
+  border-right: 1px solid var(--majik-line-faint);
   font-size: 11px;
   display: flex;
   flex-direction: column;
