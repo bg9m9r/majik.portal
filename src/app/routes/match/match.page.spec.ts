@@ -216,6 +216,20 @@ describe('MatchPage — resilience wiring', () => {
     expect(toast.current()?.message).toContain('concede');
   });
 
+  // --- onPass clears the local prompt so a second off-priority pass
+  //     can't fire before the next server prompt arrives (regression). ---
+  it('onPass sends a pass command AND clears the local prompt immediately', async () => {
+    const page = init();
+    await page.onPass();
+    // The pass command was submitted...
+    expect(matchSvc.submitCommand).toHaveBeenCalledWith('m-1', { $type: 'pass' });
+    // ...and the local prompt was cleared right after, so isMyTurnPrompt()
+    // flips false and the Pass button + Space shortcut disable until a new
+    // prompt$ message re-arrives. Without this clear the viewer could fire a
+    // second pass off-priority.
+    expect(game.clearPrompt).toHaveBeenCalledTimes(1);
+  });
+
   // --- "state" channel feeds GameStore (INITIAL join only) ----------
 
   it('the FIRST "state" channel snapshot seeds GameStore.setState (initial join)', async () => {
