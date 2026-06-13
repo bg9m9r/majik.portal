@@ -76,8 +76,11 @@
   // (plain `center` would clip + strand them).
   justify-content: safe center;
   gap: var(--majik-space-2);
-  flex: 1 1 0;
-  min-height: 0;
+  // One card tall (+ the row's own vertical padding). Locked so the row
+  // never shrinks below the card height and clips an untapped
+  // (full-height) card. A dense row still scrolls horizontally.
+  flex: 0 0 auto;
+  min-height: calc(var(--majik-card-h) + var(--majik-space-1) * 2);
   padding: var(--majik-space-1) var(--majik-space-1);
 }
 
@@ -90,8 +93,9 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--majik-space-2);
-  flex: 1 1 0;
-  min-height: 0;
+  // Height driven by its columns (each one card tall); never shrinks
+  // below a card and clips.
+  flex: 0 0 auto;
 
   &__lands,
   &__utility {
@@ -99,7 +103,7 @@
     flex-wrap: nowrap;
     align-items: center;
     gap: var(--majik-space-2);
-    min-height: 0;
+    min-height: var(--majik-card-h);
     overflow-x: auto;
     overflow-y: hidden;
     padding: var(--majik-space-1);
