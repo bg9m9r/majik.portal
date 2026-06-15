@@ -34,15 +34,15 @@
     "@angular/build": "^21.2.13",
     "@angular/cli": "^21.2.13",
     "@angular/compiler-cli": "^21.2.15",
-    "@playwright/test": "^1.60.0",
-    "@tailwindcss/postcss": "^4.3.0",
+    "@playwright/test": "^1.61.0",
+    "@tailwindcss/postcss": "^4.3.1",
     "autoprefixer": "^10.5.0",
     "jsdom": "^29.1.1",
     "ng-openapi-gen": "^1.0.5",
     "postcss": "^8.5.15",
-    "prettier": "^3.8.1",
+    "prettier": "^3.8.4",
     "tailwindcss": "^4.3.0",
     "typescript": "~5.9.2",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.9"
   }
 }
