@@ -3,7 +3,7 @@ import { signal } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { Subject } from 'rxjs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MatchPage } from './match';
+import { MatchPage, boardInstanceIds } from './match';
 import { MatchService } from '../../core/match/match.service';
 import { SignalrService, ConnectionState } from '../../core/signalr/signalr.service';
 import { GameStore } from '../../core/match/game.store';
@@ -442,5 +442,18 @@ describe('MatchPage — resilience wiring', () => {
     await vi.runOnlyPendingTimersAsync();
 
     expect(matchSvc.updateAutoPassPrefs.mock.calls.length).toBe(afterInitCount);
+  });
+});
+
+describe('boardInstanceIds', () => {
+  it('includes player ids', () => {
+    const state = { players: [
+      { id: 'pA', battlefield: { cards: [{ instanceId: 'c1' }] }, hand: { cards: [] } },
+      { id: 'pB', battlefield: { cards: [] }, hand: { cards: [] } },
+    ] } as never;
+    const ids = boardInstanceIds(state);
+    expect(ids.has('pA')).toBe(true);
+    expect(ids.has('pB')).toBe(true);
+    expect(ids.has('c1')).toBe(true);
   });
 });

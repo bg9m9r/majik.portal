@@ -526,6 +526,14 @@ export class MatchPage implements OnInit, OnDestroy {
             min: Number(dto.choiceView.min),
             max: Number(dto.choiceView.max),
           },
+          // Targeting overhaul — players offered as legal targets (Lightning
+          // Bolt to the face). The gen widens int life to number | string,
+          // so coerce. The board merges these ids into the selectable space.
+          playerCandidates: (dto.playerCandidates ?? undefined)?.map(pc => ({
+            id: pc.id,
+            name: pc.name,
+            life: Number(pc.life),
+          })),
         };
         this.game.setPrompt(envelope);
       });
@@ -1039,6 +1047,7 @@ export function dispatchMatchKey(evt: KeyboardEvent, deps: MatchKeyDeps): void {
 export function boardInstanceIds(state: GameState | null): Set<string> {
   const ids = new Set<string>();
   for (const p of state?.players ?? []) {
+    ids.add(p.id); // players are always board-locatable (HUD on screen)
     for (const c of p.battlefield?.cards ?? []) ids.add(c.instanceId);
     for (const c of p.hand?.cards ?? []) ids.add(c.instanceId);
   }

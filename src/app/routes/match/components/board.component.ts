@@ -267,6 +267,10 @@ export interface StackItemView extends StackItem {
                 class="arena-strip__hud"
                 [player]="opponent()"
                 [active]="opponent()?.id === s.activePlayerId"
+                [targetable]="isTargetable(opponent()?.id ?? '')"
+                [dimmed]="isDimmed(opponent()?.id ?? '')"
+                [selectedForTarget]="isSelectedForTarget(opponent()?.id ?? '')"
+                (click)="onPlayerHudClick(opponent()!)"
                 side="opponent"
                 label="opponent" />
               <app-mana-pool-row class="arena-strip__mana" [player]="opponent()" />
@@ -493,6 +497,10 @@ export interface StackItemView extends StackItem {
                 class="arena-strip__hud"
                 [player]="self()"
                 [active]="self()?.id === s.activePlayerId"
+                [targetable]="isTargetable(self()?.id ?? '')"
+                [dimmed]="isDimmed(self()?.id ?? '')"
+                [selectedForTarget]="isSelectedForTarget(self()?.id ?? '')"
+                (click)="onPlayerHudClick(self()!)"
                 side="self"
                 label="you" />
               <app-mana-pool-row class="arena-strip__mana" [player]="self()" />
@@ -883,6 +891,21 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
       }
       return;
     }
+  }
+
+  /**
+   * A player's HUD was clicked while a targets selection is active —
+   * Lightning Bolt to the face. Mirrors onBoardCardClick's targets arm:
+   * the player id rides in the SAME selection set and emits the SAME
+   * { kind: 'targets', targetInstanceIds } decision (no new decision type).
+   */
+  onPlayerHudClick(player: { id: string } | null | undefined): void {
+    if (!player) return;
+    const m = this.selection.mode();
+    if (!m || m.kind !== 'targets') return;
+    if (!m.candidateIds.has(player.id)) return; // illegal target — ignore
+    this.selection.toggle(player.id);
+    this.maybeAutoSubmit(m);
   }
 
   private maybeAutoSubmit(m: SelectionMode): void {

@@ -61,10 +61,14 @@ export class SelectionService {
 
     if (kind === 'targets' || kind === 'choice') {
       // Targets/choice need a board-locatable candidate pool. No pool, or a
-      // candidate that isn't on the board → modal fallback.
-      const cands = p.candidates;
-      if (!cands || cands.length === 0) return null;
-      const ids = cands.map(c => c.instanceId);
+      // candidate that isn't on the board → modal fallback. Targets also
+      // admit player candidates (Lightning Bolt to the face) — their ids are
+      // unioned into the pool and the HUD is board-locatable. Player targets
+      // are a targeting concept only, so 'choice' never absorbs them.
+      const cardIds = (p.candidates ?? []).map(c => c.instanceId);
+      const playerIds = kind === 'targets' ? (p.playerCandidates ?? []).map(pc => pc.id) : [];
+      const ids = [...cardIds, ...playerIds];
+      if (ids.length === 0) return null;
       const board = this._boardIds();
       if (!ids.every(id => board.has(id))) return null; // mixed-zone → modal
       const { min, max } = this.bounds(kind, p);

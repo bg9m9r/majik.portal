@@ -1725,6 +1725,34 @@ describe('BoardComponent — on-board target/choice selection', () => {
     expect(component.isSelectedForTarget('z')).toBe(true);
     expect(component.isDimmed('z')).toBe(false);
   });
+
+  it('auto-submits a single player target when the HUD is clicked', () => {
+    const me = player({ id: 'me', name: 'Me' });
+    const foe = player({ id: 'foe', name: 'Foe' });
+    const { component, svc } = mountBoardSel(selState([me, foe]), ['me']);
+    const emitted: unknown[] = [];
+    component.boardDecision.subscribe(d => emitted.push(d));
+
+    svc.setBoardInstanceIds(new Set(['foe']));
+    svc.setPrompt({ gameId: 'g', playerId: 'me', expectedKinds: ['ChooseTargetsCommand'], candidates: [], playerCandidates: [{ id: 'foe', name: 'Foe', life: 20 }], label: 'Bolt' } as PromptEnvelope);
+
+    component.onPlayerHudClick({ id: 'foe' });
+    expect(emitted).toEqual([{ kind: 'targets', targetInstanceIds: ['foe'] }]);
+  });
+
+  it('ignores a HUD click on a non-candidate player', () => {
+    const me = player({ id: 'me', name: 'Me' });
+    const foe = player({ id: 'foe', name: 'Foe' });
+    const { component, svc } = mountBoardSel(selState([me, foe]), ['me']);
+    const emitted: unknown[] = [];
+    component.boardDecision.subscribe(d => emitted.push(d));
+
+    svc.setBoardInstanceIds(new Set(['foe']));
+    svc.setPrompt({ gameId: 'g', playerId: 'me', expectedKinds: ['ChooseTargetsCommand'], candidates: [], playerCandidates: [{ id: 'foe', name: 'Foe', life: 20 }] } as PromptEnvelope);
+
+    component.onPlayerHudClick({ id: 'me' }); // self is not a candidate here
+    expect(emitted).toEqual([]);
+  });
 });
 
 describe('BoardComponent — on-board attacker declaration', () => {

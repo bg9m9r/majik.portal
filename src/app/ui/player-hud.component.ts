@@ -25,6 +25,31 @@ function manaColorsIn(cost: string | undefined | null): Set<string> {
 @Component({
   selector: 'app-player-hud',
   standalone: true,
+  // On-board click-to-select affordance for player targets (Lightning Bolt
+  // to the face). Co-located here (NOT board.scss) so the jsdom unit env
+  // loads them for the affordance specs. Mirrors card-view.component.ts
+  // verbatim so a targetable HUD and a targetable card read identically.
+  //   data-targetable — legal candidate: accent outline + glow + pointer.
+  //   data-dimmed      — illegal object: muted, non-interactive.
+  //   data-selected    — chosen: filled accent border + stronger glow.
+  styles: [`
+    .player-hud[data-targetable='true'] {
+      outline: 2px solid var(--majik-accent, #fbbf24);
+      outline-offset: 1px;
+      box-shadow: 0 0 10px 1px rgba(251, 191, 36, 0.55);
+      cursor: pointer;
+    }
+    .player-hud[data-dimmed='true'] {
+      opacity: 0.4;
+      pointer-events: none;
+      filter: grayscale(0.4);
+    }
+    .player-hud[data-selected='true'] {
+      outline: 3px solid var(--majik-accent, #fbbf24);
+      outline-offset: 1px;
+      box-shadow: 0 0 14px 2px rgba(251, 191, 36, 0.85);
+    }
+  `],
   template: `
     @if (player(); as p) {
       <div
@@ -32,6 +57,10 @@ function manaColorsIn(cost: string | undefined | null): Set<string> {
         [class.player-hud--self]="side() === 'self'"
         [class.player-hud--foe]="side() === 'opponent'"
         [class.player-hud--active]="active()"
+        [attr.data-player-id]="p.id"
+        [attr.data-targetable]="targetable() ? 'true' : null"
+        [attr.data-dimmed]="dimmed() ? 'true' : null"
+        [attr.data-selected]="selectedForTarget() ? 'true' : null"
         [attr.aria-label]="label() + ' ' + p.name + ' life ' + p.life"
         aria-live="polite">
         <!-- Deck-color identity strip — derived from the union of all
@@ -99,6 +128,14 @@ export class PlayerHudComponent {
   readonly active = input<boolean>(false);
   readonly label = input<string>('player');
   readonly side = input<HudSide>('self');
+
+  // On-board target affordance, mirroring card-view.component.ts:
+  //   targetable        — legal candidate (highlight + clickable).
+  //   dimmed            — illegal object (muted, non-interactive).
+  //   selectedForTarget — currently chosen (accent border).
+  readonly targetable = input<boolean>(false);
+  readonly dimmed = input<boolean>(false);
+  readonly selectedForTarget = input<boolean>(false);
 
   // Drives the .life-flash-* class. Reset to null after the keyframe
   // duration so a follow-up change in the same direction re-triggers.
