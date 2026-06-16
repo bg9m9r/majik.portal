@@ -1758,3 +1758,32 @@ describe('BoardComponent — on-board attacker declaration', () => {
     expect(svc.selected()).toEqual([]);
   });
 });
+
+describe('BoardComponent — on-board blocker pairing', () => {
+  it('pairs a blocker to an attacker via two clicks and relays the live line', () => {
+    const blk = creature('blk');                       // own untapped (sick OK)
+    const atk = creature('atk', { tapped: true });     // enemy attacker (tapped)
+    const me = player({ id: 'me', name: 'Me', battlefield: { cards: [blk] } });
+    const foe = player({ id: 'foe', name: 'Foe', battlefield: { cards: [atk] } });
+    const { component, svc } = mountBoardSel(selState([me, foe], 'foe'), ['me']);
+    const lines: unknown[] = [];
+    component.assignmentsChanged.subscribe(l => lines.push(l));
+
+    svc.setPrompt({ gameId: 'g', playerId: 'me', expectedKinds: ['DeclareBlockersCommand'], label: 'Declare blockers' } as PromptEnvelope);
+
+    component.onBoardCardClick(blk);  // pick blocker
+    expect(svc.pendingBlocker()).toBe('blk');
+    component.onBoardCardClick(atk);  // assign to attacker
+    expect(svc.blockPairs()).toEqual([{ blockerInstanceId: 'blk', attackerInstanceId: 'atk' }]);
+    expect(svc.pendingBlocker()).toBeNull();
+    expect(lines.at(-1)).toEqual({ kind: 'blockers', blockers: [{ blockerInstanceId: 'blk', attackerInstanceId: 'atk' }] });
+  });
+
+  it('allows a summoning-sick own creature to block', () => {
+    const blk = creature('blk', { summoningSickness: true });
+    const me = player({ id: 'me', name: 'Me', battlefield: { cards: [blk] } });
+    const { component, svc } = mountBoardSel(selState([me]), ['me']);
+    svc.setPrompt({ gameId: 'g', playerId: 'me', expectedKinds: ['DeclareBlockersCommand'] } as PromptEnvelope);
+    expect(component.isTargetable('blk')).toBe(true);
+  });
+});

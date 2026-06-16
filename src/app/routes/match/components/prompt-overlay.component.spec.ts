@@ -1733,3 +1733,22 @@ describe('PromptOverlayComponent — on-board combat confirm', () => {
     expect(captured).toEqual([{ kind: 'attackers', attackers: [] }]);
   });
 });
+
+describe('PromptOverlayComponent — on-board blocker confirm', () => {
+  it('confirmBoardBlockers emits the wire DeclareBlockers shape from shared pairs', () => {
+    const blk = card({ instanceId: 'blk', name: 'Wall' });
+    const atk = card({ instanceId: 'atk', name: 'Ogre', tapped: true });
+    const me = player({ id: 'me', name: 'Alice', battlefield: { cards: [blk] } });
+    const foe = player({ id: 'foe', name: 'Bob', battlefield: { cards: [atk] } });
+    const state: GameState = { phase: 'DeclareBlockers', turnNumber: 1, activePlayerId: 'foe', players: [me, foe], stack: [], youPlayerId: null };
+
+    const { component, selection } = mountOverlay(state, ['DeclareBlockersCommand'], ['me']);
+    selection.setPrompt({ gameId: 'g', playerId: 'me', expectedKinds: ['DeclareBlockersCommand'] } as PromptEnvelope);
+    selection.addBlockPair('blk', 'atk');
+
+    const captured: PromptDecision[] = [];
+    component.decision.subscribe(d => captured.push(d));
+    component.confirmBoardBlockers();
+    expect(captured).toEqual([{ kind: 'blockers', blockers: [{ blockerInstanceId: 'blk', attackerInstanceId: 'atk' }] }]);
+  });
+});
