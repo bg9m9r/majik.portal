@@ -68,7 +68,11 @@
   display: flex;
   flex-wrap: nowrap;
   overflow-x: auto;
-  overflow-y: hidden;
+  // Cut-off fix: a row shorter than a card must SCROLL, not clip. Mirrored
+  // in board.component.ts's co-located styles[] so the overflow assertion
+  // in board.component.spec.ts can read it in jsdom (board.scss is not
+  // loaded in the unit-test env). Keep both in sync.
+  overflow-y: auto;
   align-items: center;
   // Start centered; new permanents append on the right, sliding the group
   // left as it grows. `safe` falls back to flex-start once the row overflows
@@ -84,8 +88,8 @@
 // Backline — two columns. Lands LEFT, utility (artifacts / enchants /
 // planeswalkers) RIGHT. Same LR for both players — only the vertical
 // axis flips. Each column is a SINGLE horizontal row that scrolls
-// horizontally on overflow (mirrors .frontline) — nothing ever scrolls
-// vertically inside the rim.
+// horizontally on overflow (mirrors .frontline); a too-short row also
+// scrolls vertically (overflow-y: auto) rather than clipping cards.
 .backline {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -101,7 +105,9 @@
     gap: var(--majik-space-2);
     min-height: 0;
     overflow-x: auto;
-    overflow-y: hidden;
+    // Cut-off fix: scroll rather than clip (mirrored in board.component.ts
+    // co-located styles[] for the jsdom overflow assertion — keep in sync).
+    overflow-y: auto;
     padding: var(--majik-space-1);
     border-radius: var(--majik-radius-panel);
     border: 1px dashed transparent; // hover-affordance slot

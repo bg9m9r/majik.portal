@@ -1033,6 +1033,14 @@ describe('BoardComponent — zoned battlefield layout', () => {
     component.onSelfBattlefieldDoubleClick(creature);
     expect(activateManaSpy).toHaveBeenCalledWith({ card: creature, color: 'G' });
   });
+
+  it('battlefield rows scroll (overflow-y:auto) rather than clipping cards', () => {
+    const { fixture } = mountBoardWithBattlefields([], []);
+    const front = fixture.nativeElement.querySelector('.arena-side--self .frontline') as HTMLElement;
+    const lands = fixture.nativeElement.querySelector('.arena-side--self .backline__lands') as HTMLElement;
+    expect(window.getComputedStyle(front).overflowY).toBe('auto');
+    expect(window.getComputedStyle(lands).overflowY).toBe('auto');
+  });
 });
 
 // ---------------------------------------------------------------------------

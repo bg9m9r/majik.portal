@@ -138,6 +138,15 @@ export interface StackItemView extends StackItem {
       overflow-x: auto;
       overflow-y: hidden;
     }
+    // Cut-off fix: battlefield card rows scroll rather than clip. Mirrors
+    // the overflow-y:auto in board.scss (.frontline / .backline__lands /
+    // .backline__utility) — co-located here because global board.scss is
+    // not loaded in the jsdom unit-test env. Keep both in sync.
+    .frontline,
+    .backline__lands,
+    .backline__utility {
+      overflow-y: auto;
+    }
   `],
   // Layout overview (Arena-style, zoned battlefield):
   //
