@@ -90,4 +90,35 @@ describe('SelectionService', () => {
     svc.setPrompt(prompt({ expectedKinds: ['ChooseTargetsCommand'], candidates: [{ instanceId: 'a' } as never] }));
     expect(svc.selected()).toEqual([]); // reset on prompt change
   });
+
+  it('drops a selected id that is no longer a candidate when the prompt updates', () => {
+    svc.setBoardInstanceIds(new Set(['a', 'b']));
+    svc.setPrompt(prompt({ expectedKinds: ['ChooseTargetsCommand'], candidates: [{ instanceId: 'a' } as never, { instanceId: 'b' } as never] }));
+    svc.toggle('a');
+    // Re-prompt without 'a' as a candidate → the full selection resets.
+    svc.setPrompt(prompt({ expectedKinds: ['ChooseTargetsCommand'], candidates: [{ instanceId: 'b' } as never] }));
+    expect(svc.selected()).toEqual([]);
+  });
+
+  it('treats an optional (min 0) choice as declinable with an empty set', () => {
+    svc.setBoardInstanceIds(new Set(['a']));
+    svc.setPrompt(prompt({
+      expectedKinds: ['ChoiceCommand'],
+      candidates: [{ instanceId: 'a' } as never],
+      choiceView: { kind: 'PickN', min: 0, max: 1 },
+    }));
+    const m = svc.mode();
+    expect(m?.min).toBe(0);
+    expect(svc.selected()).toEqual([]); // Done at 0 = decline (empty set)
+  });
+
+  it('resets combat pairs and pending blocker when the prompt changes', () => {
+    svc.setPrompt(prompt({ expectedKinds: ['DeclareBlockersCommand'] }));
+    svc.setPendingBlocker('blk');
+    svc.addBlockPair('blk', 'atk');
+    expect(svc.blockPairs()).toEqual([{ blockerInstanceId: 'blk', attackerInstanceId: 'atk' }]);
+    svc.setPrompt(prompt({ expectedKinds: ['DeclareBlockersCommand'] }));
+    expect(svc.blockPairs()).toEqual([]);
+    expect(svc.pendingBlocker()).toBeNull();
+  });
 });
