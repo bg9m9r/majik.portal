@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { ComponentRef } from '@angular/core';
-import { PromptOverlayComponent, PromptDecision } from './prompt-overlay.component';
+import { PromptOverlayComponent, PromptDecision, detectKind } from './prompt-overlay.component';
 import {
   CardSnapshot,
   GamePlayer,
@@ -66,6 +66,11 @@ function mountOverlay(
       label: string;
     };
     bottomCount?: number;
+    choiceView?: {
+      kind: string;
+      min: number;
+      max: number;
+    };
   } = {},
 ) {
   TestBed.configureTestingModule({ imports: [PromptOverlayComponent] });
@@ -1512,5 +1517,129 @@ describe('PromptOverlayComponent — mulligan bottom', () => {
     component.toggle('c1');
     expect(component.canConfirmBottom()).toBe(true);            // any >0 selection
     expect(component.bottomSelectionFull()).toBe(false);        // no cap without a count
+  });
+});
+
+// CR 700.6 / 701.x — generic declarative-choice prompt (ChoiceCommand).
+// When a human activates an ability that issues a "pick one creature"
+// choice (Yawgmoth's "Sacrifice another creature" cost, Grist, MDFC/Gift/
+// Sungold Sentinel, Suppression Ray, Serra's Emissary, …), the server
+// sends a generic ChoiceCommand prompt: expectedKinds contains the literal
+// "ChoiceCommand", the pickable cards ride on candidates, and a choiceView
+// descriptor carries { kind, min, max }. Before this fix the portal never
+// rendered it and the player wedged holding priority (core PR #2959).
+describe('PromptOverlayComponent — generic choice prompt (CR 700.6 / 701.x)', () => {
+  // detectKind ordering: the generic ChoiceCommand must NOT shadow a more
+  // specific command type. These pure-function assertions lock that in.
+  it('detectKind maps ["ChoiceCommand"] to choice', () => {
+    expect(detectKind(['ChoiceCommand'])).toBe('choice');
+  });
+
+  it('detectKind keeps specific kinds winning over the generic choice catch', () => {
+    // Each specific command type must resolve to its dedicated kind even
+    // though it is detected before the generic ChoiceCommand branch.
+    expect(detectKind(['ChooseYesNoCommand'])).toBe('yesNo');
+    expect(detectKind(['ChooseLibraryPickCommand'])).toBe('libraryPick');
+    expect(detectKind(['ChooseSurveilCommand'])).toBe('surveil');
+    expect(detectKind(['ChooseFromRevealedCommand'])).toBe('revealPick');
+    expect(detectKind(['ChooseTargetsCommand'])).toBe('targets');
+    expect(detectKind(['DeclareAttackersCommand'])).toBe('attackers');
+    expect(detectKind(['DeclareBlockersCommand'])).toBe('blockers');
+    expect(detectKind(['ChooseModeCommand'])).toBe('mode');
+    expect(detectKind(['ChooseManaCommand'])).toBe('mana');
+  });
+
+  function makeState(me: GamePlayer, opp: GamePlayer): GameState {
+    return { phase: 'Main', turnNumber: 4, activePlayerId: 'me', players: [me, opp], stack: [], youPlayerId: null };
+  }
+
+  it('detects choice kind from the server "ChoiceCommand" envelope', () => {
+    const me = player({ id: 'me', name: 'Alice' });
+    const opp = player({ id: 'opp', name: 'Bob' });
+    const { component } = mountOverlay(
+      makeState(me, opp),
+      ['ChoiceCommand'],
+      ['me'],
+      { candidates: [], choiceView: { kind: 'PickOne', min: 1, max: 1 } },
+    );
+    expect(component.kind()).toBe('choice');
+  });
+
+  it('exposes choiceView bounds + candidates to the picker computeds', () => {
+    const fodder = card({ instanceId: 'fod-1', name: 'Carrion Feeder' });
+    const ooze = card({ instanceId: 'ooze-2', name: 'Necrogen Mists' });
+    const me = player({ id: 'me', name: 'Alice' });
+    const opp = player({ id: 'opp', name: 'Bob' });
+    const { component } = mountOverlay(
+      makeState(me, opp),
+      ['ChoiceCommand'],
+      ['me'],
+      { candidates: [fodder, ooze], choiceView: { kind: 'PickOne', min: 1, max: 1 } },
+    );
+    // Generic choice reuses the targets candidate machinery.
+    expect(component.candidates()).toHaveLength(2);
+    expect(component.choiceMin()).toBe(1);
+    expect(component.choiceMax()).toBe(1);
+    expect(component.choiceKindName()).toBe('PickOne');
+  });
+
+  it('confirm is gated to the choiceView min..max selection bounds', () => {
+    const a = card({ instanceId: 'a', name: 'A' });
+    const b = card({ instanceId: 'b', name: 'B' });
+    const c = card({ instanceId: 'c', name: 'C' });
+    const me = player({ id: 'me', name: 'Alice', battlefield: { cards: [a, b, c] } });
+    const opp = player({ id: 'opp', name: 'Bob' });
+    // PickN: pick at least 1, at most 2.
+    const { component } = mountOverlay(
+      makeState(me, opp),
+      ['ChoiceCommand'],
+      ['me'],
+      { candidates: [a, b, c], choiceView: { kind: 'PickN', min: 1, max: 2 } },
+    );
+    expect(component.canConfirmChoice()).toBe(false);   // 0 < min
+    component.toggle('a');
+    expect(component.canConfirmChoice()).toBe(true);    // 1 in [1,2]
+    component.toggle('b');
+    expect(component.canConfirmChoice()).toBe(true);    // 2 in [1,2]
+    component.toggle('c');
+    expect(component.canConfirmChoice()).toBe(false);   // 3 > max
+  });
+
+  it('confirmChoice emits decision shaped for the wire ChoiceCommand', () => {
+    const fodder = card({ instanceId: 'fod-1', name: 'Carrion Feeder' });
+    const me = player({ id: 'me', name: 'Alice', battlefield: { cards: [fodder] } });
+    const opp = player({ id: 'opp', name: 'Bob' });
+    const { component } = mountOverlay(
+      makeState(me, opp),
+      ['ChoiceCommand'],
+      ['me'],
+      { candidates: [fodder], choiceView: { kind: 'PickOne', min: 1, max: 1 } },
+    );
+    const captured: PromptDecision[] = [];
+    component.decision.subscribe(d => captured.push(d));
+
+    component.toggle('fod-1');
+    component.confirmChoice();
+
+    expect(captured).toHaveLength(1);
+    expect(captured[0]).toEqual({
+      kind: 'choice',
+      choiceKind: 'PickOne',
+      selectedInstanceIds: ['fod-1'],
+    });
+    // Selection resets so it doesn't bleed into the next prompt.
+    expect(component.selected()).toEqual([]);
+  });
+
+  it('titleFor("choice") falls back to a Choose label', () => {
+    const me = player({ id: 'me', name: 'Alice' });
+    const opp = player({ id: 'opp', name: 'Bob' });
+    const { component } = mountOverlay(
+      makeState(me, opp),
+      ['ChoiceCommand'],
+      ['me'],
+      { candidates: [], choiceView: { kind: 'PickOne', min: 1, max: 1 } },
+    );
+    expect(component.titleFor('choice')).toBe('Choose');
   });
 });

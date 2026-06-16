@@ -1443,6 +1443,35 @@
           }
         }
       },
+      "ChoiceViewDto": {
+        "required": [
+          "kind",
+          "min",
+          "max"
+        ],
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "min": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "max": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
       "CardSnapshotDto": {
         "required": [
           "instanceId",
@@ -2991,6 +3020,16 @@
               "string"
             ],
             "format": "int32"
+          },
+          "choiceView": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ChoiceViewDto"
+              }
+            ]
           }
         }
       },

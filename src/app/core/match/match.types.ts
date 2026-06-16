@@ -243,6 +243,20 @@ export interface PromptEnvelope {
   // taken). Drives the "Bottom N card(s)" label + exact-N confirm gate.
   // Absent on non-mulligan prompts and on older server builds.
   bottomCount?: number;
+  // CR 700.6 / 701.x — generic declarative-choice descriptor (Yawgmoth's
+  // "Sacrifice another creature" cost, Grist, MDFC/Gift/Sungold Sentinel,
+  // Suppression Ray, Serra's Emissary, …). Non-null ONLY on the generic
+  // ChoiceCommand prompt; null on every other kind. The pickable cards
+  // ride on the existing `candidates` field. `kind` is the engine's
+  // ChoiceKind enum name ("PickOne" / "PickN"); the portal enforces the
+  // min..max selection bounds and echoes `kind` back verbatim in its
+  // ChoiceCommand response. Without this descriptor the portal had nothing
+  // to render and the player wedged holding priority (core PR #2959).
+  choiceView?: {
+    kind: string;
+    min: number;
+    max: number;
+  };
 }
 
 // Polymorphic GameCommand wire envelope — matches
@@ -267,7 +281,8 @@ export type GameCommand =
   | ChooseLibraryPickCommand
   | ChooseSurveilCommand
   | ChooseYesNoCommand
-  | ChooseFromRevealedCommand;
+  | ChooseFromRevealedCommand
+  | ChoiceCommand;
 
 interface CmdBase { playerId?: string }
 export interface PassPriorityCommand extends CmdBase { $type: 'pass' }
@@ -361,6 +376,21 @@ export interface ChooseYesNoCommand extends CmdBase {
 export interface ChooseFromRevealedCommand extends CmdBase {
   $type: 'chooseFromRevealed';
   instanceId: string | null;
+}
+// CR 700.6 / 701.x — response to a generic declarative-choice prompt
+// (Yawgmoth's "Sacrifice another creature" cost, Grist, MDFC/Gift/Sungold
+// Sentinel, Suppression Ray, Serra's Emissary, …). The server's unified
+// choice sink (PromptDto.ChoiceView, core PR #2959) drives this. `kind` is
+// the ChoiceKind enum name echoed back verbatim off the prompt's choiceView;
+// `selectedInstanceIds` are the picked candidate ids (1 for PickOne, min..max
+// for PickN). `yesNo` is only meaningful for the YesNo kind (a dedicated
+// ChooseYesNoCommand path already handles "may" prompts), so it's left
+// false here. Mirrors Majik.Core.Api.Commands.ChoiceCommand ("$type": "choice").
+export interface ChoiceCommand extends CmdBase {
+  $type: 'choice';
+  kind: string;
+  selectedInstanceIds: string[];
+  yesNo: boolean;
 }
 
 // Bot decision envelope — mirrors server-side
