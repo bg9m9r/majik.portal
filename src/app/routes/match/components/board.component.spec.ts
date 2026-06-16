@@ -3,6 +3,7 @@ import { TestBed } from '@angular/core/testing';
 import { ComponentRef, DebugElement } from '@angular/core';
 import { By } from '@angular/platform-browser';
 import { BoardComponent } from './board.component';
+import { LayoutPrefsService } from '../layout-prefs.service';
 import { CardViewComponent } from '../../../ui/card-view.component';
 import {
   Ability,
@@ -1033,6 +1034,14 @@ describe('BoardComponent — zoned battlefield layout', () => {
     component.onSelfBattlefieldDoubleClick(creature);
     expect(activateManaSpy).toHaveBeenCalledWith({ card: creature, color: 'G' });
   });
+
+  it('battlefield rows scroll (overflow-y:auto) rather than clipping cards', () => {
+    const { fixture } = mountBoardWithBattlefields([], []);
+    const front = fixture.nativeElement.querySelector('.arena-side--self .frontline') as HTMLElement;
+    const lands = fixture.nativeElement.querySelector('.arena-side--self .backline__lands') as HTMLElement;
+    expect(window.getComputedStyle(front).overflowY).toBe('auto');
+    expect(window.getComputedStyle(lands).overflowY).toBe('auto');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1051,30 +1060,30 @@ describe('BoardComponent — zoned battlefield layout', () => {
 // flex-direction: column` so the section's `flex-1` actually applies
 // and the inner column-flex chain has a bounded height to divvy up.
 //
-// We also lock the self-side DOM order (battlefield ABOVE hand-row
-// ABOVE arena-strip--self) so a future refactor can't silently send
-// the strip back to the top of the side, and we lock the self hand-row
-// to face-UP card-view (no `[hidden]`).
+// We also lock the self-side DOM order (battlefield ABOVE
+// arena-strip--self, with the hand row nested inside the strip) so a
+// future refactor can't silently send the strip back to the top of the
+// side, and we lock the self hand-row to face-UP card-view (no `[hidden]`).
 // ---------------------------------------------------------------------------
 describe('BoardComponent — self-side ordering + host display (zoned layout)', () => {
-  it('orders the self side as battlefield → hand-row → arena-strip--self (top → bottom)', () => {
+  it('orders the self side as battlefield → arena-strip--self, with the hand row inside the strip', () => {
     const { fixture } = mountBoardWithBattlefields([], []);
-    const selfSide = fixture.nativeElement.querySelector(
-      '.arena-side--self',
-    ) as HTMLElement;
-    expect(selfSide).toBeTruthy();
-
-    // Filter to the structural anchors only — drag-drop / animate
-    // wrappers can inject siblings we don't care about.
-    const anchors = Array.from(selfSide.children).filter(el =>
-      el.classList.contains('battlefield') ||
-      el.classList.contains('hand-row') ||
-      el.classList.contains('arena-strip'),
-    );
-    expect(anchors.length).toBe(3);
+    const side = fixture.nativeElement.querySelector('.arena-side--self') as HTMLElement;
+    // The <app-zone-rail> host (CR 406.3 off-battlefield rail) is a
+    // direct child too; it carries the `zone-rail` class on an inner
+    // div, not on its host element, so exclude it by tag name.
+    const anchors = Array.from(side.children).filter(
+      (el) =>
+        el.tagName.toLowerCase() !== 'app-zone-rail' &&
+        !el.classList.contains('zone-rail') &&
+        // The strip-edge resize handle (Task 6) is a structural divider
+        // between the battlefield and the strip, not a content anchor.
+        !el.classList.contains('strip-handle'),
+    ) as HTMLElement[];
     expect(anchors[0].classList.contains('battlefield')).toBe(true);
-    expect(anchors[1].classList.contains('hand-row')).toBe(true);
-    expect(anchors[2].classList.contains('arena-strip--self')).toBe(true);
+    expect(anchors[1].classList.contains('arena-strip--self')).toBe(true);
+    expect(side.querySelector('.arena-side--self > .hand-row')).toBeNull();
+    expect(anchors[1].querySelector('.hand-row:not(.hand-row--opponent)')).toBeTruthy();
   });
 
   it('renders the self hand-row face-UP (no [hidden] on its app-card-view children)', () => {
@@ -1284,72 +1293,28 @@ describe('BoardComponent — off-battlefield zone rails', () => {
 // component falls back to defaults via var(name, default) so the math
 // resolves predictably here.
 // ---------------------------------------------------------------------------
-describe('BoardComponent — equal arena-strip footprint across both sides', () => {
-  // tokens.scss isn't loaded in unit tests, so the component uses the
-  // var(name, default) fallback literals (140px card-h, 8px space-2)
-  // when computing arena-strip heights. Mirror that math here.
-  const HAND_H = 140 + 8 * 2;        // = 156px
-  const INFO_H = 8 * 4;              // = 32px
-  const STRIP_H = HAND_H + INFO_H;   // = 188px
-
-  it('locks the opp .arena-strip to a fixed height equal to self hand-row + arena-strip--self', () => {
+describe('BoardComponent — equal strip footprint across both sides', () => {
+  const STRIP_H = 116;
+  it('locks the opp .arena-strip and self .arena-strip--self to the same fixed height', () => {
     const { fixture } = mountBoardWithBattlefields([], []);
-    const oppStrip = fixture.nativeElement.querySelector(
-      '.arena-side--foe .arena-strip',
-    ) as HTMLElement;
-    expect(oppStrip).toBeTruthy();
-    const style = window.getComputedStyle(oppStrip);
-    expect(style.minHeight).toBe(`${STRIP_H}px`);
-    expect(style.maxHeight).toBe(`${STRIP_H}px`);
-    expect(style.flexBasis).toBe(`${STRIP_H}px`);
-  });
-
-  it('locks the self .hand-row to the full-size hand-card-row height', () => {
-    const { fixture } = mountBoardWithBattlefields([], []);
-    const selfHandRow = Array.from(
-      fixture.nativeElement.querySelectorAll('.arena-side--self > .hand-row'),
-    ).find(el => !(el as HTMLElement).classList.contains('hand-row--opponent')) as
-      HTMLElement | undefined;
-    expect(selfHandRow).toBeTruthy();
-    const style = window.getComputedStyle(selfHandRow!);
-    expect(style.minHeight).toBe(`${HAND_H}px`);
-    expect(style.maxHeight).toBe(`${HAND_H}px`);
-    expect(style.flexBasis).toBe(`${HAND_H}px`);
-  });
-
-  it('locks the self .arena-strip--self (HUD + mana) to the small info-row height', () => {
-    const { fixture } = mountBoardWithBattlefields([], []);
-    const selfStrip = fixture.nativeElement.querySelector(
-      '.arena-side--self > .arena-strip--self',
-    ) as HTMLElement;
-    expect(selfStrip).toBeTruthy();
-    const style = window.getComputedStyle(selfStrip);
-    expect(style.minHeight).toBe(`${INFO_H}px`);
-    expect(style.maxHeight).toBe(`${INFO_H}px`);
-    expect(style.flexBasis).toBe(`${INFO_H}px`);
-  });
-
-  it('makes opp .arena-strip height === self .hand-row height + self .arena-strip--self height (the equalization invariant)', () => {
-    const { fixture } = mountBoardWithBattlefields([], []);
-    const oppStrip = fixture.nativeElement.querySelector(
-      '.arena-side--foe .arena-strip',
-    ) as HTMLElement;
-    const selfHandRow = Array.from(
-      fixture.nativeElement.querySelectorAll('.arena-side--self > .hand-row'),
-    ).find(el => !(el as HTMLElement).classList.contains('hand-row--opponent')) as
-      HTMLElement | undefined;
-    const selfStrip = fixture.nativeElement.querySelector(
-      '.arena-side--self > .arena-strip--self',
-    ) as HTMLElement;
-
+    const oppStrip = fixture.nativeElement.querySelector('.arena-side--foe .arena-strip') as HTMLElement;
+    const selfStrip = fixture.nativeElement.querySelector('.arena-side--self > .arena-strip--self') as HTMLElement;
     const oppH = parseInt(window.getComputedStyle(oppStrip).flexBasis, 10);
-    const selfHandH = parseInt(window.getComputedStyle(selfHandRow!).flexBasis, 10);
-    const selfStripH = parseInt(window.getComputedStyle(selfStrip).flexBasis, 10);
+    const selfH = parseInt(window.getComputedStyle(selfStrip).flexBasis, 10);
+    expect(oppH).toBe(STRIP_H);
+    expect(selfH).toBe(STRIP_H);
+    expect(oppH).toBe(selfH);
+  });
 
-    expect(oppH).toBe(selfHandH + selfStripH);
-    // Both .battlefield wrappers are flex: 1 1 0 inside their arena-side
-    // (also flex: 1 1 0 of the board area), so equal non-bf footprint
-    // implies equal battlefield height.
+  it('self hand row scrolls horizontally on overflow (overflow-x:auto, nowrap)', () => {
+    const { fixture } = mountBoardWithBattlefields([], []);
+    const hand = fixture.nativeElement.querySelector(
+      '.arena-side--self .arena-strip__hand--self',
+    ) as HTMLElement;
+    const style = window.getComputedStyle(hand);
+    expect(style.overflowX).toBe('auto');
+    expect(style.overflowY).toBe('hidden');
+    expect(style.flexWrap).toBe('nowrap');
   });
 });
 
@@ -1602,5 +1567,72 @@ describe('BoardComponent — stack item controller distinction', () => {
     expect(myItem!.classList.contains('stack-item--mine')).toBe(true);
     // The opponent's card name surfaces in the (auto-expanded) chip.
     expect(oppItem!.textContent).toContain('Counterspell');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// BoardComponent — layout prefs applied (Task 5)
+//
+// The board READS LayoutPrefsService signals to drive: the card scale (host
+// CSS-var override), the battlefield split (per-side flex-grow off
+// oppSelfRatio), and the self strip height (flex-basis override of the
+// Phase-1 fixed 116px). Mount FIRST, then inject the SAME root service the
+// board uses, set values, detectChanges, assert (avoids TestBed module-reset
+// instance-identity issues). reset() at the end prevents cross-test bleed.
+// ---------------------------------------------------------------------------
+describe('BoardComponent — layout prefs applied', () => {
+  it('scales the card CSS vars from LayoutPrefsService.cardScale', () => {
+    const { fixture } = mountBoardWithBattlefields([], []);
+    const prefs = TestBed.inject(LayoutPrefsService);
+    prefs.setCardScale(1.2);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    // 100 * 1.2 = 120, 140 * 1.2 = 168
+    expect(host.style.getPropertyValue('--majik-card-w').trim()).toBe('120px');
+    expect(host.style.getPropertyValue('--majik-card-h').trim()).toBe('168px');
+    prefs.reset();
+  });
+
+  it('drives the battlefield split from oppSelfRatio and strip height from handStripPx', () => {
+    const { fixture } = mountBoardWithBattlefields([], []);
+    const prefs = TestBed.inject(LayoutPrefsService);
+    prefs.reset(); // default card scale ⇒ strip height is the user value, not the hand-fit floor
+    prefs.setOppSelfRatio(0.6);
+    prefs.setHandStripPx(140);
+    fixture.detectChanges();
+    const foe = fixture.nativeElement.querySelector('.arena-side--foe') as HTMLElement;
+    const self = fixture.nativeElement.querySelector('.arena-side--self') as HTMLElement;
+    const strip = fixture.nativeElement.querySelector('.arena-side--self > .arena-strip--self') as HTMLElement;
+    expect(parseFloat(foe.style.flexGrow)).toBeCloseTo(1.2);  // 0.6 * 2
+    expect(parseFloat(self.style.flexGrow)).toBeCloseTo(0.8);  // (1-0.6) * 2
+    expect(strip.style.getPropertyValue('flex-basis').trim()).toBe('140px');
+    prefs.reset();
+  });
+
+  it('grows the self strip to fit scaled hand cards so the hand is never clipped', () => {
+    const { fixture } = mountBoardWithBattlefields([], []);
+    const prefs = TestBed.inject(LayoutPrefsService);
+    prefs.reset();           // handStripPx default 116
+    prefs.setCardScale(1.4); // self hand card 112 * 1.4 = 157 (+4 slack) = 161 > 116
+    fixture.detectChanges();
+    const strip = fixture.nativeElement.querySelector('.arena-side--self > .arena-strip--self') as HTMLElement;
+    expect(parseInt(strip.style.getPropertyValue('flex-basis'), 10)).toBe(161);
+    prefs.reset();
+  });
+});
+
+describe('BoardComponent — resize handles', () => {
+  it('a centerline drag updates oppSelfRatio; a strip-edge drag updates handStripPx', () => {
+    const { fixture } = mountBoardWithBattlefields([], []);
+    const prefs = TestBed.inject(LayoutPrefsService);
+    prefs.reset();
+    const component = fixture.componentInstance as BoardComponent;
+    component.onCenterlineResize(100);
+    expect(prefs.oppSelfRatio()).toBeGreaterThan(0.5);
+    component.onHandStripResize(-40);
+    expect(prefs.handStripPx()).toBeGreaterThan(116);
+    component.onCenterlineResizeEnd();
+    component.onHandStripResizeEnd();
+    prefs.reset();
   });
 });

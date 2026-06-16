@@ -68,7 +68,11 @@
   display: flex;
   flex-wrap: nowrap;
   overflow-x: auto;
-  overflow-y: hidden;
+  // Cut-off fix: a row shorter than a card must SCROLL, not clip. Mirrored
+  // in board.component.ts's co-located styles[] so the overflow assertion
+  // in board.component.spec.ts can read it in jsdom (board.scss is not
+  // loaded in the unit-test env). Keep both in sync.
+  overflow-y: auto;
   align-items: center;
   // Start centered; new permanents append on the right, sliding the group
   // left as it grows. `safe` falls back to flex-start once the row overflows
@@ -87,8 +91,8 @@
 // Backline — two columns. Lands LEFT, utility (artifacts / enchants /
 // planeswalkers) RIGHT. Same LR for both players — only the vertical
 // axis flips. Each column is a SINGLE horizontal row that scrolls
-// horizontally on overflow (mirrors .frontline) — nothing ever scrolls
-// vertically inside the rim.
+// horizontally on overflow (mirrors .frontline); a too-short row also
+// scrolls vertically (overflow-y: auto) rather than clipping cards.
 .backline {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -105,7 +109,9 @@
     gap: var(--majik-space-2);
     min-height: var(--majik-card-h);
     overflow-x: auto;
-    overflow-y: hidden;
+    // Cut-off fix: scroll rather than clip (mirrored in board.component.ts
+    // co-located styles[] for the jsdom overflow assertion — keep in sync).
+    overflow-y: auto;
     padding: var(--majik-space-1);
     border-radius: var(--majik-radius-panel);
     border: 1px dashed transparent; // hover-affordance slot
@@ -314,8 +320,31 @@
     justify-content: flex-end;
     // Opp face-down hand sits inside the strip — squeeze the card
     // size down so it doesn't push the strip taller than the HUD.
-    --majik-card-w: 56px;
-    --majik-card-h: 78px;
+    // Multiplied by --majik-card-scale (set on the board host) so the
+    // user's card-scale slider scales the hand too, not just the
+    // battlefield. Falls back to 1 when unset.
+    --majik-card-w: calc(56px * var(--majik-card-scale, 1));
+    --majik-card-h: calc(78px * var(--majik-card-scale, 1));
+  }
+
+  // Self hand lives in the same strip now. Medium cards (hover zooms to
+  // full via the CardPopoverService overlay, which is position:fixed and
+  // unaffected by this row's overflow). Horizontal scroll when the hand
+  // overflows; cards keep their size — never clipped, never force-collapsed.
+  //
+  // NOTE: the flex-wrap / overflow declarations also live in
+  // board.component.ts's co-located styles[] so the layout assertion in
+  // board.component.spec.ts can read them in jsdom (global board.scss is
+  // not loaded in the unit-test env). Keep both in sync.
+  &__hand--self {
+    // Medium base (80 × 112 = 80 * 7/5), multiplied by --majik-card-scale
+    // (board host) so the card-scale slider scales the self hand too.
+    --majik-card-w: calc(80px * var(--majik-card-scale, 1));
+    --majik-card-h: calc(112px * var(--majik-card-scale, 1));
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    justify-content: safe center;
   }
 }
 

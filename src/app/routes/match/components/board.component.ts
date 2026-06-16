@@ -26,6 +26,7 @@ import { PlayerHudComponent } from '../../../ui/player-hud.component';
 import { ManaPoolRowComponent } from '../../../ui/mana-pool-row.component';
 import { PhaseBarComponent } from '../../../ui/phase-bar.component';
 import { ActionBarComponent } from './action-bar.component';
+import { LayoutControlsComponent } from './layout-controls.component';
 import {
   ActivatableAbility,
   CardContextMenuAction,
@@ -38,6 +39,8 @@ import { ZoneRailComponent } from './zone-rail.component';
 import { ZoneModalComponent } from './zone-modal.component';
 import { ZoneKind } from './zone-pile.component';
 import { GameLogComponent } from './game-log.component';
+import { LayoutPrefsService } from '../layout-prefs.service';
+import { ResizeHandleDirective } from './resize-handle.directive';
 
 /**
  * A `StackItem` enriched with display flags the template + the
@@ -55,12 +58,26 @@ export interface StackItemView extends StackItem {
 @Component({
   selector: 'app-board',
   standalone: true,
+  // Card-scale CSS-var overrides (read from LayoutPrefsService.cardScale).
+  //  * --majik-card-w/h (scaledCardW/H): the scaled base 100/140 — battlefield
+  //    cards inherit these directly.
+  //  * --majik-card-scale (raw multiplier): the zone overrides that pin their
+  //    own absolute card size (opp face-down hand, self hand — see board.scss
+  //    .arena-strip__hand / __hand--self) multiply their base px by THIS, so the
+  //    slider scales hand cards too, not just the battlefield. Without it the
+  //    zone overrides' absolute px would win and the hand wouldn't scale.
+  host: {
+    '[style.--majik-card-w.px]': 'scaledCardW()',
+    '[style.--majik-card-h.px]': 'scaledCardH()',
+    '[style.--majik-card-scale]': 'cardScale()',
+  },
   imports: [
     CardViewComponent,
     PlayerHudComponent,
     ManaPoolRowComponent,
     PhaseBarComponent,
     ActionBarComponent,
+    LayoutControlsComponent,
     CardContextMenuComponent,
     ManaColorPickerComponent,
     CdkDropList,
@@ -69,6 +86,7 @@ export interface StackItemView extends StackItem {
     ZoneRailComponent,
     ZoneModalComponent,
     GameLogComponent,
+    ResizeHandleDirective,
   ],
   // ----------------------------------------------------------------
   // Host display.
@@ -95,37 +113,24 @@ export interface StackItemView extends StackItem {
   // ----------------------------------------------------------------
   // Symmetric non-battlefield footprint across the two sides.
   //
-  // Each .arena-side is flex: 1 1 0 (equal half each), but the
-  // inner stack ABOVE the centerline used to be asymmetric: the
-  // opp side parks HUD + mana + face-down hand in a single
-  // .arena-strip (with the face-down hand shrunk to 56×78 via the
-  // .arena-strip__hand override in board.scss), so opp non-bf
-  // height ≈ one shrunk-card row. The self side stacks
-  // (full-size .hand-row) + (.arena-strip--self HUD/mana row),
-  // which is much taller. Net: opp .battlefield got more vertical
-  // space than self .battlefield — the self board looked clipped.
+  // Each .arena-side is flex: 1 1 0 (equal half each). The inner
+  // stack ABOVE the centerline is now SYMMETRIC: each side parks
+  // HUD + mana + hand in a SINGLE .arena-strip (opp's hand is
+  // face-down, shrunk via .arena-strip__hand in board.scss; self's
+  // hand sits in .arena-strip__hand--self). One strip per side, so
   //
-  // Fix: lock the THREE non-battlefield elements (opp strip; self
-  // hand-row; self strip-self) to fixed heights such that
-  //
-  //   opp .arena-strip height
-  //     == self .hand-row height + self .arena-strip--self height
+  //   opp .arena-strip height == self .arena-strip--self height
   //
   // Both .battlefield wrappers are flex: 1 1 0 inside their
-  // arena-side, so equal non-bf footprint implies equal battlefield
-  // height. Self hand cards stay full-size (--majik-card-h, 140px);
-  // the opp strip gets extra vertical space inside it which reads
-  // as centered empty space — fine, not a regression.
+  // arena-side, so equal strip footprint implies equal battlefield
+  // height (one strip per side, equal ⇒ equal battlefields).
   //
   // Heights are co-located here (vs. board.scss) so they're loaded
   // in jsdom unit tests for the layout assertions in
   // board.component.spec.ts. Literal pixel values (vs. CSS vars)
   // since jsdom doesn't resolve var() through Angular's emulated
   // encapsulation. Math:
-  //   tokens.scss → --majik-card-h: 140px, --majik-space-2: 8px
-  //   hand-h = 140 + 8*2 = 156px   (full-size hand-card row)
-  //   info-h =       8*4 =  32px   (compact HUD/mana row)
-  //   strip-h = hand-h + info-h = 188px  (opp's one strip)
+  //   strip-h = 116px (one strip per side, equal ⇒ equal battlefields)
   styles: [`
     :host {
       display: flex;
@@ -133,21 +138,44 @@ export interface StackItemView extends StackItem {
       min-height: 0;
       flex-direction: column;
     }
-    .arena-side--foe .arena-strip {
-      flex: 0 0 188px;
-      min-height: 188px;
-      max-height: 188px;
+    .arena-side--foe .arena-strip,
+    .arena-side--self > .arena-strip--self {
+      flex: 0 0 116px;
+      min-height: 116px;
+      max-height: 116px;
       align-items: center;
     }
-    .arena-side--self > .hand-row {
-      flex: 0 0 156px;
-      min-height: 156px;
-      max-height: 156px;
+    // Self hand scrolls horizontally when it overflows; cards keep
+    // their (medium) size rather than wrapping or being clipped. Card
+    // sizing (--majik-card-w/h) + justify-content live in board.scss;
+    // these three are co-located so the overflow assertion in
+    // board.component.spec.ts can read them in jsdom (board.scss is not
+    // loaded in the unit-test env). Keep both in sync.
+    .arena-strip__hand--self {
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      overflow-y: hidden;
     }
-    .arena-side--self > .arena-strip--self {
-      flex: 0 0 32px;
-      min-height: 32px;
-      max-height: 32px;
+    // Cut-off fix: battlefield card rows scroll rather than clip. Mirrors
+    // the overflow-y:auto in board.scss (.frontline / .backline__lands /
+    // .backline__utility) — co-located here because global board.scss is
+    // not loaded in the jsdom unit-test env. Keep both in sync.
+    .frontline,
+    .backline__lands,
+    .backline__utility {
+      overflow-y: auto;
+    }
+    .centerline-handle, .strip-handle {
+      flex: 0 0 6px;
+      cursor: row-resize;
+      border-radius: 3px;
+      background: var(--majik-line-faint, rgba(255,255,255,0.08));
+      transition: background-color 150ms ease-out;
+    }
+    .centerline-handle:hover, .strip-handle:hover,
+    .centerline-handle:focus-visible, .strip-handle:focus-visible {
+      background: var(--majik-accent, rgba(202,167,90,0.6));
+      outline: none;
     }
   `],
   // Layout overview (Arena-style, zoned battlefield):
@@ -214,8 +242,13 @@ export interface StackItemView extends StackItem {
             hand sit at the TOP edge; the battlefield wrapper carries
             the active-foe rim around backline-top + frontline-bottom
             so creatures meet the centerline.
+
+            flex-grow ONLY is bound here (foeGrow/selfGrow, default 1.0 each);
+            flex-shrink + flex-basis:0 come from the .arena-side "flex: 1 1 0"
+            rule in board.scss. Don't convert that SCSS to a non-zero basis or
+            the split ratio math (grow = ratio*2) breaks.
           -->
-          <div class="arena-side arena-side--foe">
+          <div class="arena-side arena-side--foe" [style.flex-grow]="foeGrow()">
             <!--
               CR 406.3 / 706.2 — opponent's off-battlefield zone rail
               (Library count + Graveyard + Exile). Docked to the outer
@@ -318,13 +351,27 @@ export interface StackItemView extends StackItem {
           </div>
 
           <!--
+            Centerline drag handle (direct child of .board-arena, between
+            the two arena-sides). Dragging it adjusts the opp/self split
+            ratio; ArrowUp/ArrowDown nudge it. Plain quotes only in this
+            comment (no backticks) so the inline template literal stays
+            intact.
+          -->
+          <div
+            class="centerline-handle"
+            appResizeHandle
+            aria-label="resize battlefield split"
+            (resizeDelta)="onCenterlineResize($event)"
+            (resizeEnd)="onCenterlineResizeEnd()"></div>
+
+          <!--
             Self zone. Mirror of the opponent: frontline ON TOP (toward
             the centerline so creatures meet), backline ON BOTTOM —
             lands LEFT, utility RIGHT. ONE cdkDropList wraps the whole
             .battlefield so drag-from-hand resolves to onBattlefieldDrop
             regardless of which inner bucket the user releases over.
           -->
-          <div class="arena-side arena-side--self">
+          <div class="arena-side arena-side--self" [style.flex-grow]="selfGrow()">
             <!--
               CR 406.3 / 706.2 — your off-battlefield zone rail (Library
               count + Graveyard + Exile). Docked to the outer (bottom-
@@ -400,38 +447,22 @@ export interface StackItemView extends StackItem {
               }
             </div>
 
+            <!--
+              Strip-edge drag handle (direct child of .arena-side--self,
+              between the battlefield and the self strip). Dragging UP makes
+              the hand strip taller. Plain quotes only here (no backticks).
+            -->
             <div
-              #selfHandList="cdkDropList"
-              id="self-hand-droplist"
-              class="hand-row"
-              role="list"
-              aria-label="your hand"
-              cdkDropList
-              cdkDropListOrientation="horizontal"
-              [cdkDropListConnectedTo]="['self-battlefield-droplist']"
-              (cdkDropListDropped)="onHandDrop($event)">
-              @for (c of orderedSelfHand(); track c.instanceId) {
-                <button
-                  type="button"
-                  role="listitem"
-                  class="bg-transparent p-0 focus:outline focus:outline-2 focus:outline-amber-400"
-                  cdkDrag
-                  [cdkDragData]="c"
-                  [attr.aria-label]="'play ' + c.name"
-                  animate.enter="zone-enter-from-top"
-                  animate.leave="zone-leave-down">
-                  <app-card-view
-                    [snapshot]="c"
-                    zone="hand"
-                    [castable]="castableIds().has(c.instanceId)" />
-                  <div *cdkDragPlaceholder class="hand-card-placeholder"></div>
-                </button>
-              } @empty {
-                <span class="opacity-30">— hand empty —</span>
-              }
-            </div>
+              class="strip-handle"
+              appResizeHandle
+              aria-label="resize hand area"
+              (resizeDelta)="onHandStripResize($event)"
+              (resizeEnd)="onHandStripResizeEnd()"></div>
 
-            <div class="arena-strip arena-strip--self">
+            <div class="arena-strip arena-strip--self"
+              [style.flex-basis.px]="handStripPx()"
+              [style.min-height.px]="handStripPx()"
+              [style.max-height.px]="handStripPx()">
               <app-player-hud
                 class="arena-strip__hud"
                 [player]="self()"
@@ -439,6 +470,36 @@ export interface StackItemView extends StackItem {
                 side="self"
                 label="you" />
               <app-mana-pool-row class="arena-strip__mana" [player]="self()" />
+              <div
+                #selfHandList="cdkDropList"
+                id="self-hand-droplist"
+                class="hand-row arena-strip__hand arena-strip__hand--self"
+                role="list"
+                aria-label="your hand"
+                cdkDropList
+                cdkDropListOrientation="horizontal"
+                [cdkDropListConnectedTo]="['self-battlefield-droplist']"
+                (cdkDropListDropped)="onHandDrop($event)">
+                @for (c of orderedSelfHand(); track c.instanceId) {
+                  <button
+                    type="button"
+                    role="listitem"
+                    class="bg-transparent p-0 focus:outline focus:outline-2 focus:outline-amber-400"
+                    cdkDrag
+                    [cdkDragData]="c"
+                    [attr.aria-label]="'play ' + c.name"
+                    animate.enter="zone-enter-from-top"
+                    animate.leave="zone-leave-down">
+                    <app-card-view
+                      [snapshot]="c"
+                      zone="hand"
+                      [castable]="castableIds().has(c.instanceId)" />
+                    <div *cdkDragPlaceholder class="hand-card-placeholder"></div>
+                  </button>
+                } @empty {
+                  <span class="opacity-30">— hand empty —</span>
+                }
+              </div>
             </div>
           </div>
 
@@ -577,6 +638,8 @@ export interface StackItemView extends StackItem {
             </span>
           </div>
         }
+
+        <app-layout-controls />
 
         <app-action-bar
           [canPass]="canPass()"
@@ -1012,6 +1075,55 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
   }
 
   private readonly gameStore = inject(GameStore);
+
+  private readonly layoutPrefs = inject(LayoutPrefsService);
+
+  // Base card geometry (matches tokens.scss / board.scss :root).
+  private readonly baseCardW = 100;
+  private readonly baseCardH = 140;
+
+  readonly scaledCardW = computed(() => Math.round(this.baseCardW * this.layoutPrefs.cardScale()));
+  readonly scaledCardH = computed(() => Math.round(this.baseCardH * this.layoutPrefs.cardScale()));
+  // Raw multiplier exposed as --majik-card-scale so the absolute-sized hand /
+  // opp-hand zone overrides (board.scss) can multiply their base px and scale
+  // along with the slider. Public so the host binding type-checks.
+  readonly cardScale = computed(() => this.layoutPrefs.cardScale());
+  readonly foeGrow = computed(() => this.layoutPrefs.oppSelfRatio() * 2);
+  readonly selfGrow = computed(() => (1 - this.layoutPrefs.oppSelfRatio()) * 2);
+  // Effective self-strip height = the user's chosen handStripPx, but never
+  // shorter than the (scaled) hand cards need — otherwise a high card-scale
+  // would clip the hand against a fixed strip (overflow-y:hidden). The medium
+  // self-hand card is 112px tall (board.scss .arena-strip__hand--self); +4px
+  // matches the strip's slack so at default scale (112+4=116) this equals the
+  // default handStripPx and the Phase-1 footprint stays exactly 116. The
+  // user's value remains the floor; dragging the strip taller still works.
+  private readonly selfHandCardH = 112;
+  readonly handStripPx = computed(() =>
+    Math.max(
+      this.layoutPrefs.handStripPx(),
+      Math.round(this.selfHandCardH * this.layoutPrefs.cardScale()) + 4,
+    ),
+  );
+
+  // Drag-resize bases: captured on the first delta of a gesture so the
+  // cumulative delta from the handle applies against a stable start value
+  // (avoids drift from re-reading the just-mutated pref each move).
+  private centerlineBase: number | null = null;
+  private stripBase: number | null = null;
+
+  onCenterlineResize(deltaY: number): void {
+    const h = this.boardGridEl?.nativeElement.getBoundingClientRect().height || 800;
+    this.centerlineBase ??= this.layoutPrefs.oppSelfRatio();
+    this.layoutPrefs.setOppSelfRatio(this.centerlineBase + deltaY / h);
+  }
+  onCenterlineResizeEnd(): void { this.centerlineBase = null; }
+
+  onHandStripResize(deltaY: number): void {
+    // Dragging UP (negative deltaY) makes the strip TALLER.
+    this.stripBase ??= this.layoutPrefs.handStripPx();
+    this.layoutPrefs.setHandStripPx(this.stripBase - deltaY);
+  }
+  onHandStripResizeEnd(): void { this.stripBase = null; }
 
   // Aria-live announcement string — we prefix with a zero-width space
   // tied to a sequence number so identical-text re-emits force a fresh
