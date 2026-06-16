@@ -1047,6 +1047,7 @@ export function dispatchMatchKey(evt: KeyboardEvent, deps: MatchKeyDeps): void {
 export function boardInstanceIds(state: GameState | null): Set<string> {
   const ids = new Set<string>();
   for (const p of state?.players ?? []) {
+    ids.add(p.id); // players are always board-locatable (HUD on screen)
     for (const c of p.battlefield?.cards ?? []) ids.add(c.instanceId);
     for (const c of p.hand?.cards ?? []) ids.add(c.instanceId);
   }
