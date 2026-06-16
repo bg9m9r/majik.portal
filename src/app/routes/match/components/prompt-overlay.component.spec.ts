@@ -1701,3 +1701,35 @@ describe('PromptOverlayComponent — on-board selection banner', () => {
     expect(captured).toEqual([{ kind: 'targets', targetInstanceIds: ['z'] }]);
   });
 });
+
+describe('PromptOverlayComponent — on-board combat confirm', () => {
+  it('confirmBoardAttackers emits the wire DeclareAttackers shape (attacker + defenderId)', () => {
+    const a = card({ instanceId: 'a', name: 'Bear' });
+    const me = player({ id: 'me', name: 'Alice', battlefield: { cards: [a] } });
+    const opp = player({ id: 'opp', name: 'Bob' });
+    const state: GameState = { phase: 'DeclareAttackers', turnNumber: 1, activePlayerId: 'me', players: [me, opp], stack: [], youPlayerId: null };
+
+    const { component, selection } = mountOverlay(state, ['DeclareAttackersCommand'], ['me']);
+    selection.setPrompt({ gameId: 'g', playerId: 'me', expectedKinds: ['DeclareAttackersCommand'] } as PromptEnvelope);
+    selection.toggle('a');
+
+    const captured: PromptDecision[] = [];
+    component.decision.subscribe(d => captured.push(d));
+    component.confirmBoardAttackers();
+    expect(captured).toEqual([{ kind: 'attackers', attackers: [{ attackerInstanceId: 'a', defenderId: 'opp' }] }]);
+  });
+
+  it('confirmBoardAttackers with an empty set is a valid "no attacks"', () => {
+    const me = player({ id: 'me', name: 'Alice' });
+    const opp = player({ id: 'opp', name: 'Bob' });
+    const state: GameState = { phase: 'DeclareAttackers', turnNumber: 1, activePlayerId: 'me', players: [me, opp], stack: [], youPlayerId: null };
+
+    const { component, selection } = mountOverlay(state, ['DeclareAttackersCommand'], ['me']);
+    selection.setPrompt({ gameId: 'g', playerId: 'me', expectedKinds: ['DeclareAttackersCommand'] } as PromptEnvelope);
+
+    const captured: PromptDecision[] = [];
+    component.decision.subscribe(d => captured.push(d));
+    component.confirmBoardAttackers();
+    expect(captured).toEqual([{ kind: 'attackers', attackers: [] }]);
+  });
+});

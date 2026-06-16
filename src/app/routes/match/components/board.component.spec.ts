@@ -1726,3 +1726,35 @@ describe('BoardComponent — on-board target/choice selection', () => {
     expect(component.isDimmed('z')).toBe(false);
   });
 });
+
+describe('BoardComponent — on-board attacker declaration', () => {
+  it('marks own untapped non-sick creatures attackable and toggles them on click', () => {
+    const a = creature('a');
+    const b = creature('b');
+    const tappedC = creature('c', { tapped: true });
+    const me = player({ id: 'me', name: 'Me', battlefield: { cards: [a, b, tappedC] } });
+    const { component, svc } = mountBoardSel(selState([me]), ['me']);
+    const lines: unknown[] = [];
+    component.assignmentsChanged.subscribe(l => lines.push(l));
+
+    svc.setPrompt({ gameId: 'g', playerId: 'me', expectedKinds: ['DeclareAttackersCommand'], label: 'Declare attackers' } as PromptEnvelope);
+
+    expect(component.isTargetable('a')).toBe(true);
+    expect(component.isTargetable('c')).toBe(false); // tapped
+
+    component.onBoardCardClick(a);
+    component.onBoardCardClick(b);
+    expect(svc.selected()).toEqual(['a', 'b']);
+    // Live arrows relayed with defenderId = opponent (none here → '').
+    expect(lines.length).toBe(2);
+  });
+
+  it('ignores clicks on a tapped own creature in attackers mode', () => {
+    const tappedC = creature('c', { tapped: true });
+    const me = player({ id: 'me', name: 'Me', battlefield: { cards: [tappedC] } });
+    const { component, svc } = mountBoardSel(selState([me]), ['me']);
+    svc.setPrompt({ gameId: 'g', playerId: 'me', expectedKinds: ['DeclareAttackersCommand'] } as PromptEnvelope);
+    component.onBoardCardClick(tappedC);
+    expect(svc.selected()).toEqual([]);
+  });
+});
