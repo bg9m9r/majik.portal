@@ -59,6 +59,19 @@ interface PromptInfo {
   // (= mulligans taken). Drives the "Bottom N card(s)" label and gates the
   // confirm button to exactly N selected. Absent on every other prompt.
   bottomCount?: number;
+  // CR 700.6 / 701.x — generic declarative-choice descriptor (Yawgmoth's
+  // "Sacrifice another creature" cost, Grist, MDFC/Gift/Sungold Sentinel,
+  // Suppression Ray, Serra's Emissary, …). Non-null ONLY on the generic
+  // ChoiceCommand prompt; the pickable cards ride on `candidates`. `kind`
+  // is the ChoiceKind enum name ("PickOne" / "PickN") echoed back verbatim
+  // in the ChoiceCommand response; the overlay enforces the min..max
+  // selection bounds. Without it the player wedged holding priority
+  // awaiting a ChoiceCommand the UI never rendered (core PR #2959).
+  choiceView?: {
+    kind: string;
+    min: number;
+    max: number;
+  };
 }
 
 export type PromptKind =
@@ -75,6 +88,7 @@ export type PromptKind =
   | 'surveil'
   | 'yesNo'
   | 'revealPick'
+  | 'choice'
   | 'none';
 
 export interface PromptDecision {
@@ -103,6 +117,12 @@ export interface PromptDecision {
   // prompt, or `null` to decline (only legal when revealView.optional
   // is true OR no eligible cards exist).
   pickedInstanceId?: string | null;
+  // CR 700.6 / 701.x — generic declarative-choice response. `choiceKind`
+  // echoes the prompt's choiceView.kind back verbatim (the engine resolves
+  // the picks against it); `selectedInstanceIds` are the picked candidate
+  // ids (1 for PickOne, min..max for PickN).
+  choiceKind?: string;
+  selectedInstanceIds?: string[];
 }
 
 interface CandidateCard {
@@ -144,6 +164,16 @@ export function detectKind(kinds: string[] | undefined): PromptKind {
   // Match before 'mode' since 'choosemodecommand' would otherwise win.
   if (ks.some(k => k === 'mana' || k.includes('choosemanacommand') || k.includes('choose-mana'))) return 'mana';
   if (ks.some(k => k === 'mode' || k.includes('mode'))) return 'mode';
+  // CR 700.6 / 701.x — generic declarative-choice catch (Yawgmoth's
+  // "Sacrifice another creature" cost, Grist, MDFC/Gift/Sungold Sentinel,
+  // Suppression Ray, Serra's Emissary, …). This MUST come LAST among the
+  // command-type branches: a more specific command (ChooseYesNoCommand,
+  // ChooseLibraryPickCommand, ChooseSurveilCommand, ChooseFromRevealedCommand,
+  // targets/attackers/blockers/mode/mana/…) always wins. The generic
+  // ChoiceCommand is the fall-through for PickOne/PickN choices that have
+  // no dedicated UI of their own — without it the player wedged holding
+  // priority (core PR #2959).
+  if (ks.some(k => k.includes('choicecommand') || k === 'choice')) return 'choice';
   return 'none';
 }
 
@@ -222,6 +252,52 @@ export function detectKind(kinds: string[] | undefined): PromptKind {
                 </button>
               } @empty {
                 <p class="col-span-3 opacity-50">No candidates in play.</p>
+              }
+            </div>
+          }
+
+          @case ('choice') {
+            <!--
+              CR 700.6 / 701.x — generic declarative-choice picker. The
+              server ships the pickable cards on candidates and a choiceView
+              descriptor { kind, min, max }. Reuses the targets selectable
+              grid; Confirm is gated to the [min, max] bounds (PickOne =
+              exactly one creature; PickN = min..max). Echoes choiceView.kind
+              back in the ChoiceCommand on confirm.
+            -->
+            <div class="flex items-center justify-between text-xs">
+              <span class="opacity-70">
+                @if (choiceMin() === choiceMax()) {
+                  Pick {{ choiceMin() }} ({{ selected().length }} selected)
+                } @else {
+                  Pick {{ choiceMin() }}–{{ choiceMax() }} ({{ selected().length }} selected)
+                }
+              </span>
+              <button
+                type="button"
+                class="rounded border border-amber-400 px-3 py-1 text-amber-300 hover:bg-amber-400/10 disabled:cursor-not-allowed disabled:opacity-40"
+                [disabled]="!canConfirmChoice()"
+                (click)="confirmChoice()">
+                Confirm
+              </button>
+            </div>
+            <div class="mt-2 grid grid-cols-3 gap-2 text-xs">
+              @for (cand of candidates(); track cand.card.instanceId) {
+                <button
+                  type="button"
+                  class="flex items-start justify-between rounded border px-2 py-1 text-left"
+                  [class.border-amber-400]="isSelected(cand.card.instanceId)"
+                  [class.bg-amber-400/10]="isSelected(cand.card.instanceId)"
+                  [class.border-white/15]="!isSelected(cand.card.instanceId)"
+                  (click)="toggle(cand.card.instanceId)">
+                  <span>
+                    <span class="font-medium">{{ cand.card.name }}</span>
+                    <span class="ml-1 opacity-50">({{ cand.zone }})</span>
+                  </span>
+                  <span class="opacity-60">{{ cand.controllerName }}</span>
+                </button>
+              } @empty {
+                <p class="col-span-3 opacity-50">No candidates to choose from.</p>
               }
             </div>
           }
@@ -1071,6 +1147,29 @@ export class PromptOverlayComponent implements AfterViewInit, OnDestroy {
   readonly revealPickLabel = computed<string>(() =>
     this.prompt()?.revealView?.label ?? 'Pick a card.');
 
+  // CR 700.6 / 701.x — generic declarative-choice computeds. The descriptor
+  // rides on the prompt's choiceView; the pickable cards come through the
+  // shared `candidates()` machinery (same grid as targets). Defaults to a
+  // single-pick (min=max=1) when the view is absent so the modal still
+  // renders defensively rather than crashing on a malformed envelope.
+  readonly choiceMin = computed<number>(() => {
+    const n = this.prompt()?.choiceView?.min;
+    return typeof n === 'number' && n >= 0 ? n : 1;
+  });
+  readonly choiceMax = computed<number>(() => {
+    const n = this.prompt()?.choiceView?.max;
+    return typeof n === 'number' && n >= 1 ? n : 1;
+  });
+  readonly choiceKindName = computed<string>(() =>
+    this.prompt()?.choiceView?.kind ?? 'PickOne');
+
+  // Confirm is enabled only when the selection count is within the
+  // choiceView's [min, max] bounds (PickOne = exactly 1; PickN = min..max).
+  readonly canConfirmChoice = computed<boolean>(() => {
+    const n = this.selected().length;
+    return n >= this.choiceMin() && n <= this.choiceMax();
+  });
+
   titleFor(k: PromptKind): string {
     switch (k) {
       case 'targets': return 'Choose targets';
@@ -1087,6 +1186,7 @@ export class PromptOverlayComponent implements AfterViewInit, OnDestroy {
       case 'libraryPick': return 'Search your library';
       case 'surveil': return 'Surveil';
       case 'revealPick': return 'Choose from revealed cards';
+      case 'choice': return 'Choose';
       case 'yesNo': {
         // Title the modal after the triggering permanent when the engine
         // provided one ("Overgrown Tomb"); fall back to a generic label
@@ -1112,6 +1212,22 @@ export class PromptOverlayComponent implements AfterViewInit, OnDestroy {
 
   confirmTargets(): void {
     this.decision.emit({ kind: 'targets', targetInstanceIds: this.selected() });
+    this.selected.set([]);
+  }
+
+  // CR 700.6 / 701.x — emit the generic declarative-choice response. Echoes
+  // the prompt's choiceView.kind back verbatim (the engine resolves the
+  // picks against it) and ships the selected candidate instance ids.
+  // MatchPage.translateDecision turns this into the wire ChoiceCommand
+  // ($type: 'choice'). Guarded on the same min..max bounds the button is
+  // gated to, so a stray Enter can't submit an out-of-bounds pick.
+  confirmChoice(): void {
+    if (!this.canConfirmChoice()) return;
+    this.decision.emit({
+      kind: 'choice',
+      choiceKind: this.choiceKindName(),
+      selectedInstanceIds: this.selected(),
+    });
     this.selected.set([]);
   }
 
@@ -1394,6 +1510,10 @@ export class PromptOverlayComponent implements AfterViewInit, OnDestroy {
       case 'bottom':
         if (!this.canConfirmBottom()) return false;
         this.confirmBottom();
+        return true;
+      case 'choice':
+        if (!this.canConfirmChoice()) return false;
+        this.confirmChoice();
         return true;
       default:
         return false;

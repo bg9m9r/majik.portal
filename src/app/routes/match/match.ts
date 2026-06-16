@@ -493,6 +493,16 @@ export class MatchPage implements OnInit, OnDestroy {
           // CR 103.4 — London-mulligan bottom count (gen widens int to
           // number | string; coerce to a number).
           bottomCount: dto.bottomCount == null ? undefined : Number(dto.bottomCount),
+          // CR 700.6 / 701.x — generic declarative-choice descriptor
+          // (Yawgmoth's "Sacrifice another creature" cost, Grist, MDFC/Gift/
+          // Sungold Sentinel, Suppression Ray, Serra's Emissary, …). The gen
+          // widens int min/max to number | string, so coerce both. The
+          // pickable cards ride on the existing `candidates` field above.
+          choiceView: dto.choiceView == null ? undefined : {
+            kind: dto.choiceView.kind,
+            min: Number(dto.choiceView.min),
+            max: Number(dto.choiceView.max),
+          },
         };
         this.game.setPrompt(envelope);
       });
@@ -828,6 +838,21 @@ export class MatchPage implements OnInit, OnDestroy {
         return {
           $type: 'chooseFromRevealed',
           instanceId: d.pickedInstanceId ?? null,
+        };
+      case 'choice':
+        // CR 700.6 / 701.x — generic declarative-choice response (Yawgmoth's
+        // "Sacrifice another creature" cost, Grist, MDFC/Gift/Sungold
+        // Sentinel, Suppression Ray, Serra's Emissary, …). Echoes the
+        // prompt's choiceView.kind back verbatim so the engine resolves the
+        // picks against the right ChoiceKind. `yesNo` is only meaningful for
+        // the YesNo kind (a dedicated chooseYesNo path handles "may"
+        // prompts), so it stays false here. Before this branch the portal
+        // never rendered the prompt and the player wedged (core PR #2959).
+        return {
+          $type: 'choice',
+          kind: d.choiceKind ?? 'PickOne',
+          selectedInstanceIds: d.selectedInstanceIds ?? [],
+          yesNo: false,
         };
       default:
         return null;
