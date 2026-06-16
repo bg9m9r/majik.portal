@@ -38,6 +38,7 @@ import { ZoneRailComponent } from './zone-rail.component';
 import { ZoneModalComponent } from './zone-modal.component';
 import { ZoneKind } from './zone-pile.component';
 import { GameLogComponent } from './game-log.component';
+import { LayoutPrefsService } from '../layout-prefs.service';
 
 /**
  * A `StackItem` enriched with display flags the template + the
@@ -55,6 +56,19 @@ export interface StackItemView extends StackItem {
 @Component({
   selector: 'app-board',
   standalone: true,
+  // Card-scale CSS-var overrides (read from LayoutPrefsService.cardScale).
+  //  * --majik-card-w/h (scaledCardW/H): the scaled base 100/140 — battlefield
+  //    cards inherit these directly.
+  //  * --majik-card-scale (raw multiplier): the zone overrides that pin their
+  //    own absolute card size (opp face-down hand, self hand — see board.scss
+  //    .arena-strip__hand / __hand--self) multiply their base px by THIS, so the
+  //    slider scales hand cards too, not just the battlefield. Without it the
+  //    zone overrides' absolute px would win and the hand wouldn't scale.
+  host: {
+    '[style.--majik-card-w.px]': 'scaledCardW()',
+    '[style.--majik-card-h.px]': 'scaledCardH()',
+    '[style.--majik-card-scale]': 'cardScale()',
+  },
   imports: [
     CardViewComponent,
     PlayerHudComponent,
@@ -212,8 +226,13 @@ export interface StackItemView extends StackItem {
             hand sit at the TOP edge; the battlefield wrapper carries
             the active-foe rim around backline-top + frontline-bottom
             so creatures meet the centerline.
+
+            flex-grow ONLY is bound here (foeGrow/selfGrow, default 1.0 each);
+            flex-shrink + flex-basis:0 come from the .arena-side "flex: 1 1 0"
+            rule in board.scss. Don't convert that SCSS to a non-zero basis or
+            the split ratio math (grow = ratio*2) breaks.
           -->
-          <div class="arena-side arena-side--foe">
+          <div class="arena-side arena-side--foe" [style.flex-grow]="foeGrow()">
             <!--
               CR 406.3 / 706.2 — opponent's off-battlefield zone rail
               (Library count + Graveyard + Exile). Docked to the outer
@@ -322,7 +341,7 @@ export interface StackItemView extends StackItem {
             .battlefield so drag-from-hand resolves to onBattlefieldDrop
             regardless of which inner bucket the user releases over.
           -->
-          <div class="arena-side arena-side--self">
+          <div class="arena-side arena-side--self" [style.flex-grow]="selfGrow()">
             <!--
               CR 406.3 / 706.2 — your off-battlefield zone rail (Library
               count + Graveyard + Exile). Docked to the outer (bottom-
@@ -398,7 +417,10 @@ export interface StackItemView extends StackItem {
               }
             </div>
 
-            <div class="arena-strip arena-strip--self">
+            <div class="arena-strip arena-strip--self"
+              [style.flex-basis.px]="handStripPx()"
+              [style.min-height.px]="handStripPx()"
+              [style.max-height.px]="handStripPx()">
               <app-player-hud
                 class="arena-strip__hud"
                 [player]="self()"
@@ -1009,6 +1031,22 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
   }
 
   private readonly gameStore = inject(GameStore);
+
+  private readonly layoutPrefs = inject(LayoutPrefsService);
+
+  // Base card geometry (matches tokens.scss / board.scss :root).
+  private readonly baseCardW = 100;
+  private readonly baseCardH = 140;
+
+  readonly scaledCardW = computed(() => Math.round(this.baseCardW * this.layoutPrefs.cardScale()));
+  readonly scaledCardH = computed(() => Math.round(this.baseCardH * this.layoutPrefs.cardScale()));
+  // Raw multiplier exposed as --majik-card-scale so the absolute-sized hand /
+  // opp-hand zone overrides (board.scss) can multiply their base px and scale
+  // along with the slider. Public so the host binding type-checks.
+  readonly cardScale = computed(() => this.layoutPrefs.cardScale());
+  readonly foeGrow = computed(() => this.layoutPrefs.oppSelfRatio() * 2);
+  readonly selfGrow = computed(() => (1 - this.layoutPrefs.oppSelfRatio()) * 2);
+  readonly handStripPx = computed(() => this.layoutPrefs.handStripPx());
 
   // Aria-live announcement string — we prefix with a zero-width space
   // tied to a sequence number so identical-text re-emits force a fresh

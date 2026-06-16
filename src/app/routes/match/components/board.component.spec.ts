@@ -3,6 +3,7 @@ import { TestBed } from '@angular/core/testing';
 import { ComponentRef, DebugElement } from '@angular/core';
 import { By } from '@angular/platform-browser';
 import { BoardComponent } from './board.component';
+import { LayoutPrefsService } from '../layout-prefs.service';
 import { CardViewComponent } from '../../../ui/card-view.component';
 import {
   Ability,
@@ -1563,5 +1564,44 @@ describe('BoardComponent — stack item controller distinction', () => {
     expect(myItem!.classList.contains('stack-item--mine')).toBe(true);
     // The opponent's card name surfaces in the (auto-expanded) chip.
     expect(oppItem!.textContent).toContain('Counterspell');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// BoardComponent — layout prefs applied (Task 5)
+//
+// The board READS LayoutPrefsService signals to drive: the card scale (host
+// CSS-var override), the battlefield split (per-side flex-grow off
+// oppSelfRatio), and the self strip height (flex-basis override of the
+// Phase-1 fixed 116px). Mount FIRST, then inject the SAME root service the
+// board uses, set values, detectChanges, assert (avoids TestBed module-reset
+// instance-identity issues). reset() at the end prevents cross-test bleed.
+// ---------------------------------------------------------------------------
+describe('BoardComponent — layout prefs applied', () => {
+  it('scales the card CSS vars from LayoutPrefsService.cardScale', () => {
+    const { fixture } = mountBoardWithBattlefields([], []);
+    const prefs = TestBed.inject(LayoutPrefsService);
+    prefs.setCardScale(1.2);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    // 100 * 1.2 = 120, 140 * 1.2 = 168
+    expect(host.style.getPropertyValue('--majik-card-w').trim()).toBe('120px');
+    expect(host.style.getPropertyValue('--majik-card-h').trim()).toBe('168px');
+    prefs.reset();
+  });
+
+  it('drives the battlefield split from oppSelfRatio and strip height from handStripPx', () => {
+    const { fixture } = mountBoardWithBattlefields([], []);
+    const prefs = TestBed.inject(LayoutPrefsService);
+    prefs.setOppSelfRatio(0.6);
+    prefs.setHandStripPx(140);
+    fixture.detectChanges();
+    const foe = fixture.nativeElement.querySelector('.arena-side--foe') as HTMLElement;
+    const self = fixture.nativeElement.querySelector('.arena-side--self') as HTMLElement;
+    const strip = fixture.nativeElement.querySelector('.arena-side--self > .arena-strip--self') as HTMLElement;
+    expect(parseFloat(foe.style.flexGrow)).toBeCloseTo(1.2);  // 0.6 * 2
+    expect(parseFloat(self.style.flexGrow)).toBeCloseTo(0.8);  // (1-0.6) * 2
+    expect(strip.style.getPropertyValue('flex-basis').trim()).toBe('140px');
+    prefs.reset();
   });
 });

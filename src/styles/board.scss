@@ -316,8 +316,11 @@
     justify-content: flex-end;
     // Opp face-down hand sits inside the strip — squeeze the card
     // size down so it doesn't push the strip taller than the HUD.
-    --majik-card-w: 56px;
-    --majik-card-h: 78px;
+    // Multiplied by --majik-card-scale (set on the board host) so the
+    // user's card-scale slider scales the hand too, not just the
+    // battlefield. Falls back to 1 when unset.
+    --majik-card-w: calc(56px * var(--majik-card-scale, 1));
+    --majik-card-h: calc(78px * var(--majik-card-scale, 1));
   }
 
   // Self hand lives in the same strip now. Medium cards (hover zooms to
@@ -330,8 +333,10 @@
   // board.component.spec.ts can read them in jsdom (global board.scss is
   // not loaded in the unit-test env). Keep both in sync.
   &__hand--self {
-    --majik-card-w: 80px;
-    --majik-card-h: 112px; // 80 * 7/5
+    // Medium base (80 × 112 = 80 * 7/5), multiplied by --majik-card-scale
+    // (board host) so the card-scale slider scales the self hand too.
+    --majik-card-w: calc(80px * var(--majik-card-scale, 1));
+    --majik-card-h: calc(112px * var(--majik-card-scale, 1));
     flex-wrap: nowrap;
     overflow-x: auto;
     overflow-y: hidden;
