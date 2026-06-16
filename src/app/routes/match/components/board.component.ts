@@ -1090,7 +1090,20 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
   readonly cardScale = computed(() => this.layoutPrefs.cardScale());
   readonly foeGrow = computed(() => this.layoutPrefs.oppSelfRatio() * 2);
   readonly selfGrow = computed(() => (1 - this.layoutPrefs.oppSelfRatio()) * 2);
-  readonly handStripPx = computed(() => this.layoutPrefs.handStripPx());
+  // Effective self-strip height = the user's chosen handStripPx, but never
+  // shorter than the (scaled) hand cards need — otherwise a high card-scale
+  // would clip the hand against a fixed strip (overflow-y:hidden). The medium
+  // self-hand card is 112px tall (board.scss .arena-strip__hand--self); +4px
+  // matches the strip's slack so at default scale (112+4=116) this equals the
+  // default handStripPx and the Phase-1 footprint stays exactly 116. The
+  // user's value remains the floor; dragging the strip taller still works.
+  private readonly selfHandCardH = 112;
+  readonly handStripPx = computed(() =>
+    Math.max(
+      this.layoutPrefs.handStripPx(),
+      Math.round(this.selfHandCardH * this.layoutPrefs.cardScale()) + 4,
+    ),
+  );
 
   // Drag-resize bases: captured on the first delta of a gesture so the
   // cumulative delta from the handle applies against a stable start value

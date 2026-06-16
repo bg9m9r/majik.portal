@@ -1596,6 +1596,7 @@ describe('BoardComponent — layout prefs applied', () => {
   it('drives the battlefield split from oppSelfRatio and strip height from handStripPx', () => {
     const { fixture } = mountBoardWithBattlefields([], []);
     const prefs = TestBed.inject(LayoutPrefsService);
+    prefs.reset(); // default card scale ⇒ strip height is the user value, not the hand-fit floor
     prefs.setOppSelfRatio(0.6);
     prefs.setHandStripPx(140);
     fixture.detectChanges();
@@ -1605,6 +1606,17 @@ describe('BoardComponent — layout prefs applied', () => {
     expect(parseFloat(foe.style.flexGrow)).toBeCloseTo(1.2);  // 0.6 * 2
     expect(parseFloat(self.style.flexGrow)).toBeCloseTo(0.8);  // (1-0.6) * 2
     expect(strip.style.getPropertyValue('flex-basis').trim()).toBe('140px');
+    prefs.reset();
+  });
+
+  it('grows the self strip to fit scaled hand cards so the hand is never clipped', () => {
+    const { fixture } = mountBoardWithBattlefields([], []);
+    const prefs = TestBed.inject(LayoutPrefsService);
+    prefs.reset();           // handStripPx default 116
+    prefs.setCardScale(1.4); // self hand card 112 * 1.4 = 157 (+4 slack) = 161 > 116
+    fixture.detectChanges();
+    const strip = fixture.nativeElement.querySelector('.arena-side--self > .arena-strip--self') as HTMLElement;
+    expect(parseInt(strip.style.getPropertyValue('flex-basis'), 10)).toBe(161);
     prefs.reset();
   });
 });
