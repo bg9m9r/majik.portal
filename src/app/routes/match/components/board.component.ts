@@ -95,37 +95,24 @@ export interface StackItemView extends StackItem {
   // ----------------------------------------------------------------
   // Symmetric non-battlefield footprint across the two sides.
   //
-  // Each .arena-side is flex: 1 1 0 (equal half each), but the
-  // inner stack ABOVE the centerline used to be asymmetric: the
-  // opp side parks HUD + mana + face-down hand in a single
-  // .arena-strip (with the face-down hand shrunk to 56×78 via the
-  // .arena-strip__hand override in board.scss), so opp non-bf
-  // height ≈ one shrunk-card row. The self side stacks
-  // (full-size .hand-row) + (.arena-strip--self HUD/mana row),
-  // which is much taller. Net: opp .battlefield got more vertical
-  // space than self .battlefield — the self board looked clipped.
+  // Each .arena-side is flex: 1 1 0 (equal half each). The inner
+  // stack ABOVE the centerline is now SYMMETRIC: each side parks
+  // HUD + mana + hand in a SINGLE .arena-strip (opp's hand is
+  // face-down, shrunk via .arena-strip__hand in board.scss; self's
+  // hand sits in .arena-strip__hand--self). One strip per side, so
   //
-  // Fix: lock the THREE non-battlefield elements (opp strip; self
-  // hand-row; self strip-self) to fixed heights such that
-  //
-  //   opp .arena-strip height
-  //     == self .hand-row height + self .arena-strip--self height
+  //   opp .arena-strip height == self .arena-strip--self height
   //
   // Both .battlefield wrappers are flex: 1 1 0 inside their
-  // arena-side, so equal non-bf footprint implies equal battlefield
-  // height. Self hand cards stay full-size (--majik-card-h, 140px);
-  // the opp strip gets extra vertical space inside it which reads
-  // as centered empty space — fine, not a regression.
+  // arena-side, so equal strip footprint implies equal battlefield
+  // height (one strip per side, equal ⇒ equal battlefields).
   //
   // Heights are co-located here (vs. board.scss) so they're loaded
   // in jsdom unit tests for the layout assertions in
   // board.component.spec.ts. Literal pixel values (vs. CSS vars)
   // since jsdom doesn't resolve var() through Angular's emulated
   // encapsulation. Math:
-  //   tokens.scss → --majik-card-h: 140px, --majik-space-2: 8px
-  //   hand-h = 140 + 8*2 = 156px   (full-size hand-card row)
-  //   info-h =       8*4 =  32px   (compact HUD/mana row)
-  //   strip-h = hand-h + info-h = 188px  (opp's one strip)
+  //   strip-h = 116px (one strip per side, equal ⇒ equal battlefields)
   styles: [`
     :host {
       display: flex;
@@ -133,21 +120,12 @@ export interface StackItemView extends StackItem {
       min-height: 0;
       flex-direction: column;
     }
-    .arena-side--foe .arena-strip {
-      flex: 0 0 188px;
-      min-height: 188px;
-      max-height: 188px;
-      align-items: center;
-    }
-    .arena-side--self > .hand-row {
-      flex: 0 0 156px;
-      min-height: 156px;
-      max-height: 156px;
-    }
+    .arena-side--foe .arena-strip,
     .arena-side--self > .arena-strip--self {
-      flex: 0 0 32px;
-      min-height: 32px;
-      max-height: 32px;
+      flex: 0 0 116px;
+      min-height: 116px;
+      max-height: 116px;
+      align-items: center;
     }
   `],
   // Layout overview (Arena-style, zoned battlefield):
@@ -400,37 +378,6 @@ export interface StackItemView extends StackItem {
               }
             </div>
 
-            <div
-              #selfHandList="cdkDropList"
-              id="self-hand-droplist"
-              class="hand-row"
-              role="list"
-              aria-label="your hand"
-              cdkDropList
-              cdkDropListOrientation="horizontal"
-              [cdkDropListConnectedTo]="['self-battlefield-droplist']"
-              (cdkDropListDropped)="onHandDrop($event)">
-              @for (c of orderedSelfHand(); track c.instanceId) {
-                <button
-                  type="button"
-                  role="listitem"
-                  class="bg-transparent p-0 focus:outline focus:outline-2 focus:outline-amber-400"
-                  cdkDrag
-                  [cdkDragData]="c"
-                  [attr.aria-label]="'play ' + c.name"
-                  animate.enter="zone-enter-from-top"
-                  animate.leave="zone-leave-down">
-                  <app-card-view
-                    [snapshot]="c"
-                    zone="hand"
-                    [castable]="castableIds().has(c.instanceId)" />
-                  <div *cdkDragPlaceholder class="hand-card-placeholder"></div>
-                </button>
-              } @empty {
-                <span class="opacity-30">— hand empty —</span>
-              }
-            </div>
-
             <div class="arena-strip arena-strip--self">
               <app-player-hud
                 class="arena-strip__hud"
@@ -439,6 +386,36 @@ export interface StackItemView extends StackItem {
                 side="self"
                 label="you" />
               <app-mana-pool-row class="arena-strip__mana" [player]="self()" />
+              <div
+                #selfHandList="cdkDropList"
+                id="self-hand-droplist"
+                class="hand-row arena-strip__hand arena-strip__hand--self"
+                role="list"
+                aria-label="your hand"
+                cdkDropList
+                cdkDropListOrientation="horizontal"
+                [cdkDropListConnectedTo]="['self-battlefield-droplist']"
+                (cdkDropListDropped)="onHandDrop($event)">
+                @for (c of orderedSelfHand(); track c.instanceId) {
+                  <button
+                    type="button"
+                    role="listitem"
+                    class="bg-transparent p-0 focus:outline focus:outline-2 focus:outline-amber-400"
+                    cdkDrag
+                    [cdkDragData]="c"
+                    [attr.aria-label]="'play ' + c.name"
+                    animate.enter="zone-enter-from-top"
+                    animate.leave="zone-leave-down">
+                    <app-card-view
+                      [snapshot]="c"
+                      zone="hand"
+                      [castable]="castableIds().has(c.instanceId)" />
+                    <div *cdkDragPlaceholder class="hand-card-placeholder"></div>
+                  </button>
+                } @empty {
+                  <span class="opacity-30">— hand empty —</span>
+                }
+              </div>
             </div>
           </div>
 
