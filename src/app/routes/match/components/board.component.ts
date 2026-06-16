@@ -26,6 +26,7 @@ import { PlayerHudComponent } from '../../../ui/player-hud.component';
 import { ManaPoolRowComponent } from '../../../ui/mana-pool-row.component';
 import { PhaseBarComponent } from '../../../ui/phase-bar.component';
 import { ActionBarComponent } from './action-bar.component';
+import { LayoutControlsComponent } from './layout-controls.component';
 import {
   ActivatableAbility,
   CardContextMenuAction,
@@ -76,6 +77,7 @@ export interface StackItemView extends StackItem {
     ManaPoolRowComponent,
     PhaseBarComponent,
     ActionBarComponent,
+    LayoutControlsComponent,
     CardContextMenuComponent,
     ManaColorPickerComponent,
     CdkDropList,
@@ -636,6 +638,8 @@ export interface StackItemView extends StackItem {
             </span>
           </div>
         }
+
+        <app-layout-controls />
 
         <app-action-bar
           [canPass]="canPass()"
