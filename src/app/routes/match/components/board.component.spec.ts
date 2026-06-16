@@ -52,7 +52,7 @@ function player(over: Partial<GamePlayer> & Pick<GamePlayer, 'id' | 'name'>): Ga
 }
 
 function mountBoard(state: GameState, selfPlayerIds: string[]) {
-  TestBed.configureTestingModule({ imports: [BoardComponent] });
+  TestBed.configureTestingModule({ imports: [BoardComponent], providers: [SelectionService] });
   const fixture = TestBed.createComponent(BoardComponent);
   const ref: ComponentRef<BoardComponent> = fixture.componentRef;
   ref.setInput('state', state);
@@ -238,7 +238,7 @@ function mountBoardWithCard(
     stack: [],
     youPlayerId: null,
   };
-  TestBed.configureTestingModule({ imports: [BoardComponent] });
+  TestBed.configureTestingModule({ imports: [BoardComponent], providers: [SelectionService] });
   const fixture = TestBed.createComponent(BoardComponent);
   const ref: ComponentRef<BoardComponent> = fixture.componentRef;
   ref.setInput('state', state);
@@ -838,7 +838,7 @@ describe('BoardComponent — double-click planeswalker loyalty dropdown', () => 
       stack: [],
       youPlayerId: null,
     };
-    TestBed.configureTestingModule({ imports: [BoardComponent] });
+    TestBed.configureTestingModule({ imports: [BoardComponent], providers: [SelectionService] });
     const fixture = TestBed.createComponent(BoardComponent);
     fixture.componentRef.setInput('state', state);
     fixture.componentRef.setInput('selfPlayerIds', ['me']);
@@ -1386,7 +1386,7 @@ describe('BoardComponent — Pass-priority button gate', () => {
       phase: 'PreCombatMain', turnNumber: 1, activePlayerId: 'me',
       players: [me, opp], stack: [], youPlayerId: 'me',
     };
-    TestBed.configureTestingModule({ imports: [BoardComponent] });
+    TestBed.configureTestingModule({ imports: [BoardComponent], providers: [SelectionService] });
     const fixture = TestBed.createComponent(BoardComponent);
     const ref: ComponentRef<BoardComponent> = fixture.componentRef;
     ref.setInput('state', state);
@@ -1466,7 +1466,7 @@ describe('BoardComponent — stack priority callout', () => {
       stack: opts.stack,
       youPlayerId: opts.youPlayerId ?? 'me',
     };
-    TestBed.configureTestingModule({ imports: [BoardComponent] });
+    TestBed.configureTestingModule({ imports: [BoardComponent], providers: [SelectionService] });
     const fixture = TestBed.createComponent(BoardComponent);
     const ref: ComponentRef<BoardComponent> = fixture.componentRef;
     ref.setInput('state', state);
@@ -1634,5 +1634,95 @@ describe('BoardComponent — resize handles', () => {
     component.onCenterlineResizeEnd();
     component.onHandStripResizeEnd();
     prefs.reset();
+  });
+});
+
+// ---------------------------------------------------------------------
+// On-board click-to-select (targets / choice / attackers / blockers).
+// The board reads SelectionService.mode() for affordance + click handling
+// and emits boardDecision on auto-submit (fixed count) / confirm (combat).
+// ---------------------------------------------------------------------
+import { SelectionService } from '../../../core/match/selection.service';
+import type { PromptEnvelope } from '../../../core/match/match.types';
+
+function creature(id: string, over: Partial<CardSnapshot> = {}): CardSnapshot {
+  return {
+    instanceId: id,
+    name: id,
+    manaCost: '',
+    types: ['Creature'],
+    power: 1,
+    toughness: 1,
+    tapped: false,
+    summoningSickness: false,
+    producedManaColors: '',
+    ...over,
+  };
+}
+
+function mountBoardSel(state: GameState, selfPlayerIds: string[]) {
+  TestBed.configureTestingModule({
+    imports: [BoardComponent],
+    providers: [SelectionService],
+  });
+  const fixture = TestBed.createComponent(BoardComponent);
+  const svc = TestBed.inject(SelectionService);
+  fixture.componentRef.setInput('state', state);
+  fixture.componentRef.setInput('selfPlayerIds', selfPlayerIds);
+  fixture.detectChanges();
+  return { component: fixture.componentInstance, fixture, svc };
+}
+
+function selState(players: GamePlayer[], activePlayerId = 'me'): GameState {
+  return { phase: 'Main1', turnNumber: 1, activePlayerId, players, stack: [], youPlayerId: null };
+}
+
+describe('BoardComponent — on-board target/choice selection', () => {
+  it('auto-submits a fixed single-target selection on click', () => {
+    const z = creature('z');
+    const me = player({ id: 'me', name: 'Me' });
+    const foe = player({ id: 'foe', name: 'Foe', battlefield: { cards: [z] } });
+    const { component, svc } = mountBoardSel(selState([me, foe]), ['me']);
+    const emitted: unknown[] = [];
+    component.boardDecision.subscribe(d => emitted.push(d));
+
+    svc.setBoardInstanceIds(new Set(['z']));
+    svc.setPrompt({ gameId: 'g', playerId: 'me', expectedKinds: ['ChooseTargetsCommand'], candidates: [z], label: 'Bolt' } as PromptEnvelope);
+
+    component.onBoardCardClick(z);
+    expect(emitted).toEqual([{ kind: 'targets', targetInstanceIds: ['z'] }]);
+  });
+
+  it('ignores clicks on non-candidate cards', () => {
+    const z = creature('z');
+    const me = player({ id: 'me', name: 'Me', battlefield: { cards: [z] } });
+    const { component, svc } = mountBoardSel(selState([me]), ['me']);
+    const emitted: unknown[] = [];
+    component.boardDecision.subscribe(d => emitted.push(d));
+
+    svc.setBoardInstanceIds(new Set(['z']));
+    svc.setPrompt({ gameId: 'g', playerId: 'me', expectedKinds: ['ChooseTargetsCommand'], candidates: [z] } as PromptEnvelope);
+
+    component.onBoardCardClick(creature('not-z'));
+    expect(emitted).toEqual([]);
+  });
+
+  it('marks candidates targetable, non-candidates dimmed, and the picked one selected', () => {
+    const z = creature('z');
+    const other = creature('other');
+    const me = player({ id: 'me', name: 'Me', battlefield: { cards: [z, other] } });
+    const { component, svc } = mountBoardSel(selState([me]), ['me']);
+
+    svc.setBoardInstanceIds(new Set(['z', 'other']));
+    // min 0 / max 2 so the click does NOT auto-submit (range pick).
+    svc.setPrompt({ gameId: 'g', playerId: 'me', expectedKinds: ['ChoiceCommand'], candidates: [z], choiceView: { kind: 'PickN', min: 0, max: 2 } } as PromptEnvelope);
+
+    expect(component.isTargetable('z')).toBe(true);
+    expect(component.isTargetable('other')).toBe(false);
+    expect(component.isDimmed('other')).toBe(true);
+
+    component.onBoardCardClick(z);
+    expect(component.isSelectedForTarget('z')).toBe(true);
+    expect(component.isDimmed('z')).toBe(false);
   });
 });
