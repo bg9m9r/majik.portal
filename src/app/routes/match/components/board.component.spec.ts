@@ -1075,7 +1075,10 @@ describe('BoardComponent — self-side ordering + host display (zoned layout)', 
     const anchors = Array.from(side.children).filter(
       (el) =>
         el.tagName.toLowerCase() !== 'app-zone-rail' &&
-        !el.classList.contains('zone-rail'),
+        !el.classList.contains('zone-rail') &&
+        // The strip-edge resize handle (Task 6) is a structural divider
+        // between the battlefield and the strip, not a content anchor.
+        !el.classList.contains('strip-handle'),
     ) as HTMLElement[];
     expect(anchors[0].classList.contains('battlefield')).toBe(true);
     expect(anchors[1].classList.contains('arena-strip--self')).toBe(true);
@@ -1602,6 +1605,22 @@ describe('BoardComponent — layout prefs applied', () => {
     expect(parseFloat(foe.style.flexGrow)).toBeCloseTo(1.2);  // 0.6 * 2
     expect(parseFloat(self.style.flexGrow)).toBeCloseTo(0.8);  // (1-0.6) * 2
     expect(strip.style.getPropertyValue('flex-basis').trim()).toBe('140px');
+    prefs.reset();
+  });
+});
+
+describe('BoardComponent — resize handles', () => {
+  it('a centerline drag updates oppSelfRatio; a strip-edge drag updates handStripPx', () => {
+    const { fixture } = mountBoardWithBattlefields([], []);
+    const prefs = TestBed.inject(LayoutPrefsService);
+    prefs.reset();
+    const component = fixture.componentInstance as BoardComponent;
+    component.onCenterlineResize(100);
+    expect(prefs.oppSelfRatio()).toBeGreaterThan(0.5);
+    component.onHandStripResize(-40);
+    expect(prefs.handStripPx()).toBeGreaterThan(116);
+    component.onCenterlineResizeEnd();
+    component.onHandStripResizeEnd();
     prefs.reset();
   });
 });

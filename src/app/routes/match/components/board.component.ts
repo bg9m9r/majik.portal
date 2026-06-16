@@ -39,6 +39,7 @@ import { ZoneModalComponent } from './zone-modal.component';
 import { ZoneKind } from './zone-pile.component';
 import { GameLogComponent } from './game-log.component';
 import { LayoutPrefsService } from '../layout-prefs.service';
+import { ResizeHandleDirective } from './resize-handle.directive';
 
 /**
  * A `StackItem` enriched with display flags the template + the
@@ -83,6 +84,7 @@ export interface StackItemView extends StackItem {
     ZoneRailComponent,
     ZoneModalComponent,
     GameLogComponent,
+    ResizeHandleDirective,
   ],
   // ----------------------------------------------------------------
   // Host display.
@@ -160,6 +162,18 @@ export interface StackItemView extends StackItem {
     .backline__lands,
     .backline__utility {
       overflow-y: auto;
+    }
+    .centerline-handle, .strip-handle {
+      flex: 0 0 6px;
+      cursor: row-resize;
+      border-radius: 3px;
+      background: var(--majik-line-faint, rgba(255,255,255,0.08));
+      transition: background-color 150ms ease-out;
+    }
+    .centerline-handle:hover, .strip-handle:hover,
+    .centerline-handle:focus-visible, .strip-handle:focus-visible {
+      background: var(--majik-accent, rgba(202,167,90,0.6));
+      outline: none;
     }
   `],
   // Layout overview (Arena-style, zoned battlefield):
@@ -335,6 +349,20 @@ export interface StackItemView extends StackItem {
           </div>
 
           <!--
+            Centerline drag handle (direct child of .board-arena, between
+            the two arena-sides). Dragging it adjusts the opp/self split
+            ratio; ArrowUp/ArrowDown nudge it. Plain quotes only in this
+            comment (no backticks) so the inline template literal stays
+            intact.
+          -->
+          <div
+            class="centerline-handle"
+            appResizeHandle
+            aria-label="resize battlefield split"
+            (resizeDelta)="onCenterlineResize($event)"
+            (resizeEnd)="onCenterlineResizeEnd()"></div>
+
+          <!--
             Self zone. Mirror of the opponent: frontline ON TOP (toward
             the centerline so creatures meet), backline ON BOTTOM —
             lands LEFT, utility RIGHT. ONE cdkDropList wraps the whole
@@ -416,6 +444,18 @@ export interface StackItemView extends StackItem {
                 }
               }
             </div>
+
+            <!--
+              Strip-edge drag handle (direct child of .arena-side--self,
+              between the battlefield and the self strip). Dragging UP makes
+              the hand strip taller. Plain quotes only here (no backticks).
+            -->
+            <div
+              class="strip-handle"
+              appResizeHandle
+              aria-label="resize hand area"
+              (resizeDelta)="onHandStripResize($event)"
+              (resizeEnd)="onHandStripResizeEnd()"></div>
 
             <div class="arena-strip arena-strip--self"
               [style.flex-basis.px]="handStripPx()"
@@ -1047,6 +1087,26 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
   readonly foeGrow = computed(() => this.layoutPrefs.oppSelfRatio() * 2);
   readonly selfGrow = computed(() => (1 - this.layoutPrefs.oppSelfRatio()) * 2);
   readonly handStripPx = computed(() => this.layoutPrefs.handStripPx());
+
+  // Drag-resize bases: captured on the first delta of a gesture so the
+  // cumulative delta from the handle applies against a stable start value
+  // (avoids drift from re-reading the just-mutated pref each move).
+  private centerlineBase: number | null = null;
+  private stripBase: number | null = null;
+
+  onCenterlineResize(deltaY: number): void {
+    const h = this.boardGridEl?.nativeElement.getBoundingClientRect().height || 800;
+    this.centerlineBase ??= this.layoutPrefs.oppSelfRatio();
+    this.layoutPrefs.setOppSelfRatio(this.centerlineBase + deltaY / h);
+  }
+  onCenterlineResizeEnd(): void { this.centerlineBase = null; }
+
+  onHandStripResize(deltaY: number): void {
+    // Dragging UP (negative deltaY) makes the strip TALLER.
+    this.stripBase ??= this.layoutPrefs.handStripPx();
+    this.layoutPrefs.setHandStripPx(this.stripBase - deltaY);
+  }
+  onHandStripResizeEnd(): void { this.stripBase = null; }
 
   // Aria-live announcement string — we prefix with a zero-width space
   // tied to a sequence number so identical-text re-emits force a fresh
