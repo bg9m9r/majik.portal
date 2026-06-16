@@ -257,6 +257,14 @@ export interface PromptEnvelope {
     min: number;
     max: number;
   };
+  // Targeting overhaul (Phase A engine / Phase B portal) — players offered
+  // as legal targets for this prompt (e.g. Lightning Bolt "any target" can
+  // hit a player). Mirrors server-side PromptDto.PlayerCandidates /
+  // PlayerCandidateDto { id, name, life }. The portal merges these ids into
+  // the on-board selectable id space so the player's HUD becomes clickable
+  // with the same highlight/dim affordance as cards. Null/absent on prompts
+  // with no player targets and on older server builds.
+  playerCandidates?: { id: string; name: string; life: number }[];
 }
 
 // Derived view of the active prompt for on-board click-to-select. Null

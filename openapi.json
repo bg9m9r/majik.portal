@@ -1443,35 +1443,6 @@
           }
         }
       },
-      "ChoiceViewDto": {
-        "required": [
-          "kind",
-          "min",
-          "max"
-        ],
-        "type": "object",
-        "properties": {
-          "kind": {
-            "type": "string"
-          },
-          "min": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "max": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          }
-        }
-      },
       "CardSnapshotDto": {
         "required": [
           "instanceId",
@@ -1558,6 +1529,83 @@
             "items": {
               "$ref": "#/components/schemas/CardSnapshotDto"
             }
+          }
+        }
+      },
+      "ChoiceViewDto": {
+        "required": [
+          "kind",
+          "min",
+          "max"
+        ],
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "min": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "max": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "ContinuousEffectAddedPayload": {
+        "required": [
+          "sourceInstanceId",
+          "sourceName",
+          "layer",
+          "description"
+        ],
+        "type": "object",
+        "properties": {
+          "sourceInstanceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sourceName": {
+            "type": "string"
+          },
+          "layer": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          }
+        }
+      },
+      "ContinuousEffectRemovedPayload": {
+        "required": [
+          "sourceInstanceId",
+          "sourceName",
+          "layer",
+          "description"
+        ],
+        "type": "object",
+        "properties": {
+          "sourceInstanceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sourceName": {
+            "type": "string"
+          },
+          "layer": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
           }
         }
       },
@@ -1688,6 +1736,70 @@
           },
           "damageType": {
             "type": "string"
+          }
+        }
+      },
+      "DamageDivisionAllocationDto": {
+        "required": [
+          "targetId",
+          "amount"
+        ],
+        "type": "object",
+        "properties": {
+          "targetId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "amount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "DamageDivisionTargetDto": {
+        "required": [
+          "targetId",
+          "name"
+        ],
+        "type": "object",
+        "properties": {
+          "targetId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "DamageDivisionViewDto": {
+        "required": [
+          "sourceCardName",
+          "totalDamage",
+          "targets"
+        ],
+        "type": "object",
+        "properties": {
+          "sourceCardName": {
+            "type": "string"
+          },
+          "totalDamage": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "targets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DamageDivisionTargetDto"
+            }
           }
         }
       },
@@ -1830,7 +1942,9 @@
           "playerLost",
           "stackObject",
           "damageDealt",
-          "counterAdded"
+          "counterAdded",
+          "continuousEffectAdded",
+          "continuousEffectRemoved"
         ],
         "type": "object",
         "properties": {
@@ -1875,6 +1989,12 @@
           },
           "counterAdded": {
             "$ref": "#/components/schemas/CounterAddedPayload"
+          },
+          "continuousEffectAdded": {
+            "$ref": "#/components/schemas/ContinuousEffectAddedPayload"
+          },
+          "continuousEffectRemoved": {
+            "$ref": "#/components/schemas/ContinuousEffectRemovedPayload"
           }
         }
       },
@@ -1957,6 +2077,9 @@
           },
           {
             "$ref": "#/components/schemas/GameCommandChoiceCommand"
+          },
+          {
+            "$ref": "#/components/schemas/GameCommandChooseDamageDivisionCommand"
           }
         ],
         "discriminator": {
@@ -1982,7 +2105,8 @@
             "chooseSurveil": "#/components/schemas/GameCommandChooseSurveilCommand",
             "chooseYesNo": "#/components/schemas/GameCommandChooseYesNoCommand",
             "chooseFromRevealed": "#/components/schemas/GameCommandChooseFromRevealedCommand",
-            "choice": "#/components/schemas/GameCommandChoiceCommand"
+            "choice": "#/components/schemas/GameCommandChoiceCommand",
+            "chooseDamageDivision": "#/components/schemas/GameCommandChooseDamageDivisionCommand"
           }
         }
       },
@@ -2174,6 +2298,29 @@
             "items": {
               "type": "string",
               "format": "uuid"
+            }
+          },
+          "playerId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "GameCommandChooseDamageDivisionCommand": {
+        "required": [
+          "allocations"
+        ],
+        "properties": {
+          "$type": {
+            "enum": [
+              "chooseDamageDivision"
+            ],
+            "type": "string"
+          },
+          "allocations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DamageDivisionAllocationDto"
             }
           },
           "playerId": {
@@ -2830,6 +2977,31 @@
           }
         }
       },
+      "PlayerCandidateDto": {
+        "required": [
+          "id",
+          "name",
+          "life"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "life": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
       "PlayerDto": {
         "required": [
           "id",
@@ -3030,6 +3202,25 @@
                 "$ref": "#/components/schemas/ChoiceViewDto"
               }
             ]
+          },
+          "damageDivisionView": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DamageDivisionViewDto"
+              }
+            ]
+          },
+          "playerCandidates": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/PlayerCandidateDto"
+            }
           }
         }
       },
