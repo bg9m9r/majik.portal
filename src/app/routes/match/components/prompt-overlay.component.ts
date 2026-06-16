@@ -5,12 +5,14 @@ import {
   OnDestroy,
   ViewChild,
   computed,
+  inject,
   input,
   output,
   signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { CardSnapshot, GameState, GamePlayer } from '../../../core/match/match.types';
+import { CardSnapshot, GameState, GamePlayer, SelectionMode } from '../../../core/match/match.types';
+import { SelectionService } from '../../../core/match/selection.service';
 
 interface PromptInfo {
   expectedKinds?: string[];
@@ -223,9 +225,48 @@ export function detectKind(kinds: string[] | undefined): PromptKind {
           }
         </div>
 
+        @if (boardMode(); as bm) {
+          <!--
+            On-board click-to-select banner. The board owns the clicks + live
+            SVG arrows; this banner is just the instruction + Done/Confirm/
+            Cancel control for the four in-scope kinds. The modal grid for
+            those kinds is suppressed (see the @if (!boardMode()) wraps below).
+          -->
+          <div data-banner="board-select" class="flex items-center justify-between gap-3 text-xs">
+            <span class="opacity-80">{{ bm.sourceLabel || titleFor(kind()) }}
+              — {{ selection.selected().length }}{{ bm.max < 9e15 ? ('/' + bm.max) : '' }} selected</span>
+            <span class="flex gap-2">
+              @if (bm.kind === 'attackers') {
+                <button
+                  type="button"
+                  class="rounded border border-amber-400 px-3 py-1 text-amber-300 hover:bg-amber-400/10"
+                  (click)="confirmBoardAttackers()">Confirm attackers</button>
+              } @else if (bm.kind === 'blockers') {
+                <button
+                  type="button"
+                  class="rounded border border-amber-400 px-3 py-1 text-amber-300 hover:bg-amber-400/10"
+                  (click)="confirmBoardBlockers()">Confirm blocks</button>
+              } @else {
+                <button
+                  type="button"
+                  class="rounded border border-amber-400 px-3 py-1 text-amber-300 hover:bg-amber-400/10 disabled:cursor-not-allowed disabled:opacity-40"
+                  [disabled]="selection.selected().length < bm.min"
+                  (click)="confirmBoardSelection(bm)">Done</button>
+              }
+              @if (bm.cancellable) {
+                <button
+                  type="button"
+                  class="rounded border border-white/20 px-3 py-1 text-white/80 hover:bg-white/10"
+                  (click)="onCancel()">Cancel</button>
+              }
+            </span>
+          </div>
+        }
+
         @switch (kind()) {
           @case ('targets') {
-            <div class="flex items-center justify-between text-xs">
+            @if (!boardMode()) {
+            <div data-grid="targets" class="flex items-center justify-between text-xs">
               <span class="opacity-70">{{ selected().length }} selected</span>
               <button
                 type="button"
@@ -254,9 +295,11 @@ export function detectKind(kinds: string[] | undefined): PromptKind {
                 <p class="col-span-3 opacity-50">No candidates in play.</p>
               }
             </div>
+            }
           }
 
           @case ('choice') {
+            @if (!boardMode()) {
             <!--
               CR 700.6 / 701.x — generic declarative-choice picker. The
               server ships the pickable cards on candidates and a choiceView
@@ -265,7 +308,7 @@ export function detectKind(kinds: string[] | undefined): PromptKind {
               exactly one creature; PickN = min..max). Echoes choiceView.kind
               back in the ChoiceCommand on confirm.
             -->
-            <div class="flex items-center justify-between text-xs">
+            <div data-grid="choice" class="flex items-center justify-between text-xs">
               <span class="opacity-70">
                 @if (choiceMin() === choiceMax()) {
                   Pick {{ choiceMin() }} ({{ selected().length }} selected)
@@ -300,6 +343,7 @@ export function detectKind(kinds: string[] | undefined): PromptKind {
                 <p class="col-span-3 opacity-50">No candidates to choose from.</p>
               }
             </div>
+            }
           }
 
           @case ('mulligan') {
@@ -352,7 +396,8 @@ export function detectKind(kinds: string[] | undefined): PromptKind {
           }
 
           @case ('attackers') {
-            <div class="flex flex-col gap-2 text-xs">
+            @if (!boardMode()) {
+            <div data-grid="attackers" class="flex flex-col gap-2 text-xs">
               <span class="opacity-70">Pick creatures to attack {{ opponent()?.name ?? 'opponent' }} ({{ selected().length }} selected).</span>
               <div class="grid grid-cols-3 gap-2">
                 @for (c of selfCreatures(); track c.instanceId) {
@@ -379,10 +424,12 @@ export function detectKind(kinds: string[] | undefined): PromptKind {
                 Confirm attackers (or skip with none)
               </button>
             </div>
+            }
           }
 
           @case ('blockers') {
-            <div class="flex flex-col gap-2 text-xs">
+            @if (!boardMode()) {
+            <div data-grid="blockers" class="flex flex-col gap-2 text-xs">
               <span class="opacity-70">
                 Assign blockers to attackers. Each blocker can block at most one attacker; an attacker may be blocked by multiple blockers (CR 509.1).
               </span>
@@ -427,6 +474,7 @@ export function detectKind(kinds: string[] | undefined): PromptKind {
                 Confirm blocks
               </button>
             </div>
+            }
           }
 
           @case ('mana') {
@@ -910,6 +958,46 @@ export class PromptOverlayComponent implements AfterViewInit, OnDestroy {
   readonly surveilDecisions = signal<Record<string, 'graveyard' | 'top'>>({});
 
   readonly kind = computed<PromptKind>(() => detectKind(this.prompt()?.expectedKinds));
+
+  // Shared on-board selection state (provided at the match route so board +
+  // overlay use ONE instance). When mode() is non-null the overlay renders
+  // the slim banner instead of the modal grid for the in-scope kind; the
+  // board owns the clicks + live arrows. `selection` is public so the banner
+  // template can read selected()/blockPairs() directly.
+  readonly selection = inject(SelectionService);
+  readonly boardMode = computed<SelectionMode | null>(() => this.selection.mode());
+
+  // Explicit (non-auto) submit for a board-resident targets/choice pick:
+  // the banner's Done button. Emits the SAME PromptDecision the modal grid
+  // would, so match.ts.translateDecision is unchanged. choiceKind is the
+  // field translateDecision reads back (NOT a kind2 placeholder).
+  confirmBoardSelection(bm: SelectionMode): void {
+    const ids = this.selection.selected();
+    if (bm.kind === 'targets') {
+      this.decision.emit({ kind: 'targets', targetInstanceIds: ids });
+    } else if (bm.kind === 'choice') {
+      this.decision.emit({ kind: 'choice', selectedInstanceIds: ids, choiceKind: bm.choiceKind });
+    }
+    this.selection.clear();
+  }
+
+  // Confirm an on-board attacker declaration. Reads the shared selected set
+  // and stamps each attacker with the opponent (the only defender the engine
+  // supports today). Empty set = a valid "no attacks".
+  confirmBoardAttackers(): void {
+    const defenderId = this.opponent()?.id ?? '';
+    const attackers = this.selection.selected().map(id => ({ attackerInstanceId: id, defenderId }));
+    this.decision.emit({ kind: 'attackers', attackers });
+    this.selection.clear();
+  }
+
+  // Confirm an on-board blocker declaration. Reads the shared blocker-pair
+  // list the board built. Element shape mirrors the wire DeclareBlockers:
+  // { attackerInstanceId, blockerInstanceId }.
+  confirmBoardBlockers(): void {
+    this.decision.emit({ kind: 'blockers', blockers: this.selection.blockPairs() });
+    this.selection.resetCombat();
+  }
 
   // Required number of cards to bottom (London mulligan). Null when the
   // server didn't send a count (older build / transient deploy window) —

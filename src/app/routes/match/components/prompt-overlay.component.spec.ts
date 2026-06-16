@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { ComponentRef } from '@angular/core';
 import { PromptOverlayComponent, PromptDecision, detectKind } from './prompt-overlay.component';
+import { SelectionService } from '../../../core/match/selection.service';
 import {
   CardSnapshot,
   GamePlayer,
   GameState,
+  PromptEnvelope,
 } from '../../../core/match/match.types';
 
 // These unit tests cover the two combat prompts the engine emits via
@@ -73,14 +75,18 @@ function mountOverlay(
     };
   } = {},
 ) {
-  TestBed.configureTestingModule({ imports: [PromptOverlayComponent] });
+  TestBed.configureTestingModule({
+    imports: [PromptOverlayComponent],
+    providers: [SelectionService],
+  });
   const fixture = TestBed.createComponent(PromptOverlayComponent);
   const ref: ComponentRef<PromptOverlayComponent> = fixture.componentRef;
   ref.setInput('state', state);
   ref.setInput('prompt', { expectedKinds: kinds, ...promptExtras });
   ref.setInput('selfPlayerIds', selfPlayerIds);
   fixture.detectChanges();
-  return { component: fixture.componentInstance, fixture };
+  const selection = TestBed.inject(SelectionService);
+  return { component: fixture.componentInstance, fixture, selection };
 }
 
 describe('PromptOverlayComponent — combat prompts', () => {
@@ -1641,5 +1647,57 @@ describe('PromptOverlayComponent — generic choice prompt (CR 700.6 / 701.x)', 
       { candidates: [], choiceView: { kind: 'PickOne', min: 1, max: 1 } },
     );
     expect(component.titleFor('choice')).toBe('Choose');
+  });
+});
+
+describe('PromptOverlayComponent — on-board selection banner', () => {
+  it('renders the slim banner (not the candidate grid) for a board-resident targets prompt', () => {
+    const z = card({ instanceId: 'z', name: 'Goblin' });
+    const me = player({ id: 'me', name: 'Alice' });
+    const foe = player({ id: 'foe', name: 'Bob', battlefield: { cards: [z] } });
+    const state: GameState = { phase: 'Main1', turnNumber: 1, activePlayerId: 'me', players: [me, foe], stack: [], youPlayerId: null };
+
+    const { fixture, selection } = mountOverlay(state, ['ChooseTargetsCommand'], ['me'], { candidates: [z], label: 'Bolt' });
+    selection.setBoardInstanceIds(new Set(['z']));
+    selection.setPrompt({ gameId: 'g', playerId: 'me', expectedKinds: ['ChooseTargetsCommand'], candidates: [z], label: 'Bolt' } as PromptEnvelope);
+    fixture.detectChanges();
+
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.querySelector('[data-banner="board-select"]')).toBeTruthy();
+    expect(host.querySelector('[data-grid="targets"]')).toBeFalsy(); // grid suppressed
+  });
+
+  it('keeps the candidate grid for an off-board (mixed-zone) targets prompt', () => {
+    const z = card({ instanceId: 'z', name: 'Goblin' });
+    const me = player({ id: 'me', name: 'Alice' });
+    const foe = player({ id: 'foe', name: 'Bob', battlefield: { cards: [z] } });
+    const state: GameState = { phase: 'Main1', turnNumber: 1, activePlayerId: 'me', players: [me, foe], stack: [], youPlayerId: null };
+
+    const { fixture, selection } = mountOverlay(state, ['ChooseTargetsCommand'], ['me'], { candidates: [z] });
+    // 'offboard' not in the board set → mode() null → modal grid stays.
+    selection.setBoardInstanceIds(new Set(['z']));
+    selection.setPrompt({ gameId: 'g', playerId: 'me', expectedKinds: ['ChooseTargetsCommand'], candidates: [z, card({ instanceId: 'offboard' })] } as PromptEnvelope);
+    fixture.detectChanges();
+
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.querySelector('[data-banner="board-select"]')).toBeFalsy();
+    expect(host.querySelector('[data-grid="targets"]')).toBeTruthy();
+  });
+
+  it('banner Done emits the targets decision shape from the shared selection set', () => {
+    const z = card({ instanceId: 'z', name: 'Goblin' });
+    const me = player({ id: 'me', name: 'Alice' });
+    const foe = player({ id: 'foe', name: 'Bob', battlefield: { cards: [z] } });
+    const state: GameState = { phase: 'Main1', turnNumber: 1, activePlayerId: 'me', players: [me, foe], stack: [], youPlayerId: null };
+
+    const { component, selection } = mountOverlay(state, ['ChooseTargetsCommand'], ['me'], { candidates: [z] });
+    selection.setBoardInstanceIds(new Set(['z']));
+    selection.setPrompt({ gameId: 'g', playerId: 'me', expectedKinds: ['ChooseTargetsCommand'], candidates: [z] } as PromptEnvelope);
+    selection.toggle('z');
+
+    const captured: PromptDecision[] = [];
+    component.decision.subscribe(d => captured.push(d));
+    component.confirmBoardSelection(selection.mode()!);
+    expect(captured).toEqual([{ kind: 'targets', targetInstanceIds: ['z'] }]);
   });
 });

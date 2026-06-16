@@ -35,6 +35,7 @@ import {
 } from '../../../ui/card-context-menu.component';
 import { CardPopoverService } from '../../../ui/card-popover.service';
 import { ManaColorPickerComponent } from '../../../ui/mana-color-picker.component';
+import { PromptDecision } from './prompt-overlay.component';
 import { bucketBattlefield, BattlefieldBuckets } from './bucket-battlefield';
 import { ZoneRailComponent } from './zone-rail.component';
 import { ZoneModalComponent } from './zone-modal.component';
@@ -769,14 +770,7 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
    *   attackers → { kind: 'attackers', attackers: [{ attackerInstanceId, defenderId }] }
    *   blockers  → { kind: 'blockers', blockers: [{ attackerInstanceId, blockerInstanceId }] }
    */
-  readonly boardDecision = output<{
-    kind: string;
-    targetInstanceIds?: string[];
-    selectedInstanceIds?: string[];
-    choiceKind?: string;
-    attackers?: { attackerInstanceId: string; defenderId: string }[];
-    blockers?: { attackerInstanceId: string; blockerInstanceId: string }[];
-  }>();
+  readonly boardDecision = output<PromptDecision>();
 
   /**
    * Live combat-assignment relay for the SVG arrow overlay. Mirrors the
