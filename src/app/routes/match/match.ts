@@ -163,6 +163,7 @@ import { ConnectionState } from '../../core/signalr/signalr.service';
             }
             @case ('Completed') { <app-completed-state [match]="m" /> }
             @case ('Abandoned') { <app-completed-state [match]="m" /> }
+            @case ('Errored')   { <app-completed-state [match]="m" /> }
           }
         } @else {
           <p class="p-6 opacity-60">Loading…</p>
@@ -285,7 +286,7 @@ export class MatchPage implements OnInit, OnDestroy {
     });
     effect(() => {
       const m = this.matchSvc.current();
-      if (m && (m.state === 'Completed' || m.state === 'Abandoned')) {
+      if (m && (m.state === 'Completed' || m.state === 'Abandoned' || m.state === 'Errored')) {
         this.botThinking.set(false);
       }
     });
@@ -439,6 +440,10 @@ export class MatchPage implements OnInit, OnDestroy {
     this.signalr.playDrawChosen$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => this.refresh());
     this.signalr.clockUpdate$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => this.refresh());
     this.signalr.timedOut$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => this.refresh());
+    // Engine fault/hang aborted the match. Pull the (now terminal)
+    // "Errored" state so the @switch unmounts the board — which owns the
+    // clock countdown + prompt overlay — and renders the aborted screen.
+    this.signalr.engineError$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => this.refresh());
     this.signalr.botThinking$
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(p => this.botThinking.set(p.thinking));

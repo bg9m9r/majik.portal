@@ -7,7 +7,14 @@ import { Match } from '../../../core/match/match.types';
   standalone: true,
   template: `
     <div class="mx-auto flex max-w-xl flex-col items-center gap-6 p-8">
-      <h2 class="majik-display-2">{{ match().state === 'Abandoned' ? 'Abandoned' : 'Match over' }}</h2>
+      <h2 class="majik-display-2">{{ match().state === 'Errored' ? 'Match aborted' : match().state === 'Abandoned' ? 'Abandoned' : 'Match over' }}</h2>
+
+      @if (match().state === 'Errored') {
+        <p class="text-sm text-amber-300/80">
+          An engine error ended this match. It was aborted by the server —
+          this isn't a loss for either player.
+        </p>
+      }
 
       @if (winnerHandle(); as w) {
         <p class="majik-h3 text-[color:var(--majik-accent)]">{{ w }} wins</p>
@@ -69,6 +76,7 @@ export class CompletedStateComponent {
   reason(): string | null {
     const m = this.match();
     if (m.timeoutLoserSub) return 'timeout';
+    if (m.state === 'Errored') return 'engine-error';
     if (m.state === 'Abandoned') return 'abandoned';
     if (m.winnerSub) return 'engine';
     return null;

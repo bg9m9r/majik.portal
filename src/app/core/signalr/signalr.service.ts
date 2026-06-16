@@ -8,6 +8,7 @@ import {
   BotDecisionAlternative,
   BotThinkingPayload,
   ClockUpdatePayload,
+  EngineErrorPayload,
   OpponentJoinedPayload,
   PlayDrawChosenPayload,
   PlayerRolledPayload,
@@ -114,6 +115,10 @@ export class SignalrService {
   readonly playDrawChosen$ = new Subject<PlayDrawChosenPayload>();
   readonly clockUpdate$ = new Subject<ClockUpdatePayload>();
   readonly timedOut$ = new Subject<TimedOutPayload>();
+  // Engine fault/hang aborted the match. Paired with a match.state-changed
+  // to the terminal "Errored" state; MatchPage refreshes on this so the
+  // board unmounts and the aborted screen renders.
+  readonly engineError$ = new Subject<EngineErrorPayload>();
   readonly playerRolled$ = new Subject<PlayerRolledPayload>();
   readonly botThinking$ = new Subject<BotThinkingPayload>();
   // Bot decision diagnostics — fed by SignalrBotDecisionSink on the server
@@ -180,6 +185,7 @@ export class SignalrService {
     this.connection.on('match.play-draw-chosen', (p: PlayDrawChosenPayload) => this.playDrawChosen$.next(p));
     this.connection.on('match.clock-update', (p: ClockUpdatePayload) => this.clockUpdate$.next(p));
     this.connection.on('match.timed-out', (p: TimedOutPayload) => this.timedOut$.next(p));
+    this.connection.on('match.engine-error', (p: EngineErrorPayload) => this.engineError$.next(p));
     this.connection.on('match.player-rolled', (p: PlayerRolledPayload) => this.playerRolled$.next(p));
     this.connection.on('match.bot-thinking', (p: BotThinkingPayload) => this.botThinking$.next(p));
     this.connection.on('bot-decision', (p: unknown) => {

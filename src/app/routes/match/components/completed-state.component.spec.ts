@@ -112,6 +112,26 @@ describe('CompletedStateComponent — replay download', () => {
     expect(JSON.parse(savedJson!)).toEqual(payload);
   });
 
+  it('renders the aborted header (not "Match over") for an Errored match', () => {
+    const { fixture } = mount(buildMatch({ state: 'Errored', winnerSub: undefined }));
+    const h2 = fixture.nativeElement.querySelector('h2') as HTMLElement;
+    expect(h2.textContent?.trim()).toBe('Match aborted');
+    expect(h2.textContent?.trim()).not.toBe('Match over');
+  });
+
+  it('explains the engine error in a sub-line for an Errored match', () => {
+    const { fixture } = mount(buildMatch({ state: 'Errored', winnerSub: undefined }));
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('engine error');
+    expect(text).toContain("isn't a loss");
+  });
+
+  it('keeps "Match over" header for a Completed match', () => {
+    const { fixture } = mount(buildMatch({ state: 'Completed' }));
+    const h2 = fixture.nativeElement.querySelector('h2') as HTMLElement;
+    expect(h2.textContent?.trim()).toBe('Match over');
+  });
+
   it('surfaces inline error and does NOT download when server returns 404', async () => {
     const { fixture, http } = mount(buildMatch({ id: 'gone' }));
     const component = fixture.componentInstance as unknown as { onDownloadReplay(): Promise<void> };
