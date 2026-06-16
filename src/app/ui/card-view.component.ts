@@ -50,6 +50,30 @@ export function makeCounterPip(kind: string, count: number): CounterPip {
   selector: 'app-card-view',
   standalone: true,
   imports: [ManaCostComponent],
+  // On-board click-to-select affordance. Co-located here (NOT board.scss)
+  // so the jsdom unit env loads them for the card-view affordance specs.
+  // Mirrors how is-tapped / card--castable mark the same .card frame.
+  //   data-targetable — legal candidate: accent outline + glow + pointer.
+  //   data-dimmed      — illegal object: muted, non-interactive.
+  //   data-selected    — chosen: filled accent border + stronger glow.
+  styles: [`
+    .card[data-targetable='true'] {
+      outline: 2px solid var(--majik-accent, #fbbf24);
+      outline-offset: 1px;
+      box-shadow: 0 0 10px 1px rgba(251, 191, 36, 0.55);
+      cursor: pointer;
+    }
+    .card[data-dimmed='true'] {
+      opacity: 0.4;
+      pointer-events: none;
+      filter: grayscale(0.4);
+    }
+    .card[data-selected='true'] {
+      outline: 3px solid var(--majik-accent, #fbbf24);
+      outline-offset: 1px;
+      box-shadow: 0 0 14px 2px rgba(251, 191, 36, 0.85);
+    }
+  `],
   template: `
     <div class="flex flex-col items-stretch">
     <div #host
@@ -58,6 +82,9 @@ export function makeCounterPip(kind: string, count: number): CounterPip {
       [class.is-hidden]="hidden()"
       [class.is-sick]="showSummoningSickness()"
       [class.card--castable]="castable()"
+      [attr.data-targetable]="targetable() ? 'true' : null"
+      [attr.data-dimmed]="dimmed() ? 'true' : null"
+      [attr.data-selected]="selectedForTarget() ? 'true' : null"
       [title]="ariaLabel()"
       [attr.aria-label]="ariaLabel()"
       role="img"
@@ -137,6 +164,16 @@ export class CardViewComponent {
   // hand based on priority + mana availability. Defaults to false so
   // non-hand renderings stay neutral.
   readonly castable = input<boolean>(false);
+
+  // On-board click-to-select affordance flags, driven by the board while a
+  // SelectionService selection mode is active. All default false so cards
+  // render neutral outside selection mode.
+  //   targetable       — legal candidate (highlight + clickable).
+  //   dimmed           — illegal object (muted, non-interactive).
+  //   selectedForTarget — currently chosen (accent border).
+  readonly targetable = input<boolean>(false);
+  readonly dimmed = input<boolean>(false);
+  readonly selectedForTarget = input<boolean>(false);
 
   @Output() readonly cardDoubleClick = new EventEmitter<CardSnapshot>();
 
