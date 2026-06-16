@@ -16,6 +16,7 @@ import { MatchService } from '../../core/match/match.service';
 import { SignalrService } from '../../core/signalr/signalr.service';
 import { AuthUserStore } from '../../core/auth/auth-user.store';
 import { GameStore } from '../../core/match/game.store';
+import { SelectionService } from '../../core/match/selection.service';
 import { isPriorityPrompt } from '../../core/match/match-session';
 import { WaitingStateComponent } from './components/waiting-state.component';
 import { RollingStateComponent } from './components/rolling-state.component';
@@ -35,6 +36,11 @@ import { ConnectionState } from '../../core/signalr/signalr.service';
 @Component({
   selector: 'app-match',
   standalone: true,
+  // Provide ONE SelectionService for the match route so <app-board> and
+  // <app-prompt-overlay> (siblings below) share the same in-flight on-board
+  // selection state — board owns clicks + live arrows, overlay owns the
+  // banner's Done/Confirm/Cancel.
+  providers: [SelectionService],
   imports: [
     RouterLink,
     WaitingStateComponent,
@@ -138,7 +144,9 @@ import { ConnectionState } from '../../core/signalr/signalr.service';
                 (tapToggleRequested)="onTapToggleRequested($event)"
                 (activateManaRequested)="onActivateManaRequested($event)"
                 (activateAbilityRequested)="onActivateAbilityRequested($event)"
-                (activateLoyaltyAbilityRequested)="onActivateLoyaltyAbilityRequested($event)" />
+                (activateLoyaltyAbilityRequested)="onActivateLoyaltyAbilityRequested($event)"
+                (boardDecision)="onPromptDecision($event)"
+                (assignmentsChanged)="onAssignmentsChanged($event)" />
               @if (game.prompt(); as p) {
                 @if (game.isMyTurnPrompt()) {
                   <app-prompt-overlay
@@ -172,6 +180,7 @@ export class MatchPage implements OnInit, OnDestroy {
   readonly auth = inject(AuthUserStore);
   readonly profile = this.auth;
   readonly game = inject(GameStore);
+  private readonly selection = inject(SelectionService);
   private readonly toast = inject(ToastService);
 
   readonly id = this.route.snapshot.paramMap.get('id') ?? '';
@@ -362,6 +371,20 @@ export class MatchPage implements OnInit, OnDestroy {
     // ignores no-op snapshots (unchanged signature) itself.
     effect(() => {
       this.game.recordStackMutation(this.game.state());
+    });
+    // On-board selection wiring. Feed SelectionService the set of
+    // board-locatable instanceIds (all players' battlefield + hand cards)
+    // whenever state changes, and the active prompt (gated on it being
+    // addressed to this seat) whenever it changes. The service derives
+    // selection mode from these; a null/off-turn prompt clears the mode so a
+    // stale board selection can't fire. Keeping both in an effect mirrors
+    // the existing single-source-of-truth store derivations (Slice 2b).
+    effect(() => {
+      this.selection.setBoardInstanceIds(boardInstanceIds(this.game.state()));
+    });
+    effect(() => {
+      const p = this.game.prompt();
+      this.selection.setPrompt(p && this.game.isMyTurnPrompt() ? p : null);
     });
     // Prefs-push effect (Slice 5a): whenever fullControl or phaseStops
     // change, push the updated prefs to the server so the server-side
@@ -1008,6 +1031,20 @@ export function dispatchMatchKey(evt: KeyboardEvent, deps: MatchKeyDeps): void {
 // match "stuck on ROLL FOR FIRST PLAYER" bug). See
 // `Majik.Server/Matches/MatchService.SubmitRollAsync`.
 // ---------------------------------------------------------------------
+// Set of every board-locatable instanceId for on-board selection: all
+// players' battlefield permanents + hand cards. SelectionService gates a
+// candidate pool against this — any candidate not here (hidden zone, a
+// player target the server can't ship as a card, etc.) drops the prompt to
+// the modal fallback. Pure so it's unit-testable without the DI graph.
+export function boardInstanceIds(state: GameState | null): Set<string> {
+  const ids = new Set<string>();
+  for (const p of state?.players ?? []) {
+    for (const c of p.battlefield?.cards ?? []) ids.add(c.instanceId);
+    for (const c of p.hand?.cards ?? []) ids.add(c.instanceId);
+  }
+  return ids;
+}
+
 export function shouldAutoSubmitRoll(
   m: Match | null,
   submitted: boolean,

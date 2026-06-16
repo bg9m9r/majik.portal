@@ -68,6 +68,42 @@ function render(
   return { fixture, cache, popover };
 }
 
+function renderAffordance(inputs: Record<string, unknown>) {
+  TestBed.configureTestingModule({
+    imports: [CardViewComponent],
+    providers: [
+      { provide: ScryfallImageCache, useValue: makeCacheStub() },
+      { provide: CardPopoverService, useValue: makePopoverStub() },
+    ],
+  });
+  const fixture = TestBed.createComponent(CardViewComponent);
+  fixture.componentRef.setInput('snapshot', makeSnapshot());
+  for (const [k, v] of Object.entries(inputs)) fixture.componentRef.setInput(k, v);
+  fixture.detectChanges();
+  return fixture.nativeElement.querySelector('.card') as HTMLElement;
+}
+
+describe('CardViewComponent selection affordance', () => {
+  it('marks a targetable card', () => {
+    const el = renderAffordance({ targetable: true });
+    expect(el.getAttribute('data-targetable')).toBe('true');
+  });
+  it('marks a dimmed card', () => {
+    const el = renderAffordance({ dimmed: true });
+    expect(el.getAttribute('data-dimmed')).toBe('true');
+  });
+  it('marks a selected card', () => {
+    const el = renderAffordance({ selectedForTarget: true });
+    expect(el.getAttribute('data-selected')).toBe('true');
+  });
+  it('omits the attributes when no affordance is active (default)', () => {
+    const el = renderAffordance({});
+    expect(el.getAttribute('data-targetable')).toBeNull();
+    expect(el.getAttribute('data-dimmed')).toBeNull();
+    expect(el.getAttribute('data-selected')).toBeNull();
+  });
+});
+
 describe('CardViewComponent', () => {
   it('renders cached Scryfall image when URL is available', () => {
     const cache = makeCacheStub({ 'Grizzly Bears': 'https://img.example/bears.png' });

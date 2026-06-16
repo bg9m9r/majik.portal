@@ -18,8 +18,9 @@ import {
   CdkDropList,
   moveItemInArray,
 } from '@angular/cdk/drag-drop';
-import { GameState, GamePlayer, CardSnapshot, StackItem } from '../../../core/match/match.types';
+import { GameState, GamePlayer, CardSnapshot, StackItem, SelectionMode } from '../../../core/match/match.types';
 import { GameStore, PhaseStops } from '../../../core/match/game.store';
+import { SelectionService } from '../../../core/match/selection.service';
 import { isPriorityPrompt } from '../../../core/match/match-session';
 import { CardViewComponent, snapshotToCard } from '../../../ui/card-view.component';
 import { PlayerHudComponent } from '../../../ui/player-hud.component';
@@ -34,6 +35,7 @@ import {
 } from '../../../ui/card-context-menu.component';
 import { CardPopoverService } from '../../../ui/card-popover.service';
 import { ManaColorPickerComponent } from '../../../ui/mana-color-picker.component';
+import { PromptDecision } from './prompt-overlay.component';
 import { bucketBattlefield, BattlefieldBuckets } from './bucket-battlefield';
 import { ZoneRailComponent } from './zone-rail.component';
 import { ZoneModalComponent } from './zone-modal.component';
@@ -308,6 +310,10 @@ export interface StackItemView extends StackItem {
                         [snapshot]="c"
                         [attr.data-card-id]="c.instanceId"
                         zone="battlefield"
+                        [targetable]="isTargetable(c.instanceId)"
+                        [dimmed]="isDimmed(c.instanceId)"
+                        [selectedForTarget]="isSelectedForTarget(c.instanceId)"
+                        (click)="onBoardCardClick(c)"
                         animate.enter="zone-enter-from-top"
                         animate.leave="zone-leave-down"
                         (contextmenu)="onContextMenu($event, c, 'opponent')" />
@@ -321,6 +327,10 @@ export interface StackItemView extends StackItem {
                         [snapshot]="c"
                         [attr.data-card-id]="c.instanceId"
                         zone="battlefield"
+                        [targetable]="isTargetable(c.instanceId)"
+                        [dimmed]="isDimmed(c.instanceId)"
+                        [selectedForTarget]="isSelectedForTarget(c.instanceId)"
+                        (click)="onBoardCardClick(c)"
                         animate.enter="zone-enter-from-top"
                         animate.leave="zone-leave-down"
                         (contextmenu)="onContextMenu($event, c, 'opponent')" />
@@ -338,6 +348,10 @@ export interface StackItemView extends StackItem {
                       [snapshot]="c"
                       [attr.data-card-id]="c.instanceId"
                       zone="battlefield"
+                      [targetable]="isTargetable(c.instanceId)"
+                      [dimmed]="isDimmed(c.instanceId)"
+                      [selectedForTarget]="isSelectedForTarget(c.instanceId)"
+                      (click)="onBoardCardClick(c)"
                       animate.enter="zone-enter-from-top"
                       animate.leave="zone-leave-down"
                       (contextmenu)="onContextMenu($event, c, 'opponent')" />
@@ -405,6 +419,10 @@ export interface StackItemView extends StackItem {
                       [snapshot]="c"
                       [attr.data-card-id]="c.instanceId"
                       zone="battlefield"
+                      [targetable]="isTargetable(c.instanceId)"
+                      [dimmed]="isDimmed(c.instanceId)"
+                      [selectedForTarget]="isSelectedForTarget(c.instanceId)"
+                      (click)="onBoardCardClick(c)"
                       animate.enter="zone-enter-from-bottom"
                       animate.leave="zone-leave-up"
                       (contextmenu)="onContextMenu($event, c, 'self')"
@@ -420,6 +438,10 @@ export interface StackItemView extends StackItem {
                         [snapshot]="c"
                         [attr.data-card-id]="c.instanceId"
                         zone="battlefield"
+                        [targetable]="isTargetable(c.instanceId)"
+                        [dimmed]="isDimmed(c.instanceId)"
+                        [selectedForTarget]="isSelectedForTarget(c.instanceId)"
+                        (click)="onBoardCardClick(c)"
                         animate.enter="zone-enter-from-bottom"
                         animate.leave="zone-leave-up"
                         (contextmenu)="onContextMenu($event, c, 'self')"
@@ -434,6 +456,10 @@ export interface StackItemView extends StackItem {
                         [snapshot]="c"
                         [attr.data-card-id]="c.instanceId"
                         zone="battlefield"
+                        [targetable]="isTargetable(c.instanceId)"
+                        [dimmed]="isDimmed(c.instanceId)"
+                        [selectedForTarget]="isSelectedForTarget(c.instanceId)"
+                        (click)="onBoardCardClick(c)"
                         animate.enter="zone-enter-from-bottom"
                         animate.leave="zone-leave-up"
                         (contextmenu)="onContextMenu($event, c, 'self')"
@@ -733,6 +759,160 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
    */
   readonly activateLoyaltyAbilityRequested =
     output<{ permanentInstanceId: string; loyaltyAbilityId: string }>();
+
+  /**
+   * On-board click-to-select decision. Emitted on auto-submit (fixed-count
+   * target/choice) and on combat confirm. Shapes mirror the overlay's
+   * PromptDecision so match.ts routes it through the SAME
+   * onPromptDecision()/translateDecision() path (no new translation).
+   *   targets   → { kind: 'targets', targetInstanceIds }
+   *   choice    → { kind: 'choice', selectedInstanceIds, choiceKind }
+   *   attackers → { kind: 'attackers', attackers: [{ attackerInstanceId, defenderId }] }
+   *   blockers  → { kind: 'blockers', blockers: [{ attackerInstanceId, blockerInstanceId }] }
+   */
+  readonly boardDecision = output<PromptDecision>();
+
+  /**
+   * Live combat-assignment relay for the SVG arrow overlay. Mirrors the
+   * overlay's assignmentsChanged output so match.ts can feed liveAssignments
+   * the same way whether the user is declaring via the board or the modal.
+   */
+  readonly assignmentsChanged = output<{
+    kind: 'attackers' | 'blockers';
+    attackers?: { attackerInstanceId: string; defenderId: string }[];
+    blockers?: { attackerInstanceId: string; blockerInstanceId: string }[];
+  }>();
+
+  private readonly selection = inject(SelectionService);
+
+  /** True while an on-board selection mode is active (any in-scope kind). */
+  readonly inSelection = computed<boolean>(() => this.selection.mode() !== null);
+
+  /** Legal/highlighted? targets/choice = candidate pool; combat = own creatures. */
+  isTargetable(id: string): boolean {
+    const m = this.selection.mode();
+    if (!m) return false;
+    if (m.kind === 'targets' || m.kind === 'choice') return m.candidateIds.has(id);
+    if (m.kind === 'attackers') return this.ownCreatureIds().has(id);
+    if (m.kind === 'blockers') {
+      // Own untapped-or-sick creatures are blocker candidates; once a
+      // blocker is pending, the attacking enemy creatures light up too.
+      if (this.ownCreatureIds(true).has(id)) return true;
+      return this.selection.pendingBlocker() != null && this.attackingIds().has(id);
+    }
+    return false;
+  }
+
+  isSelectedForTarget(id: string): boolean {
+    const m = this.selection.mode();
+    if (!m) return false;
+    if (m.kind === 'attackers' || m.kind === 'targets' || m.kind === 'choice') {
+      return this.selection.selected().includes(id);
+    }
+    if (m.kind === 'blockers') {
+      if (this.selection.pendingBlocker() === id) return true;
+      return this.selection.blockPairs().some(p => p.blockerInstanceId === id);
+    }
+    return false;
+  }
+
+  isDimmed(id: string): boolean {
+    return this.inSelection() && !this.isTargetable(id) && !this.isSelectedForTarget(id);
+  }
+
+  /** Own creatures eligible to act. forBlock skips the summoning-sickness
+   *  filter (sick creatures CAN block, CR 302.6) but always requires untapped. */
+  private ownCreatureIds(forBlock = false): Set<string> {
+    const s = this.state();
+    const me = new Set(this.selfPlayerIds());
+    const ids = new Set<string>();
+    for (const p of s?.players ?? []) {
+      if (!me.has(p.id)) continue;
+      for (const c of p.battlefield.cards) {
+        const isCreature = (c.types ?? []).some(t => t.toLowerCase().includes('creature'));
+        if (!isCreature || c.tapped) continue;
+        if (!forBlock && c.summoningSickness) continue;
+        ids.add(c.instanceId);
+      }
+    }
+    return ids;
+  }
+
+  /** Enemy creatures currently attacking (declared attackers are tapped). */
+  private attackingIds(): Set<string> {
+    const s = this.state();
+    const me = new Set(this.selfPlayerIds());
+    const ids = new Set<string>();
+    for (const p of s?.players ?? []) {
+      if (me.has(p.id)) continue;
+      for (const c of p.battlefield.cards) {
+        if (c.tapped && (c.types ?? []).some(t => t.toLowerCase().includes('creature'))) {
+          ids.add(c.instanceId);
+        }
+      }
+    }
+    return ids;
+  }
+
+  /** A board card was clicked while a selection mode is active. */
+  onBoardCardClick(card: { instanceId: string }): void {
+    const m = this.selection.mode();
+    if (!m) return;
+    if (m.kind === 'targets' || m.kind === 'choice') {
+      if (!m.candidateIds.has(card.instanceId)) return; // illegal — ignore
+      this.selection.toggle(card.instanceId);
+      this.maybeAutoSubmit(m);
+      return;
+    }
+    if (m.kind === 'attackers') {
+      if (!this.ownCreatureIds().has(card.instanceId)) return;
+      this.selection.toggle(card.instanceId);
+      this.emitAttackerLines();
+      return;
+    }
+    if (m.kind === 'blockers') {
+      const mine = this.ownCreatureIds(true); // untapped own creatures (sick OK)
+      if (mine.has(card.instanceId)) {
+        this.selection.setPendingBlocker(card.instanceId);
+        return;
+      }
+      const pend = this.selection.pendingBlocker();
+      if (pend && this.attackingIds().has(card.instanceId)) {
+        this.selection.addBlockPair(pend, card.instanceId);
+        this.emitBlockerLines();
+      }
+      return;
+    }
+  }
+
+  private maybeAutoSubmit(m: SelectionMode): void {
+    const n = this.selection.selected().length;
+    // Fixed count (min === max) auto-submits the instant we hit max; a
+    // single fixed target (min=max=1) therefore submits on one click.
+    if (m.min === m.max && n === m.max) this.submitSelection(m);
+  }
+
+  private submitSelection(m: SelectionMode): void {
+    const ids = this.selection.selected();
+    if (m.kind === 'targets') {
+      this.boardDecision.emit({ kind: 'targets', targetInstanceIds: ids });
+    } else if (m.kind === 'choice') {
+      this.boardDecision.emit({ kind: 'choice', selectedInstanceIds: ids, choiceKind: m.choiceKind });
+    }
+    this.selection.clear();
+  }
+
+  private emitAttackerLines(): void {
+    const defenderId = this.opponent()?.id ?? '';
+    this.assignmentsChanged.emit({
+      kind: 'attackers',
+      attackers: this.selection.selected().map(id => ({ attackerInstanceId: id, defenderId })),
+    });
+  }
+
+  private emitBlockerLines(): void {
+    this.assignmentsChanged.emit({ kind: 'blockers', blockers: this.selection.blockPairs() });
+  }
 
   // Context-menu state. `activeContextCard` doubles as the visibility
   // flag — when null the menu hides. Position is the page coords of the

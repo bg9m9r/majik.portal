@@ -259,6 +259,28 @@ export interface PromptEnvelope {
   };
 }
 
+// Derived view of the active prompt for on-board click-to-select. Null
+// when no board-resident selection is in progress (off-board / mixed-zone
+// prompts fall back to the modal candidate grid in prompt-overlay). Owned
+// by SelectionService, read by both the board (clicks + affordance) and the
+// overlay (slim banner). The four in-scope kinds mirror PromptKind /
+// detectKind: targets / choice / attackers / blockers.
+export interface SelectionMode {
+  kind: 'targets' | 'choice' | 'attackers' | 'blockers';
+  // Legal, board-locatable candidate instanceIds. Populated for
+  // targets/choice (the engine-filtered pool); empty for attackers/blockers
+  // whose candidate gating is resolved by the board against own creatures.
+  candidateIds: ReadonlySet<string>;
+  min: number;
+  // Number.MAX_SAFE_INTEGER for open-ended set declarations (attackers/blockers).
+  max: number;
+  // Instruction text for the banner (prompt label/description).
+  sourceLabel: string;
+  // Echoed back verbatim on a 'choice' decision (choiceView.kind).
+  choiceKind?: string;
+  cancellable: boolean;
+}
+
 // Polymorphic GameCommand wire envelope — matches
 // Majik.Core.Api.Commands.GameCommand on the server. Tagged via the
 // "$type" discriminator (the JsonPolymorphic attribute names).

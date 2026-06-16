@@ -7,6 +7,7 @@ import { MatchPage } from './match';
 import { MatchService } from '../../core/match/match.service';
 import { SignalrService, ConnectionState } from '../../core/signalr/signalr.service';
 import { GameStore } from '../../core/match/game.store';
+import { SelectionService } from '../../core/match/selection.service';
 import { AuthUserStore } from '../../core/auth/auth-user.store';
 import { ToastService } from '../../ui/toast.service';
 import { GameState, Match } from '../../core/match/match.types';
@@ -143,6 +144,7 @@ describe('MatchPage — resilience wiring', () => {
     TestBed.configureTestingModule({
       providers: [
         MatchPage,
+        SelectionService,
         ToastService,
         { provide: MatchService, useValue: matchSvc },
         { provide: SignalrService, useValue: signalr },
