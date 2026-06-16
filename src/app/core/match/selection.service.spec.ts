@@ -45,6 +45,66 @@ describe('SelectionService', () => {
     expect(svc.mode()).toBeNull();
   });
 
+  it('includes playerCandidates ids in the targets candidate set', () => {
+    // Cards + players are both board-locatable (HUD on screen).
+    svc.setBoardInstanceIds(new Set(['c1', 'pA', 'pB']));
+    svc.setPrompt(prompt({
+      expectedKinds: ['ChooseTargetsCommand'],
+      candidates: [{ instanceId: 'c1' } as never],
+      playerCandidates: [
+        { id: 'pA', name: 'A', life: 20 },
+        { id: 'pB', name: 'B', life: 20 },
+      ],
+      label: 'Bolt: any target',
+    }));
+    const m = svc.mode();
+    expect(m?.kind).toBe('targets');
+    expect(m!.candidateIds.has('pA')).toBe(true);
+    expect(m!.candidateIds.has('pB')).toBe(true);
+    expect(m!.candidateIds.has('c1')).toBe(true);
+  });
+
+  it('derives a targets mode from player-only candidates (no card targets)', () => {
+    svc.setBoardInstanceIds(new Set(['pA', 'pB']));
+    svc.setPrompt(prompt({
+      expectedKinds: ['ChooseTargetsCommand'],
+      playerCandidates: [
+        { id: 'pA', name: 'A', life: 20 },
+        { id: 'pB', name: 'B', life: 20 },
+      ],
+      label: 'Bolt: any player',
+    }));
+    const m = svc.mode();
+    expect(m?.kind).toBe('targets');
+    expect([...(m!.candidateIds)].sort()).toEqual(['pA', 'pB']);
+  });
+
+  it('falls back to modal when a player candidate is not board-locatable', () => {
+    svc.setBoardInstanceIds(new Set(['c1']));
+    svc.setPrompt(prompt({
+      expectedKinds: ['ChooseTargetsCommand'],
+      candidates: [{ instanceId: 'c1' } as never],
+      playerCandidates: [{ id: 'pOff', name: 'X', life: 20 }],
+    }));
+    expect(svc.mode()).toBeNull();
+  });
+
+  it('ignores playerCandidates on a choice prompt', () => {
+    // Player targets are a targeting concept only; a declarative choice
+    // (kind === 'choice') must not absorb player ids.
+    svc.setBoardInstanceIds(new Set(['x', 'pA']));
+    svc.setPrompt(prompt({
+      expectedKinds: ['ChoiceCommand'],
+      candidates: [{ instanceId: 'x' } as never],
+      playerCandidates: [{ id: 'pA', name: 'A', life: 20 }],
+      choiceView: { kind: 'PickOne', min: 1, max: 1 },
+    }));
+    const m = svc.mode();
+    expect(m?.kind).toBe('choice');
+    expect(m!.candidateIds.has('pA')).toBe(false);
+    expect(m!.candidateIds.has('x')).toBe(true);
+  });
+
   it('uses choiceView min/max for a choice prompt', () => {
     svc.setBoardInstanceIds(new Set(['x', 'y']));
     svc.setPrompt(prompt({
