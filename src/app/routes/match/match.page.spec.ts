@@ -76,6 +76,7 @@ describe('MatchPage — resilience wiring', () => {
       playDrawChosen$: new Subject(),
       clockUpdate$: new Subject(),
       timedOut$: new Subject(),
+      engineError$: new Subject(),
       botThinking$: new Subject(),
       botDecisions$: new Subject(),
       event$: new Subject(),

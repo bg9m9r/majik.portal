@@ -1,6 +1,6 @@
 export type MatchState =
   | 'Open' | 'Joined' | 'Starting' | 'Rolling'
-  | 'Playing' | 'Completed' | 'Abandoned';
+  | 'Playing' | 'Completed' | 'Abandoned' | 'Errored';
 
 export type MatchVisibility = 'Public' | 'Invite';
 
@@ -454,5 +454,10 @@ export interface RolledPayload { matchId: string; roll: MatchRoll }
 export interface PlayDrawChosenPayload { matchId: string; choice: 'play' | 'draw'; firstPlayerSub: string }
 export interface ClockUpdatePayload { matchId: string; creatorMs: number; opponentMs: number; holder: string; startedAt: string }
 export interface TimedOutPayload { matchId: string; loserSub: string; winnerSub: string }
+// Emitted on an engine fault/hang that aborts a match. `reason` is
+// "engine-fault" or "engine-hang". SignalR-only (not in OpenAPI); the
+// match also transitions to the terminal "Errored" state via
+// match.state-changed.
+export interface EngineErrorPayload { matchId: string; reason: string }
 export interface PlayerRolledPayload { matchId: string; sub: string; roll: number }
 export interface BotThinkingPayload { matchId: string; thinking: boolean }

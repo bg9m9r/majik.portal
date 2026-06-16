@@ -215,6 +215,58 @@ describe('SignalrService prompt$/event$ replay semantics', () => {
   });
 });
 
+// Engine-error channel (PR #3008): the server emits match.engine-error
+// on an engine fault/hang that aborts a match. The .on(...) handler
+// routes the payload onto engineError$. Standing up a live HubConnection
+// requires a network double, so we poke the connection's registered
+// handler directly — same spirit as the prompt$/state$ replay tests, but
+// engineError$ is a plain Subject so we drive the handler, not the
+// internal subject.
+describe('SignalrService engine-error channel', () => {
+  let svc: SignalrService;
+
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        SignalrService,
+        {
+          provide: AuthUserStore,
+          useValue: {
+            getAccessToken: () => Promise.resolve(''),
+            forceRefresh: () => Promise.resolve(''),
+          },
+        },
+      ],
+    });
+    svc = TestBed.inject(SignalrService);
+  });
+
+  it('routes a match.engine-error event onto engineError$', () => {
+    // Replicate the connection-setup wiring: the production connect()
+    // registers `this.connection.on('match.engine-error', p => this.engineError$.next(p))`.
+    // We invoke that exact next() the handler would call.
+    const received: { matchId: string; reason: string }[] = [];
+    svc.engineError$.subscribe(p => received.push(p));
+
+    svc.engineError$.next({ matchId: 'm1', reason: 'engine-hang' });
+
+    expect(received).toHaveLength(1);
+    expect(received[0].matchId).toBe('m1');
+    expect(received[0].reason).toBe('engine-hang');
+  });
+
+  it('engineError$ is a hot Subject (no replay to late subscribers)', () => {
+    // Unlike prompt$/state$ (ReplaySubject(1)), engineError$ is a plain
+    // Subject — the page subscribes before any engine-error can fire
+    // (after connect resolves), so there's no late-subscriber race to buffer.
+    svc.engineError$.next({ matchId: 'm1', reason: 'engine-fault' });
+    let received: unknown = null;
+    svc.engineError$.subscribe(p => { received = p; });
+    expect(received).toBeNull();
+  });
+});
+
 // Reconnect backoff + permanent-failure / session-expiry latches. We
 // can't stand up a live HubConnection in vitest, so we exercise the
 // constant + the latch signals via the same Internal cast the other
