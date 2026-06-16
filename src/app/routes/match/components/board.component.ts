@@ -127,6 +127,17 @@ export interface StackItemView extends StackItem {
       max-height: 116px;
       align-items: center;
     }
+    // Self hand scrolls horizontally when it overflows; cards keep
+    // their (medium) size rather than wrapping or being clipped. Card
+    // sizing (--majik-card-w/h) + justify-content live in board.scss;
+    // these three are co-located so the overflow assertion in
+    // board.component.spec.ts can read them in jsdom (board.scss is not
+    // loaded in the unit-test env). Keep both in sync.
+    .arena-strip__hand--self {
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      overflow-y: hidden;
+    }
   `],
   // Layout overview (Arena-style, zoned battlefield):
   //

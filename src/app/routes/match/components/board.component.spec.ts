@@ -1293,6 +1293,17 @@ describe('BoardComponent — equal strip footprint across both sides', () => {
     expect(selfH).toBe(STRIP_H);
     expect(oppH).toBe(selfH);
   });
+
+  it('self hand row scrolls horizontally on overflow (overflow-x:auto, nowrap)', () => {
+    const { fixture } = mountBoardWithBattlefields([], []);
+    const hand = fixture.nativeElement.querySelector(
+      '.arena-side--self .arena-strip__hand--self',
+    ) as HTMLElement;
+    const style = window.getComputedStyle(hand);
+    expect(style.overflowX).toBe('auto');
+    expect(style.overflowY).toBe('hidden');
+    expect(style.flexWrap).toBe('nowrap');
+  });
 });
 
 describe('BoardComponent — stack chip auto-expand', () => {
