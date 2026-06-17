@@ -1875,3 +1875,25 @@ describe('BoardComponent mobile card scale', () => {
     expect(fixture.componentInstance.cardScale()).toBeCloseTo(1.0);
   });
 });
+
+describe('BoardComponent hand drag disabling', () => {
+  it('disables hand-card drag on mobile', () => {
+    TestBed.configureTestingModule({
+      imports: [BoardComponent],
+      providers: [SelectionService],
+    });
+    TestBed.overrideProvider(ViewportService, { useValue: mobileVpStub(true) });
+    const fixture = TestBed.createComponent(BoardComponent);
+    expect(fixture.componentInstance.dragDisabled()).toBe(true);
+  });
+
+  it('keeps hand-card drag enabled on desktop', () => {
+    TestBed.configureTestingModule({
+      imports: [BoardComponent],
+      providers: [SelectionService],
+    });
+    TestBed.overrideProvider(ViewportService, { useValue: mobileVpStub(false) });
+    const fixture = TestBed.createComponent(BoardComponent);
+    expect(fixture.componentInstance.dragDisabled()).toBe(false);
+  });
+});

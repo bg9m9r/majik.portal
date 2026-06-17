@@ -532,6 +532,7 @@ const MOBILE_CARD_SCALE = 0.6;
                     class="bg-transparent p-0 focus:outline focus:outline-2 focus:outline-amber-400"
                     cdkDrag
                     [cdkDragData]="c"
+                    [cdkDragDisabled]="dragDisabled()"
                     [attr.aria-label]="'play ' + c.name"
                     animate.enter="zone-enter-from-top"
                     animate.leave="zone-leave-down">
@@ -1302,6 +1303,8 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
   // Public alias used by the host `[class.mobile-board]` binding (host
   // expressions can't access private members).
   readonly isMobileBoard = computed(() => this.viewport.isMobileBoard());
+  /** CDK hand-drag is disabled on mobile (tap-to-play replaces it). */
+  readonly dragDisabled = computed(() => this.viewport.isMobileBoard());
   // Raw multiplier exposed as --majik-card-scale so the absolute-sized hand /
   // opp-hand zone overrides (board.scss) can multiply their base px and scale
   // along with the slider. Public so the host binding type-checks.
