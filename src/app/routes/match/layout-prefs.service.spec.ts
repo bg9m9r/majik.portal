@@ -64,4 +64,59 @@ describe('LayoutPrefsService', () => {
     expect(svc.cardScale()).toBe(DEFAULT_LAYOUT_PREFS.cardScale);
     expect(localStorage.getItem(LAYOUT_PREFS_KEY)).toBeNull();
   });
+
+  // ---- Info-drawer prefs (open / bottom-tab / split) ----
+
+  it('info-drawer fields start at defaults', () => {
+    const svc = make();
+    expect(svc.infoDrawerOpen()).toBe(DEFAULT_LAYOUT_PREFS.infoDrawerOpen);
+    expect(svc.infoDrawerTab()).toBe(DEFAULT_LAYOUT_PREFS.infoDrawerTab);
+    expect(svc.infoDrawerSplit()).toBe(DEFAULT_LAYOUT_PREFS.infoDrawerSplit);
+  });
+
+  it('persists + reloads the info-drawer open flag and active tab', () => {
+    const a = make();
+    a.setInfoDrawerOpen(true);
+    a.setInfoDrawerTab('bot');
+    const b = make();
+    expect(b.infoDrawerOpen()).toBe(true);
+    expect(b.infoDrawerTab()).toBe('bot');
+  });
+
+  it('clamps the info-drawer split into [0.2, 0.8]', () => {
+    const svc = make();
+    svc.setInfoDrawerSplit(0.99);
+    expect(svc.infoDrawerSplit()).toBe(0.8);
+    svc.setInfoDrawerSplit(0.01);
+    expect(svc.infoDrawerSplit()).toBe(0.2);
+  });
+
+  it('persists + reloads a clamped split', () => {
+    make().setInfoDrawerSplit(0.7);
+    expect(make().infoDrawerSplit()).toBe(0.7);
+  });
+
+  it('reset() restores the info-drawer fields to defaults', () => {
+    const svc = make();
+    svc.setInfoDrawerOpen(true);
+    svc.setInfoDrawerTab('bot');
+    svc.setInfoDrawerSplit(0.7);
+    svc.reset();
+    expect(svc.infoDrawerOpen()).toBe(DEFAULT_LAYOUT_PREFS.infoDrawerOpen);
+    expect(svc.infoDrawerTab()).toBe(DEFAULT_LAYOUT_PREFS.infoDrawerTab);
+    expect(svc.infoDrawerSplit()).toBe(DEFAULT_LAYOUT_PREFS.infoDrawerSplit);
+  });
+
+  it('backward-compat: a stored blob missing the new keys loads defaults and keeps card-scale', () => {
+    // A pre-info-drawer payload (same schema version, no drawer keys).
+    localStorage.setItem(
+      LAYOUT_PREFS_KEY,
+      JSON.stringify({ version: 1, cardScale: 1.3, oppSelfRatio: 0.5, handStripPx: 116 }),
+    );
+    const svc = make();
+    expect(svc.cardScale()).toBe(1.3); // preserved
+    expect(svc.infoDrawerOpen()).toBe(DEFAULT_LAYOUT_PREFS.infoDrawerOpen);
+    expect(svc.infoDrawerTab()).toBe(DEFAULT_LAYOUT_PREFS.infoDrawerTab);
+    expect(svc.infoDrawerSplit()).toBe(DEFAULT_LAYOUT_PREFS.infoDrawerSplit);
+  });
 });
