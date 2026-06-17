@@ -1,4 +1,4 @@
-import { Directive, ElementRef, EventEmitter, Input, OnDestroy, Output, inject } from '@angular/core';
+import { Directive, ElementRef, EventEmitter, Input, OnDestroy, OnInit, Output, inject } from '@angular/core';
 
 const MOVE_CANCEL_PX = 10;
 
@@ -13,7 +13,7 @@ const MOVE_CANCEL_PX = 10;
     '(pointerleave)': 'cancel()',
   },
 })
-export class LongPressDirective implements OnDestroy {
+export class LongPressDirective implements OnInit, OnDestroy {
   @Input() longPressDelayMs = 400;
   @Output() longPress = new EventEmitter<Event>();
 
@@ -22,13 +22,21 @@ export class LongPressDirective implements OnDestroy {
   private startX = 0;
   private startY = 0;
   private down: Event | null = null;
+  private suppressNextClick = false;
+
+  ngOnInit(): void {
+    this.host.nativeElement.addEventListener('click', this.clickGuard, true); // capture phase
+  }
 
   onDown(e: Event): void {
     this.down = e;
     this.startX = (e as { clientX?: number }).clientX ?? 0;
     this.startY = (e as { clientY?: number }).clientY ?? 0;
     this.timer = setTimeout(() => {
-      if (this.down) this.longPress.emit(this.down);
+      if (this.down) {
+        this.suppressNextClick = true;
+        this.longPress.emit(this.down);
+      }
       this.cancel();
     }, this.longPressDelayMs);
   }
@@ -47,5 +55,17 @@ export class LongPressDirective implements OnDestroy {
     this.down = null;
   }
 
-  ngOnDestroy(): void { this.cancel(); }
+  private readonly clickGuard = (e: Event): void => {
+    if (this.suppressNextClick) {
+      this.suppressNextClick = false;
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      e.preventDefault();
+    }
+  };
+
+  ngOnDestroy(): void {
+    this.cancel();
+    this.host.nativeElement.removeEventListener('click', this.clickGuard, true);
+  }
 }
