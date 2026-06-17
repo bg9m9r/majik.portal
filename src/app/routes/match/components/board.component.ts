@@ -875,8 +875,53 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
     return ids;
   }
 
+  /**
+   * True when `card` is a permanent on the local player's battlefield.
+   * Used by the mobile tap-to-activate branch to guard the ability menu
+   * against opponent permanents (CR 606 — only the controller activates).
+   */
+  private isOwnPermanent(card: CardSnapshot): boolean {
+    const selfCards = this.self()?.battlefield?.cards ?? [];
+    return selfCards.some(c => c.instanceId === card.instanceId);
+  }
+
+  /**
+   * True when `card` has at least one activated ability with a non-null id.
+   * Mirrors the filter in `activeContextActivatableAbilities` so the mobile
+   * tap guard uses the same legality predicate as the right-click menu.
+   */
+  private hasActivatedAbility(card: CardSnapshot): boolean {
+    return (card.abilities ?? []).some(a => a.kind === 'Activated' && a.id != null);
+  }
+
+  /**
+   * Open the context-menu ability list for `card` without a real MouseEvent
+   * (used by mobile tap-to-activate). Reuses the SAME three signals as
+   * `onContextMenu` so the overlay renders identically. Position defaults to
+   * the viewport origin — the menu clamps itself inside the viewport.
+   */
+  private openAbilityMenuFor(card: CardSnapshot): void {
+    this.popover.hide();
+    this.loyaltyPickerMode.set(false);
+    this.activeContextCard.set(card);
+    this.activeContextPos.set({ x: 0, y: 0 });
+    this.activeContextOwner.set('self');
+  }
+
   /** A board card was clicked while a selection mode is active. */
-  onBoardCardClick(card: { instanceId: string }): void {
+  onBoardCardClick(card: CardSnapshot): void {
+    // Mobile: with no active board-select prompt, tapping an own permanent
+    // that has an activated ability opens its ability menu (desktop uses
+    // right-click / double-click instead).
+    if (
+      this.viewport.isMobileBoard() &&
+      !this.selection.mode() &&
+      this.isOwnPermanent(card) &&
+      this.hasActivatedAbility(card)
+    ) {
+      this.openAbilityMenuFor(card);
+      return;
+    }
     const m = this.selection.mode();
     if (!m) return;
     if (m.kind === 'targets' || m.kind === 'choice') {
