@@ -589,6 +589,8 @@ export class MatchPage implements OnInit, OnDestroy {
           libraryView: (dto.libraryView ?? undefined) as CardSnapshot[] | undefined,
           // CR 701.42 — peeked top-N for surveil prompts.
           surveilView: (dto.surveilView ?? undefined) as CardSnapshot[] | undefined,
+          // CR 701.20 — peeked top-N for scry prompts (surveil's near-twin).
+          scryView: (dto.scryView ?? undefined) as CardSnapshot[] | undefined,
           // CR 117.x / 605.1 — Yes/No "may" prompt envelope (shock-land
           // "pay 2 life?" is the seed caller).
           yesNoView: (dto.yesNoView ?? undefined) as PromptEnvelope['yesNoView'] | undefined,
@@ -958,6 +960,18 @@ export class MatchPage implements OnInit, OnDestroy {
         return {
           $type: 'chooseSurveil',
           toGraveyardInstanceIds: d.toGraveyardInstanceIds ?? [],
+          topOrderInstanceIds: d.topOrderInstanceIds ?? [],
+        };
+      case 'scry':
+        // CR 701.20 — partition of the peeked top-N (surveil's near-twin).
+        // Server validates that ToBottom ∪ TopOrder covers the peeked set
+        // exactly once (no duplicates, no extras, no missing peeked card)
+        // and rejects with a clear error otherwise — so a stale partition
+        // never silently mis-orders the library. The non-kept cards go to
+        // the BOTTOM of the library (CR 701.20a) rather than the graveyard.
+        return {
+          $type: 'chooseScry',
+          toBottomInstanceIds: d.toBottomInstanceIds ?? [],
           topOrderInstanceIds: d.topOrderInstanceIds ?? [],
         };
       case 'yesNo':

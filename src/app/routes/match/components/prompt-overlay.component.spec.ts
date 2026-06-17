@@ -56,6 +56,7 @@ function mountOverlay(
     label?: string;
     libraryView?: CardSnapshot[];
     surveilView?: CardSnapshot[];
+    scryView?: CardSnapshot[];
     yesNoView?: {
       question: string;
       yesLabel?: string;
@@ -318,6 +319,7 @@ describe('PromptOverlayComponent — combat prompts', () => {
     { label: 'bottom',     kinds: ['ChooseCardsToBottomCommand'], expect: 'bottom' },
     { label: 'libraryPick',kinds: ['ChooseLibraryPickCommand'], expect: 'libraryPick' },
     { label: 'surveil',    kinds: ['ChooseSurveilCommand'],     expect: 'surveil' },
+    { label: 'scry',       kinds: ['ChooseScryCommand'],        expect: 'scry' },
     { label: 'yesNo',      kinds: ['ChooseYesNoCommand'],       expect: 'yesNo' },
   ];
 
@@ -1203,6 +1205,171 @@ describe('PromptOverlayComponent — surveil prompt (CR 701.42)', () => {
 });
 
 // -----------------------------------------------------------------------
+// CR 701.20 — scry prompts (fetchland scry 1, Preordain scry 2, et al.).
+// Surveil's near-twin: non-kept cards go to the BOTTOM of the library
+// rather than the graveyard. Mirrors the surveil block above.
+// -----------------------------------------------------------------------
+
+describe('PromptOverlayComponent — scry prompt (CR 701.20)', () => {
+  function me(): GamePlayer {
+    return player({ id: 'me', name: 'Alice' });
+  }
+  function state(): GameState {
+    return {
+      phase: 'Main', turnNumber: 3, activePlayerId: 'me',
+      players: [me()], stack: [], youPlayerId: null,
+    };
+  }
+
+  it('detects scry kind from server "ChooseScryCommand" envelope', () => {
+    const peeked = [card({ instanceId: 'top-1', name: 'Forest' })];
+    const { component } = mountOverlay(
+      state(),
+      ['ChooseScryCommand'],
+      ['me'],
+      { scryView: peeked, label: 'scry 1' },
+    );
+
+    expect(component.kind()).toBe('scry');
+    expect(component.titleFor(component.kind())).toBe('Scry');
+  });
+
+  it('exposes envelope scryView to the modal computed', () => {
+    const a = card({ instanceId: 'a', name: 'Forest' });
+    const b = card({ instanceId: 'b', name: 'Mountain' });
+    const { component } = mountOverlay(
+      state(),
+      ['ChooseScryCommand'],
+      ['me'],
+      { scryView: [a, b], label: 'scry 2' },
+    );
+
+    expect(component.scryPeeked()).toHaveLength(2);
+    expect(component.scryPeeked()[0].instanceId).toBe('a');
+    expect(component.scryReady()).toBe(false);
+  });
+
+  it('confirm is disabled until every peeked card has a decision', () => {
+    const a = card({ instanceId: 'a', name: 'Forest' });
+    const b = card({ instanceId: 'b', name: 'Mountain' });
+    const { component } = mountOverlay(
+      state(),
+      ['ChooseScryCommand'],
+      ['me'],
+      { scryView: [a, b], label: 'scry 2' },
+    );
+
+    component.setScryDecision('a', 'bottom');
+    expect(component.scryReady()).toBe(false);
+    component.setScryDecision('b', 'top');
+    expect(component.scryReady()).toBe(true);
+  });
+
+  it('toggling the same choice clears it (forcing the player to re-pick before Confirm)', () => {
+    const a = card({ instanceId: 'a', name: 'Forest' });
+    const { component } = mountOverlay(
+      state(),
+      ['ChooseScryCommand'],
+      ['me'],
+      { scryView: [a], label: 'scry 1' },
+    );
+
+    component.setScryDecision('a', 'bottom');
+    expect(component.scryDecisions()['a']).toBe('bottom');
+    component.setScryDecision('a', 'bottom');
+    expect(component.scryDecisions()['a']).toBeUndefined();
+    expect(component.scryReady()).toBe(false);
+  });
+
+  it('confirmScry emits the partition and resets decision state', () => {
+    // Peeked order: a, b, c (top-to-bottom). Player keeps b on top, sends
+    // a + c to the bottom. Wire payload preserves topOrder in the peeked-
+    // list's natural order so index 0 of topOrderInstanceIds becomes the
+    // new top of library.
+    const a = card({ instanceId: 'a', name: 'Forest' });
+    const b = card({ instanceId: 'b', name: 'Mountain' });
+    const c = card({ instanceId: 'c', name: 'Island' });
+    const { component } = mountOverlay(
+      state(),
+      ['ChooseScryCommand'],
+      ['me'],
+      { scryView: [a, b, c], label: 'scry 3' },
+    );
+    const captured: PromptDecision[] = [];
+    component.decision.subscribe(d => captured.push(d));
+
+    component.setScryDecision('a', 'bottom');
+    component.setScryDecision('b', 'top');
+    component.setScryDecision('c', 'bottom');
+    component.confirmScry();
+
+    expect(captured).toEqual([
+      {
+        kind: 'scry',
+        toBottomInstanceIds: ['a', 'c'],
+        topOrderInstanceIds: ['b'],
+      },
+    ]);
+    // Resets so a subsequent scry prompt starts clean.
+    expect(component.scryDecisions()).toEqual({});
+  });
+
+  it('all-to-bottom partition: empty topOrder, every peeked id in toBottom', () => {
+    // Common shape for "no upside" hands and bot-default behaviour.
+    const a = card({ instanceId: 'a', name: 'Forest' });
+    const b = card({ instanceId: 'b', name: 'Mountain' });
+    const { component } = mountOverlay(
+      state(),
+      ['ChooseScryCommand'],
+      ['me'],
+      { scryView: [a, b], label: 'scry 2' },
+    );
+    const captured: PromptDecision[] = [];
+    component.decision.subscribe(d => captured.push(d));
+
+    component.setScryDecision('a', 'bottom');
+    component.setScryDecision('b', 'bottom');
+    component.confirmScry();
+
+    expect(captured).toEqual([
+      {
+        kind: 'scry',
+        toBottomInstanceIds: ['a', 'b'],
+        topOrderInstanceIds: [],
+      },
+    ]);
+  });
+
+  it('all-to-top partition: empty toBottom, peeked ids preserve top order', () => {
+    // Scry-specific shape: keep everything where it is (a strong top of
+    // library). topOrderInstanceIds preserves the peeked top-to-bottom
+    // order; toBottom is empty.
+    const a = card({ instanceId: 'a', name: 'Forest' });
+    const b = card({ instanceId: 'b', name: 'Mountain' });
+    const { component } = mountOverlay(
+      state(),
+      ['ChooseScryCommand'],
+      ['me'],
+      { scryView: [a, b], label: 'scry 2' },
+    );
+    const captured: PromptDecision[] = [];
+    component.decision.subscribe(d => captured.push(d));
+
+    component.setScryDecision('a', 'top');
+    component.setScryDecision('b', 'top');
+    component.confirmScry();
+
+    expect(captured).toEqual([
+      {
+        kind: 'scry',
+        toBottomInstanceIds: [],
+        topOrderInstanceIds: ['a', 'b'],
+      },
+    ]);
+  });
+});
+
+// -----------------------------------------------------------------------
 // CR 117.x / 605.1 — Yes/No "may" prompts (shock-land "pay 2 life?" et al.)
 // -----------------------------------------------------------------------
 
@@ -1548,6 +1715,7 @@ describe('PromptOverlayComponent — generic choice prompt (CR 700.6 / 701.x)', 
     expect(detectKind(['ChooseYesNoCommand'])).toBe('yesNo');
     expect(detectKind(['ChooseLibraryPickCommand'])).toBe('libraryPick');
     expect(detectKind(['ChooseSurveilCommand'])).toBe('surveil');
+    expect(detectKind(['ChooseScryCommand'])).toBe('scry');
     expect(detectKind(['ChooseFromRevealedCommand'])).toBe('revealPick');
     expect(detectKind(['ChooseTargetsCommand'])).toBe('targets');
     expect(detectKind(['DeclareAttackersCommand'])).toBe('attackers');

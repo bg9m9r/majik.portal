@@ -36,6 +36,13 @@ interface PromptInfo {
   // / "keep on top") and assembles a ChooseSurveilCommand partition.
   // Privacy: per-recipient SignalR routing (same as libraryView).
   surveilView?: CardSnapshot[];
+  // CR 701.20 — scry prompts ship the peeked top-N (top-to-bottom) here.
+  // Surveil's near-twin: the overlay renders each card with two buttons
+  // ("to bottom" / "keep on top") and assembles a ChooseScryCommand
+  // partition. The only difference from surveil is the non-kept cards go
+  // to the BOTTOM of the library (CR 701.20a) instead of the graveyard.
+  // Privacy: per-recipient SignalR routing (same as surveilView).
+  scryView?: CardSnapshot[];
   // CR 117.x / 605.1 — Yes/No "may" prompts (shock-land "pay 2 life?"
   // is the current caller). Carries the question text + optional
   // source-card label so the modal can be titled by the triggering
@@ -90,6 +97,7 @@ export type PromptKind =
   | 'mana-cancel'
   | 'libraryPick'
   | 'surveil'
+  | 'scry'
   | 'yesNo'
   | 'revealPick'
   | 'choice'
@@ -114,6 +122,14 @@ export interface PromptDecision {
   // peeked set exactly once (server validates).
   toGraveyardInstanceIds?: string[];
   topOrderInstanceIds?: string[];
+  // CR 701.20 — partition of the peeked top-N for a scry prompt into
+  // bottom-bound and top-bound buckets. Surveil's near-twin: the only
+  // difference is the non-kept cards go to the BOTTOM of the library
+  // rather than the graveyard. topOrderInstanceIds is shared with surveil
+  // (index 0 becomes the new top); toBottomInstanceIds is the scry-only
+  // bucket. Together they must cover the peeked set exactly once (server
+  // validates).
+  toBottomInstanceIds?: string[];
   // CR 117.x / 605.1 — bool answer for an optional "may" prompt
   // (shock-land "pay 2 life?", future painlands / slowlands, etc.).
   answer?: boolean;
@@ -147,6 +163,12 @@ export function detectKind(kinds: string[] | undefined): PromptKind {
   // libraryPick: the server's literal "ChooseSurveilCommand" envelope
   // must route to the surveil modal, not the generic targets grid.
   if (ks.some(k => k.includes('surveil') || k.includes('choosesurveil'))) return 'surveil';
+  // CR 701.20 — match BEFORE 'targets' / 'mode' (and AFTER surveil so the
+  // distinct envelopes never alias): the server's literal
+  // "ChooseScryCommand" envelope must route to the scry modal, not the
+  // generic targets grid. Scry is surveil's near-twin (top vs bottom
+  // instead of top vs graveyard).
+  if (ks.some(k => k.includes('scry') || k.includes('choosescry'))) return 'scry';
   // CR 117.x / 605.1 — Yes/No modal. The server ships the literal
   // "ChooseYesNoCommand" envelope (or the shorter "chooseYesNo"
   // discriminator if normalised); both must route to the dedicated
@@ -769,6 +791,82 @@ export function detectKind(kinds: string[] | undefined): PromptKind {
             </div>
           }
 
+          @case ('scry') {
+            <!--
+              CR 701.20 — scry modal. Surveil's near-twin. Server peeked
+              the top N of the scrying player's library and shipped them in
+              scryView (top-to-bottom). Each peeked card gets two radio-
+              style buttons: "to bottom" or "keep on top". The order the
+              cards appear in scryView is the order they CURRENTLY sit on
+              top of the library (index 0 = top); cards kept on top stay in
+              that relative order for the wire payload (index 0 of
+              topOrderInstanceIds becomes the new top). The only difference
+              from surveil is the non-kept bucket goes to the BOTTOM of the
+              library (CR 701.20a) rather than the graveyard. Confirm is
+              gated on every card having a decision (server validates the
+              partition coverage too).
+            -->
+            <div class="flex flex-col gap-2 text-xs">
+              @if (prompt()?.label; as lbl) {
+                <span class="opacity-70">Decide each card: put on the bottom of your library, or keep on top.</span>
+              }
+              <div class="flex flex-col gap-1">
+                @for (c of scryPeeked(); track c.instanceId; let i = $index) {
+                  <div
+                    class="flex items-center justify-between rounded border border-white/15 px-2 py-1"
+                    [attr.data-scry-row]="c.instanceId">
+                    <span class="flex-1">
+                      <span class="opacity-50">#{{ i + 1 }}</span>
+                      <span class="ml-2 font-medium">{{ c.name }}</span>
+                      <span class="ml-2 opacity-60">{{ c.manaCost }}</span>
+                      @if (c.power !== null && c.toughness !== null) {
+                        <span class="ml-2 opacity-70">{{ c.power }}/{{ c.toughness }}</span>
+                      }
+                    </span>
+                    <span class="flex items-center gap-1">
+                      <button
+                        type="button"
+                        class="rounded border px-2 py-0.5"
+                        [class.border-red-400]="scryDecisions()[c.instanceId] === 'bottom'"
+                        [class.bg-red-400/10]="scryDecisions()[c.instanceId] === 'bottom'"
+                        [class.text-red-300]="scryDecisions()[c.instanceId] === 'bottom'"
+                        [class.border-white/15]="scryDecisions()[c.instanceId] !== 'bottom'"
+                        [attr.data-scry-action]="'bottom'"
+                        (click)="setScryDecision(c.instanceId, 'bottom')">
+                        To bottom
+                      </button>
+                      <button
+                        type="button"
+                        class="rounded border px-2 py-0.5"
+                        [class.border-emerald-400]="scryDecisions()[c.instanceId] === 'top'"
+                        [class.bg-emerald-400/10]="scryDecisions()[c.instanceId] === 'top'"
+                        [class.text-emerald-300]="scryDecisions()[c.instanceId] === 'top'"
+                        [class.border-white/15]="scryDecisions()[c.instanceId] !== 'top'"
+                        [attr.data-scry-action]="'top'"
+                        (click)="setScryDecision(c.instanceId, 'top')">
+                        Keep on top
+                      </button>
+                    </span>
+                  </div>
+                } @empty {
+                  <span class="opacity-50">No cards to scry (library empty).</span>
+                }
+              </div>
+              <div class="flex items-center gap-3">
+                <span class="opacity-60">
+                  bottom: {{ scryToBottomCount() }} | top: {{ scryToTopCount() }} / {{ scryPeeked().length }}
+                </span>
+                <button
+                  type="button"
+                  class="rounded border border-amber-400 px-3 py-1 text-amber-300 hover:bg-amber-400/10 disabled:cursor-not-allowed disabled:opacity-40"
+                  [disabled]="!scryReady()"
+                  (click)="confirmScry()">
+                  Confirm scry
+                </button>
+              </div>
+            </div>
+          }
+
           @case ('yesNo') {
             <!--
               CR 117.x / 605.1 — Yes/No "may" modal. Shock-land
@@ -984,6 +1082,14 @@ export class PromptOverlayComponent implements AfterViewInit, OnDestroy {
   // decision, which gates the Confirm button (matches the server's
   // partition-coverage validation).
   readonly surveilDecisions = signal<Record<string, 'graveyard' | 'top'>>({});
+
+  // CR 701.20 — scry partition state. Surveil's near-twin: maps a peeked
+  // card's instanceId to 'bottom' | 'top'. Cards not yet decided are
+  // absent (unset); scryReady() flips true only when every peeked card has
+  // a decision, which gates the Confirm button (matches the server's
+  // partition-coverage validation). The 'bottom' bucket is the only
+  // difference from surveil's 'graveyard' bucket.
+  readonly scryDecisions = signal<Record<string, 'bottom' | 'top'>>({});
 
   readonly kind = computed<PromptKind>(() => detectKind(this.prompt()?.expectedKinds));
 
@@ -1244,6 +1350,30 @@ export class PromptOverlayComponent implements AfterViewInit, OnDestroy {
   readonly surveilToTopCount = computed<number>(() =>
     Object.values(this.surveilDecisions()).filter(v => v === 'top').length);
 
+  // CR 701.20 — peeked top-N of the scrying player's library (surveil's
+  // near-twin). Library zone is hidden in GameState (CR 706), so the cards
+  // ride on the prompt envelope's scryView in top-to-bottom order.
+  readonly scryPeeked = computed<CardSnapshot[]>(() =>
+    this.prompt()?.scryView ?? []
+  );
+
+  // True iff every peeked card has been classified ('bottom' | 'top').
+  // Drives the Confirm button's enabled state.
+  readonly scryReady = computed<boolean>(() => {
+    const peeked = this.scryPeeked();
+    if (peeked.length === 0) return false;
+    const decisions = this.scryDecisions();
+    return peeked.every(c => decisions[c.instanceId] === 'bottom'
+      || decisions[c.instanceId] === 'top');
+  });
+
+  // Convenience selectors used by the template to label the live counts
+  // next to each bucket.
+  readonly scryToBottomCount = computed<number>(() =>
+    Object.values(this.scryDecisions()).filter(v => v === 'bottom').length);
+  readonly scryToTopCount = computed<number>(() =>
+    Object.values(this.scryDecisions()).filter(v => v === 'top').length);
+
   // CR 117.x / 605.1 — Yes/No prompt copy. Reads off the prompt
   // envelope's yesNoView block; defaults to empty string + "Yes" / "No"
   // when the view is absent so the template can still render (defense
@@ -1307,6 +1437,7 @@ export class PromptOverlayComponent implements AfterViewInit, OnDestroy {
       case 'mana': return 'Pay mana cost';
       case 'libraryPick': return 'Search your library';
       case 'surveil': return 'Surveil';
+      case 'scry': return 'Scry';
       case 'revealPick': return 'Choose from revealed cards';
       case 'choice': return 'Choose';
       case 'yesNo': {
@@ -1509,6 +1640,40 @@ export class PromptOverlayComponent implements AfterViewInit, OnDestroy {
     }
     this.decision.emit({ kind: 'surveil', toGraveyardInstanceIds, topOrderInstanceIds });
     this.surveilDecisions.set({});
+  }
+
+  // CR 701.20 — record/toggle a single peeked card's scry decision
+  // (surveil's near-twin). Clicking the already-set choice clears it (so
+  // the row goes back to "undecided", forcing the player to re-pick before
+  // Confirm enables).
+  setScryDecision(instanceId: string, choice: 'bottom' | 'top'): void {
+    const map = { ...this.scryDecisions() };
+    if (map[instanceId] === choice) {
+      delete map[instanceId];
+    } else {
+      map[instanceId] = choice;
+    }
+    this.scryDecisions.set(map);
+  }
+
+  // Assemble the wire ChooseScryCommand payload. Top-order is taken from
+  // the peeked-list's natural order (PromptDto.ScryView ships top-to-
+  // bottom; cards the player chose to keep on top stay in that relative
+  // order — index 0 of the resulting list becomes the new top of library).
+  // The non-kept cards go to the BOTTOM of the library (CR 701.20a), the
+  // only difference from surveil's graveyard bucket.
+  confirmScry(): void {
+    const peeked = this.scryPeeked();
+    const decisions = this.scryDecisions();
+    const toBottomInstanceIds: string[] = [];
+    const topOrderInstanceIds: string[] = [];
+    for (const c of peeked) {
+      const choice = decisions[c.instanceId];
+      if (choice === 'bottom') toBottomInstanceIds.push(c.instanceId);
+      else if (choice === 'top') topOrderInstanceIds.push(c.instanceId);
+    }
+    this.decision.emit({ kind: 'scry', toBottomInstanceIds, topOrderInstanceIds });
+    this.scryDecisions.set({});
   }
 
   // CR 117.x / 605.1 — emit the bool answer for an optional "may"
