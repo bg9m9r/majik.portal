@@ -1931,3 +1931,219 @@ describe('BoardComponent mobile card scale', () => {
     expect(fixture.componentInstance.cardScale()).toBeCloseTo(1.0);
   });
 });
+
+describe('BoardComponent hand drag disabling', () => {
+  it('disables hand-card drag on mobile', () => {
+    TestBed.configureTestingModule({
+      imports: [BoardComponent],
+      providers: [SelectionService],
+    });
+    TestBed.overrideProvider(ViewportService, { useValue: mobileVpStub(true) });
+    const fixture = TestBed.createComponent(BoardComponent);
+    expect(fixture.componentInstance.dragDisabled()).toBe(true);
+  });
+
+  it('keeps hand-card drag enabled on desktop', () => {
+    TestBed.configureTestingModule({
+      imports: [BoardComponent],
+      providers: [SelectionService],
+    });
+    TestBed.overrideProvider(ViewportService, { useValue: mobileVpStub(false) });
+    const fixture = TestBed.createComponent(BoardComponent);
+    expect(fixture.componentInstance.dragDisabled()).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// BoardComponent — tap-to-activate (mobile)
+//
+// On mobile (isMobileBoard = true), tapping an OWN battlefield permanent that
+// has an activated ability (kind === 'Activated', non-null id) when there is
+// NO active board-select prompt opens the context-menu overlay for that card
+// (same signal path as right-click / onContextMenu). When a board-select
+// prompt IS active the tap must fall through to the normal selection logic.
+// Desktop behaviour is unchanged (right-click / double-click).
+// ---------------------------------------------------------------------------
+describe('BoardComponent tap-to-activate (mobile)', () => {
+  function mountMobileBoardWithCard(card: CardSnapshot) {
+    const me = {
+      id: 'me',
+      name: 'Alice',
+      life: 20,
+      mana: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0, generic: 0 },
+      hand: { cards: [] },
+      library: { cards: [] },
+      graveyard: { cards: [] },
+      exile: { cards: [] },
+      battlefield: { cards: [card] },
+    };
+    const opp = { ...me, id: 'opp', name: 'Bob', battlefield: { cards: [] } };
+    const state: GameState = {
+      phase: 'Main',
+      turnNumber: 1,
+      activePlayerId: 'me',
+      players: [me, opp],
+      stack: [],
+      youPlayerId: null,
+    };
+    TestBed.configureTestingModule({
+      imports: [BoardComponent],
+      providers: [SelectionService],
+    });
+    TestBed.overrideProvider(ViewportService, { useValue: mobileVpStub(true) });
+    const fixture = TestBed.createComponent(BoardComponent);
+    const ref = fixture.componentRef;
+    ref.setInput('state', state);
+    ref.setInput('selfPlayerIds', ['me']);
+    fixture.detectChanges();
+    return { component: fixture.componentInstance, fixture, svc: TestBed.inject(SelectionService) };
+  }
+
+  it('opens the ability menu when an own permanent with an activated ability is tapped on mobile (no active prompt)', () => {
+    const card = permanentCard({
+      instanceId: 'fetch-mob',
+      abilities: [activatedAbility('abil-mob', 'search your library')],
+    });
+    const { component } = mountMobileBoardWithCard(card);
+
+    component.onBoardCardClick(card);
+
+    expect(component.activeContextCard()).toBe(card);
+    expect(component.activeContextOwner()).toBe('self');
+    expect(component.activeContextPos()).not.toBeNull();
+  });
+
+  it('does NOT open the ability menu when a board-select prompt is active (tap goes to selection)', () => {
+    const card = permanentCard({
+      instanceId: 'fetch-sel',
+      abilities: [activatedAbility('abil-sel', 'search')],
+    });
+    const { component, svc } = mountMobileBoardWithCard(card);
+
+    svc.setBoardInstanceIds(new Set(['fetch-sel']));
+    svc.setPrompt({
+      gameId: 'g',
+      playerId: 'me',
+      expectedKinds: ['ChooseTargetsCommand'],
+      candidates: [card],
+      label: 'Choose',
+    } as PromptEnvelope);
+
+    // Context menu must stay closed (selection mode is active)
+    expect(component.activeContextCard()).toBeNull();
+    component.onBoardCardClick(card);
+    expect(component.activeContextCard()).toBeNull();
+  });
+
+  it('does NOT open the ability menu on desktop when an own permanent with an activated ability is clicked', () => {
+    const card = permanentCard({
+      instanceId: 'fetch-desk',
+      abilities: [activatedAbility('abil-desk', 'search')],
+    });
+    // Desktop = isMobileBoard false
+    const me = {
+      id: 'me', name: 'Alice', life: 20,
+      mana: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0, generic: 0 },
+      hand: { cards: [] }, library: { cards: [] }, graveyard: { cards: [] }, exile: { cards: [] },
+      battlefield: { cards: [card] },
+    };
+    const opp = { ...me, id: 'opp', name: 'Bob', battlefield: { cards: [] } };
+    const state: GameState = {
+      phase: 'Main', turnNumber: 1, activePlayerId: 'me',
+      players: [me, opp], stack: [], youPlayerId: null,
+    };
+    TestBed.configureTestingModule({ imports: [BoardComponent], providers: [SelectionService] });
+    TestBed.overrideProvider(ViewportService, { useValue: mobileVpStub(false) });
+    const fixture = TestBed.createComponent(BoardComponent);
+    fixture.componentRef.setInput('state', state);
+    fixture.componentRef.setInput('selfPlayerIds', ['me']);
+    fixture.detectChanges();
+    const cmp = fixture.componentInstance;
+
+    cmp.onBoardCardClick(card);
+    expect(cmp.activeContextCard()).toBeNull();
+  });
+
+  it('does NOT open the ability menu when the permanent has no activated abilities', () => {
+    const card = permanentCard({ instanceId: 'vanilla-mob' }); // no abilities
+    const { component } = mountMobileBoardWithCard(card);
+
+    component.onBoardCardClick(card);
+    expect(component.activeContextCard()).toBeNull();
+  });
+});
+
+describe('BoardComponent tap-to-play (mobile)', () => {
+  function handCard(): CardSnapshot {
+    return {
+      instanceId: 'hand-card-1',
+      name: 'Lightning Bolt',
+      manaCost: '{R}',
+      types: ['Instant'],
+      power: null,
+      toughness: null,
+      tapped: false,
+      summoningSickness: false,
+      producedManaColors: '',
+    };
+  }
+
+  it('emits castOrPlayRequested when a self-hand card is tapped on mobile', () => {
+    TestBed.configureTestingModule({
+      imports: [BoardComponent],
+      providers: [SelectionService],
+    });
+    TestBed.overrideProvider(ViewportService, { useValue: mobileVpStub(true) });
+    const fixture = TestBed.createComponent(BoardComponent);
+    const cmp = fixture.componentInstance;
+    const card = handCard();
+    const emitted: CardSnapshot[] = [];
+    cmp.castOrPlayRequested.subscribe((e: CardSnapshot) => emitted.push(e));
+    cmp.onHandCardTap(card);
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]).toBe(card);
+  });
+
+  it('does NOT emit on tap on desktop (drag handles play there)', () => {
+    TestBed.configureTestingModule({
+      imports: [BoardComponent],
+      providers: [SelectionService],
+    });
+    TestBed.overrideProvider(ViewportService, { useValue: mobileVpStub(false) });
+    const fixture = TestBed.createComponent(BoardComponent);
+    const cmp = fixture.componentInstance;
+    const emitted: CardSnapshot[] = [];
+    cmp.castOrPlayRequested.subscribe((e: CardSnapshot) => emitted.push(e));
+    cmp.onHandCardTap(handCard());
+    expect(emitted).toHaveLength(0);
+  });
+
+  it('does NOT play a hand card on mobile while a board-select prompt owns it (routes to selection)', () => {
+    TestBed.configureTestingModule({
+      imports: [BoardComponent],
+      providers: [SelectionService],
+    });
+    TestBed.overrideProvider(ViewportService, { useValue: mobileVpStub(true) });
+    const fixture = TestBed.createComponent(BoardComponent);
+    const cmp = fixture.componentInstance;
+    const sel = TestBed.inject(SelectionService);
+    const card = handCard(); // instanceId = 'hand-card-1'
+    const card2: CardSnapshot = { ...card, instanceId: 'hand-card-2' };
+    // Use a choice prompt with max:2 so toggling one card does NOT auto-submit
+    // (auto-submit fires only when min===max and we hit max).
+    sel.setBoardInstanceIds(new Set([card.instanceId, card2.instanceId]));
+    sel.setPrompt({
+      gameId: 'g',
+      playerId: 'me',
+      expectedKinds: ['ChoiceCommand'],
+      candidates: [card, card2],
+      label: 'Choose a card in your hand',
+      choiceView: { kind: 'PickN', min: 1, max: 2 },
+    } as PromptEnvelope);
+    const emitted: unknown[] = [];
+    cmp.castOrPlayRequested.subscribe((e: unknown) => emitted.push(e));
+    cmp.onHandCardTap(card);
+    expect(emitted).toHaveLength(0);           // did NOT play
+    expect(sel.selected()).toContain(card.instanceId); // routed to selection instead
+  });
+});

@@ -526,9 +526,11 @@ const MOBILE_CARD_SCALE = 0.6;
                     class="bg-transparent p-0 focus:outline focus:outline-2 focus:outline-amber-400"
                     cdkDrag
                     [cdkDragData]="c"
+                    [cdkDragDisabled]="dragDisabled()"
                     [attr.aria-label]="'play ' + c.name"
                     animate.enter="zone-enter-from-top"
-                    animate.leave="zone-leave-down">
+                    animate.leave="zone-leave-down"
+                    (click)="onHandCardTap(c)">
                     <app-card-view
                       [snapshot]="c"
                       zone="hand"
@@ -797,8 +799,53 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
     return ids;
   }
 
+  /**
+   * True when `card` is a permanent on the local player's battlefield.
+   * Used by the mobile tap-to-activate branch to guard the ability menu
+   * against opponent permanents (CR 606 — only the controller activates).
+   */
+  private isOwnPermanent(card: CardSnapshot): boolean {
+    const selfCards = this.self()?.battlefield?.cards ?? [];
+    return selfCards.some(c => c.instanceId === card.instanceId);
+  }
+
+  /**
+   * True when `card` has at least one activated ability with a non-null id.
+   * Mirrors the filter in `activeContextActivatableAbilities` so the mobile
+   * tap guard uses the same legality predicate as the right-click menu.
+   */
+  private hasActivatedAbility(card: CardSnapshot): boolean {
+    return (card.abilities ?? []).some(a => a.kind === 'Activated' && a.id != null);
+  }
+
+  /**
+   * Open the context-menu ability list for `card` without a real MouseEvent
+   * (used by mobile tap-to-activate). Reuses the SAME three signals as
+   * `onContextMenu` so the overlay renders identically. Position defaults to
+   * the viewport origin — the menu clamps itself inside the viewport.
+   */
+  private openAbilityMenuFor(card: CardSnapshot): void {
+    this.popover.hide();
+    this.loyaltyPickerMode.set(false);
+    this.activeContextCard.set(card);
+    this.activeContextPos.set({ x: 0, y: 0 });
+    this.activeContextOwner.set('self');
+  }
+
   /** A board card was clicked while a selection mode is active. */
-  onBoardCardClick(card: { instanceId: string }): void {
+  onBoardCardClick(card: CardSnapshot): void {
+    // Mobile: with no active board-select prompt, tapping an own permanent
+    // that has an activated ability opens its ability menu (desktop uses
+    // right-click / double-click instead).
+    if (
+      this.viewport.isMobileBoard() &&
+      !this.selection.mode() &&
+      this.isOwnPermanent(card) &&
+      this.hasActivatedAbility(card)
+    ) {
+      this.openAbilityMenuFor(card);
+      return;
+    }
     const m = this.selection.mode();
     if (!m) return;
     if (m.kind === 'targets' || m.kind === 'choice') {
@@ -1228,6 +1275,8 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
   // Public alias used by the host `[class.mobile-board]` binding (host
   // expressions can't access private members).
   readonly isMobileBoard = computed(() => this.viewport.isMobileBoard());
+  /** CDK hand-drag is disabled on mobile (tap-to-play replaces it). */
+  readonly dragDisabled = computed(() => this.viewport.isMobileBoard());
   // Raw multiplier exposed as --majik-card-scale so the absolute-sized hand /
   // opp-hand zone overrides (board.scss) can multiply their base px and scale
   // along with the slider. Public so the host binding type-checks.
@@ -1670,6 +1719,24 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
     if (event.previousContainer === event.container) return;
     const card = event.item?.data as CardSnapshot | undefined;
     if (!card) return;
+    this.castOrPlayRequested.emit(card);
+  }
+
+  /**
+   * Mobile single-tap play. Desktop uses drag (no-op here). Emits the same
+   * castOrPlayRequested payload as the battlefield-drop path.
+   */
+  onHandCardTap(card: CardSnapshot): void {
+    if (!this.viewport.isMobileBoard()) return;
+    const m = this.selection.mode();
+    if (m) {
+      // A board-select prompt owns hand taps (its modal grid is suppressed for
+      // board-locatable candidates). Route candidates to selection; ignore others.
+      if ((m.kind === 'targets' || m.kind === 'choice') && m.candidateIds.has(card.instanceId)) {
+        this.onBoardCardClick(card);
+      }
+      return;
+    }
     this.castOrPlayRequested.emit(card);
   }
 }
