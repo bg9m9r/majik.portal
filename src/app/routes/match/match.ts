@@ -25,6 +25,7 @@ import { CompletedStateComponent } from './components/completed-state.component'
 import { BoardComponent } from './components/board.component';
 import { BotDecisionsPanelComponent } from './components/bot-decisions-panel.component';
 import { PromptOverlayComponent, PromptDecision } from './components/prompt-overlay.component';
+import { RotateOverlayComponent } from './components/rotate-overlay.component';
 import { Router } from '@angular/router';
 import { ToastService } from '../../ui/toast.service';
 import {
@@ -50,6 +51,7 @@ import { ConnectionState } from '../../core/signalr/signalr.service';
     BoardComponent,
     BotDecisionsPanelComponent,
     PromptOverlayComponent,
+    RotateOverlayComponent,
   ],
   template: `
     <main class="flex min-h-screen flex-col">
@@ -160,6 +162,7 @@ import { ConnectionState } from '../../core/signalr/signalr.service';
                 }
               }
               <app-bot-decisions-panel [decisions]="game.recentDecisions()" />
+              <app-rotate-overlay />
             }
             @case ('Completed') { <app-completed-state [match]="m" /> }
             @case ('Abandoned') { <app-completed-state [match]="m" /> }
