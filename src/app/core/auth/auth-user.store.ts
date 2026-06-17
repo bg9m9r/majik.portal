@@ -17,6 +17,54 @@ import { Profile, ProfileError } from '../profile/profile.types';
  */
 export const AUTH_BOOTSTRAP_TIMEOUT_MS = 5000;
 
+/**
+ * Auth0 error `error` codes that mean the session / refresh token is
+ * genuinely dead — there is no recovering it silently, so the only correct
+ * response is to log the user out and send them back to login.
+ *
+ * Why exactly these four:
+ *  - `invalid_grant`         — the refresh token was rejected (rotated away,
+ *                              revoked, or expired). This is the prod
+ *                              refresh-token-rotation case that bounced users
+ *                              to /onboarding.
+ *  - `missing_refresh_token` — the SDK has no refresh token to exchange (the
+ *                              stored session was cleared / never had one).
+ *  - `invalid_refresh_token` — the stored refresh token is malformed / no
+ *                              longer accepted by the tenant.
+ *  - `login_required`        — Auth0 cannot satisfy a silent auth without an
+ *                              interactive login (session gone server-side).
+ *
+ * All four mean "re-authentication is required". Transient/network errors are
+ * deliberately NOT in this set — we must not log the user out on a blip.
+ */
+const DEAD_REFRESH_ERROR_CODES: ReadonlySet<string> = new Set([
+  'invalid_grant',
+  'missing_refresh_token',
+  'invalid_refresh_token',
+  'login_required',
+]);
+
+/**
+ * True when `err` is an Auth0 error whose code signals a genuinely-dead
+ * session/refresh token (see {@link DEAD_REFRESH_ERROR_CODES}). Defensive
+ * about shape: `err` is `unknown` and may be the raw Auth0 error
+ * (`{ error, error_description }`) OR an `HttpErrorResponse` that nests it
+ * under `.error.error`. Anything else (network failures, generic `Error`s,
+ * null/undefined, non-objects) returns false so transient problems never
+ * trigger a logout.
+ */
+export function isDeadRefreshError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const e = err as any;
+  // Flat Auth0 error: { error: 'invalid_grant', ... }
+  const flat = e.error;
+  if (typeof flat === 'string' && DEAD_REFRESH_ERROR_CODES.has(flat)) return true;
+  // Nested (HttpErrorResponse-wrapped): { error: { error: 'invalid_grant' } }
+  const nested = e.error?.error;
+  if (typeof nested === 'string' && DEAD_REFRESH_ERROR_CODES.has(nested)) return true;
+  return false;
+}
+
 export interface Principal {
   sub: string;
   name?: string;
@@ -210,6 +258,37 @@ export const AuthUserStore = signalStore(
       });
     }
 
+    /**
+     * Log out a session whose refresh token is genuinely dead
+     * (`isDeadRefreshError`). Patches a fully logged-out state and, in real
+     * mode, calls Auth0 `logout()` which clears the `@@auth0spajs@@` token
+     * cache (including refresh tokens) and full-page-redirects to login —
+     * satisfying "purge stored refresh tokens". In stub mode there is no SDK
+     * and no redirect: we just reset to the logged-out state. This is the
+     * single path that replaces the old generic-error fall-through that
+     * routed dead sessions to /onboarding.
+     */
+    function signOutDeadSession(): void {
+      const loggedOut = {
+        authed: false,
+        principal: null,
+        token: null,
+        profile: null,
+        ready: true,
+        sessionExpired: false,
+      } as const;
+      if (store.isStub) {
+        patchState(store, loggedOut);
+        return;
+      }
+      patchState(store, loggedOut);
+      // Same logout call shape as logout(): clears the SDK token cache (incl.
+      // refresh tokens) and full-page-redirects back to the app origin.
+      auth0?.logout({
+        logoutParams: { returnTo: window.location.origin }
+      }).subscribe();
+    }
+
     async function bootstrapProfile(): Promise<void> {
       if (store.isStub && !mongoLikelyConfigured()) {
         // Stub auth + Mongo expected absent: synthesize immediately, no GET.
@@ -283,9 +362,18 @@ export const AuthUserStore = signalStore(
           const token = await firstValueFrom(auth0.getAccessTokenSilently());
           if (token) patchState(store, { token, sessionExpired: false });
           return token ?? store.token() ?? '';
-        } catch {
-          // The cached-token path failing is not, on its own, proof the
-          // session is dead (could be a transient SDK hiccup). Don't latch
+        } catch (err) {
+          // A dead refresh token here means the session is genuinely gone —
+          // log out (and purge stored tokens) rather than silently reusing a
+          // stale cached token that will just keep 401ing. Defense-in-depth
+          // for the SignalR/default token path (the HTTP interceptor handles
+          // the request-time case).
+          if (isDeadRefreshError(err)) {
+            signOutDeadSession();
+            return '';
+          }
+          // Otherwise: the cached-token path failing is not, on its own, proof
+          // the session is dead (could be a transient SDK hiccup). Don't latch
           // sessionExpired here — that's forceRefresh's job. Fall back to
           // whatever cached token we have.
           return store.token() ?? '';
@@ -309,7 +397,14 @@ export const AuthUserStore = signalStore(
           );
           if (fresh) patchState(store, { token: fresh, sessionExpired: false });
           return fresh ?? store.token() ?? '';
-        } catch {
+        } catch (err) {
+          // A dead refresh token → log out + purge tokens rather than just
+          // latching sessionExpired. Defense-in-depth for the SignalR retry
+          // path that calls forceRefresh after a 401 negotiate.
+          if (isDeadRefreshError(err)) {
+            signOutDeadSession();
+            return '';
+          }
           // A forced (cacheMode:'off') refresh failing means Auth0 rejected
           // the refresh token — the session is genuinely dead. Latch
           // sessionExpired so consumers surface "session expired" + redirect
@@ -333,6 +428,16 @@ export const AuthUserStore = signalStore(
         auth0?.logout({
           logoutParams: { returnTo: window.location.origin }
         }).subscribe();
+      },
+
+      /**
+       * Log out a genuinely-dead session (dead refresh token) and purge
+       * stored tokens. See the local `signOutDeadSession` for the rationale;
+       * exposed so the HTTP interceptor can invoke it on a request-time
+       * `invalid_grant`.
+       */
+      signOutDeadSession(): void {
+        signOutDeadSession();
       },
 
       /** Clear the session-expiry latch (e.g. after re-authenticating). */
