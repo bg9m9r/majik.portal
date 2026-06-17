@@ -55,3 +55,6 @@ Thumbs.db
 /test-results
 /playwright-report
 /playwright/.cache
+
+# Visual-companion brainstorm artifacts
+.superpowers/
