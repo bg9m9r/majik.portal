@@ -58,6 +58,10 @@ function mountBoard(state: GameState, selfPlayerIds: string[]) {
   ref.setInput('state', state);
   ref.setInput('selfPlayerIds', selfPlayerIds);
   fixture.detectChanges();
+  // Second pass flushes the auto-open effect (a populated stack opens the
+  // info drawer) so the drawer's @if(open()) branch — and the stack list
+  // inside it — is rendered before assertions query .stack-item.
+  fixture.detectChanges();
   return { component: fixture.componentInstance, fixture };
 }
 
@@ -1318,56 +1322,70 @@ describe('BoardComponent — equal strip footprint across both sides', () => {
   });
 });
 
-describe('BoardComponent — stack chip auto-expand', () => {
-  it('AUTO-EXPANDS the chip whenever the stack is non-empty (a cast is not hidden)', () => {
+// The old top-right .stack-chip + left-edge action log are gone; the board
+// now hosts the unified <app-info-drawer>. Two invariants matter:
+//   1) the chip markup is fully removed (no .stack-chip / app-game-log); and
+//   2) a stack object lands → the drawer auto-opens (so the cast isn't
+//      hidden), rendering the stack list inside it.
+describe('BoardComponent — info drawer + auto-open on cast', () => {
+  it('renders <app-info-drawer> and NO legacy stack-chip / app-game-log', () => {
     const me = player({ id: 'me', name: 'Alice' });
     const opp = player({ id: 'opp', name: 'Bob' });
     const state: GameState = {
-      phase: 'Main',
-      turnNumber: 1,
-      activePlayerId: 'me',
-      players: [me, opp],
-      stack: [
-        { id: 's-spell', kind: 'Spell', description: 'Lightning Bolt' },
-      ],
-      youPlayerId: null,
+      phase: 'Main', turnNumber: 1, activePlayerId: 'me',
+      players: [me, opp], stack: [], youPlayerId: null,
     };
-    const { fixture, component } = mountBoard(state, ['me']);
-
-    const chip = fixture.nativeElement.querySelector('.stack-chip') as HTMLElement;
-    expect(chip).toBeTruthy();
-    expect(chip.classList.contains('stack-chip--populated')).toBe(true);
-    // Non-empty stack ⇒ open by default so the spell is visible.
-    const toggle = chip.querySelector('.stack-chip__toggle') as HTMLElement;
-    expect(toggle.getAttribute('aria-expanded')).toBe('true');
-    expect(component.stackExpanded()).toBe(true);
-
-    // User can still manually collapse it; the override holds.
-    component.toggleStack();
-    fixture.detectChanges();
-    expect(component.stackExpanded()).toBe(false);
-    expect(
-      (fixture.nativeElement.querySelector('.stack-chip__toggle') as HTMLElement)
-        .getAttribute('aria-expanded'),
-    ).toBe('false');
+    const { fixture } = mountBoard(state, ['me']);
+    expect(fixture.nativeElement.querySelector('app-info-drawer')).toBeTruthy();
+    expect(fixture.nativeElement.querySelector('.stack-chip')).toBeNull();
+    expect(fixture.nativeElement.querySelector('app-game-log')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.stack-chip__toggle')).toBeNull();
   });
 
-  it('stays collapsed when the stack is EMPTY (reclaims battlefield space)', () => {
+  it('starts closed on an empty stack', () => {
     const me = player({ id: 'me', name: 'Alice' });
     const opp = player({ id: 'opp', name: 'Bob' });
     const state: GameState = {
-      phase: 'Main',
-      turnNumber: 1,
-      activePlayerId: 'me',
-      players: [me, opp],
-      stack: [],
-      youPlayerId: null,
+      phase: 'Main', turnNumber: 1, activePlayerId: 'me',
+      players: [me, opp], stack: [], youPlayerId: null,
     };
-    const { fixture, component } = mountBoard(state, ['me']);
+    const { fixture } = mountBoard(state, ['me']);
+    const prefs = TestBed.inject(LayoutPrefsService);
+    expect(prefs.infoDrawerOpen()).toBe(false);
+    // Closed ⇒ no stack list rendered.
+    expect(fixture.nativeElement.querySelector('app-stack-list')).toBeNull();
+  });
 
-    expect(component.stackExpanded()).toBe(false);
-    const toggle = fixture.nativeElement.querySelector('.stack-chip__toggle') as HTMLElement;
-    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+  it('AUTO-OPENS the drawer the moment a spell hits the stack (the cast is not hidden)', () => {
+    const me = player({ id: 'me', name: 'Alice' });
+    const opp = player({ id: 'opp', name: 'Bob' });
+
+    // Start with an empty stack (drawer closed), then a spell arrives.
+    const empty: GameState = {
+      phase: 'Main', turnNumber: 1, activePlayerId: 'me',
+      players: [me, opp], stack: [], youPlayerId: null,
+    };
+    TestBed.configureTestingModule({ imports: [BoardComponent], providers: [SelectionService] });
+    const prefs = TestBed.inject(LayoutPrefsService);
+    prefs.reset();
+    const fixture = TestBed.createComponent(BoardComponent);
+    const ref: ComponentRef<BoardComponent> = fixture.componentRef;
+    ref.setInput('state', empty);
+    ref.setInput('selfPlayerIds', ['me']);
+    fixture.detectChanges();
+    fixture.detectChanges();
+    expect(prefs.infoDrawerOpen()).toBe(false);
+
+    ref.setInput('state', {
+      ...empty,
+      stack: [{ id: 's-spell', kind: 'Spell', description: 'Lightning Bolt' }],
+    });
+    fixture.detectChanges();
+    fixture.detectChanges();
+
+    expect(prefs.infoDrawerOpen()).toBe(true);
+    const items = fixture.nativeElement.querySelectorAll('.stack-item');
+    expect(items.length).toBe(1);
   });
 });
 

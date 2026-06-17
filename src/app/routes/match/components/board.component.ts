@@ -18,7 +18,7 @@ import {
   CdkDropList,
   moveItemInArray,
 } from '@angular/cdk/drag-drop';
-import { GameState, GamePlayer, CardSnapshot, StackItem, SelectionMode } from '../../../core/match/match.types';
+import { GameState, GamePlayer, CardSnapshot, SelectionMode } from '../../../core/match/match.types';
 import { GameStore, PhaseStops } from '../../../core/match/game.store';
 import { SelectionService } from '../../../core/match/selection.service';
 import { isPriorityPrompt } from '../../../core/match/match-session';
@@ -40,23 +40,17 @@ import { bucketBattlefield, BattlefieldBuckets } from './bucket-battlefield';
 import { ZoneRailComponent } from './zone-rail.component';
 import { ZoneModalComponent } from './zone-modal.component';
 import { ZoneKind } from './zone-pile.component';
-import { GameLogComponent } from './game-log.component';
+import { InfoDrawerComponent } from './info-drawer.component';
+import { StackItemView } from './stack-list.component';
 import { LayoutPrefsService } from '../layout-prefs.service';
 import { ViewportService } from '../../../core/ui/viewport.service';
 import { ResizeHandleDirective } from './resize-handle.directive';
 
-/**
- * A `StackItem` enriched with display flags the template + the
- * awaiting-priority callout consume. `mine` / `isOpponent` are derived from
- * `controllerId` vs the local seat; `label` is the friendliest available
- * name (card name → description → kind).
- */
-export interface StackItemView extends StackItem {
-  mine: boolean;
-  isOpponent: boolean;
-  controllerName: string | null;
-  label: string;
-}
+// StackItemView (the enriched-for-display stack item) now lives in
+// stack-list.component.ts so the presentational list owns the shape it
+// renders. Re-exported here for any importer that referenced the old
+// board-level definition.
+export type { StackItemView } from './stack-list.component';
 
 // Effective card-scale ceiling on a phone: two seats + hands must fit a short
 // landscape height. The user can still shrink further via the layout slider.
@@ -93,7 +87,7 @@ const MOBILE_CARD_SCALE = 0.6;
     CdkDragPlaceholder,
     ZoneRailComponent,
     ZoneModalComponent,
-    GameLogComponent,
+    InfoDrawerComponent,
     ResizeHandleDirective,
   ],
   // ----------------------------------------------------------------
@@ -549,82 +543,6 @@ const MOBILE_CARD_SCALE = 0.6;
           </div>
 
           <!--
-            Stack — collapsed to a small corner chip so it doesn't eat a
-            row of vertical space. Click toggles the expanded contents
-            list. Newest at the top — resolution reads top → bottom.
-            Floats absolute in the top-right of the board area.
-          -->
-          <aside
-            class="stack-chip"
-            [class.stack-chip--populated]="s.stack.length > 0"
-            [class.stack-chip--opponent]="opponentObjectOnStack()"
-            [class.stack-chip--open]="stackExpanded()"
-            aria-label="stack">
-            <button
-              type="button"
-              class="stack-chip__toggle"
-              [attr.aria-expanded]="stackExpanded()"
-              (click)="toggleStack()">
-              Stack ({{ s.stack.length }})
-            </button>
-            @if (stackExpanded()) {
-              <div class="stack-chip__body">
-                @for (item of reversedStack(); track item.id; let i = $index) {
-                  <div
-                    class="stack-item py-1 text-xs"
-                    [class.stack-item--top]="i === 0"
-                    [class.stack-item--trigger]="item.kind === 'TriggeredAbility'"
-                    [class.stack-item--opponent]="item.isOpponent"
-                    [class.stack-item--mine]="item.mine"
-                    [attr.data-stack-kind]="item.kind"
-                    [attr.data-stack-controller]="item.isOpponent ? 'opponent' : (item.mine ? 'self' : null)"
-                    animate.enter="stack-item-enter"
-                    animate.leave="stack-item-leave">
-                    <div class="stack-item__head flex items-center justify-between gap-2">
-                      <span class="font-semibold">{{ item.label }}</span>
-                      @if (i === 0) {
-                        <span class="stack-item__badge">next</span>
-                      }
-                    </div>
-                    <div class="stack-item__meta opacity-70">
-                      @if (item.controllerName) {
-                        <span [class.text-amber-300]="item.isOpponent">{{ item.controllerName }}</span>
-                        <span class="opacity-50"> · </span>
-                      }
-                      <span>{{ item.kind }}</span>
-                    </div>
-                  </div>
-                } @empty {
-                  <p class="text-xs opacity-40">empty</p>
-                }
-              </div>
-            } @else {
-              <!--
-                Keep stack items mounted (display: none) when collapsed so
-                the existing spec which queries .stack-item from a flat
-                DOM still works regardless of expanded state. The chip
-                pulse + trigger highlight remain visible via the toggle's
-                outer styling when populated.
-              -->
-              <div class="stack-chip__body stack-chip__body--collapsed">
-                @for (item of reversedStack(); track item.id; let i = $index) {
-                  <div
-                    class="stack-item py-1 text-xs"
-                    [class.stack-item--top]="i === 0"
-                    [class.stack-item--trigger]="item.kind === 'TriggeredAbility'"
-                    [class.stack-item--opponent]="item.isOpponent"
-                    [class.stack-item--mine]="item.mine"
-                    [attr.data-stack-kind]="item.kind"
-                    [attr.data-stack-controller]="item.isOpponent ? 'opponent' : (item.mine ? 'self' : null)">
-                    <div class="font-semibold">{{ item.label }}</div>
-                    <div class="opacity-70">{{ item.kind }}</div>
-                  </div>
-                }
-              </div>
-            }
-          </aside>
-
-          <!--
             SVG combat-assignment overlay. Layered above the board cells
             (pointer-events: none so card interactions still work). The
             modal-driven attackers/blockers prompt remains the source of
@@ -649,15 +567,19 @@ const MOBILE_CARD_SCALE = 0.6;
           }
 
           <!--
-            Full-game action log — collapsible left-edge drawer overlaying
-            the board (closed by default; anchored left so it never collides
-            with the right-anchored stack chip / zone rail). Reuses the
-            SignalR event stream
-            via GameStore.logEntries(); passing priority is never logged.
+            Unified right-edge info drawer — Stack (top, always visible),
+            a draggable split, then a tabbed bottom pane [ Log | Bot
+            Decisions ]. Replaces the old top-right stack chip + left-edge
+            action-log drawer + the fixed bottom-right bot-decisions panel
+            (which overlapped the Pass button). Auto-opens on cast via the
+            effect in the constructor. Open / tab / split persist through
+            LayoutPrefsService.
           -->
-          <app-game-log
-            [entries]="logEntries()"
-            [selfIds]="selfPlayerIds()" />
+          <app-info-drawer
+            [stack]="reversedStack()"
+            [logEntries]="logEntries()"
+            [selfIds]="selfPlayerIds()"
+            [botDecisions]="recentDecisions()" />
         </div>
 
         <!--
@@ -1363,6 +1285,11 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
   // the store signal so the template can bind it (gameStore is private).
   readonly logEntries = this.gameStore.logEntries;
 
+  // Recent bot decisions ring buffer (most recent first) for the drawer's
+  // Bot-Decisions tab. Public alias of the store signal — the data now
+  // flows through the board, not match.ts, so the drawer can host it.
+  readonly recentDecisions = this.gameStore.recentDecisions;
+
   @ViewChild('boardGrid') private boardGridEl?: ElementRef<HTMLElement>;
 
   // Recomputation trigger for SVG line coords. Bumped on resize +
@@ -1402,17 +1329,26 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
       }
     });
 
-    // Clear any manual stack-expand override once the stack empties, so the
-    // NEXT object added to the stack re-triggers the auto-expand rule (a
-    // user who collapsed an earlier stack still gets the loud auto-open for
-    // a brand-new cast).
+    // Auto-open the info drawer whenever the stack GROWS (empty→non-empty,
+    // or a new object lands on an already-populated stack) so a freshly-cast
+    // spell — especially the opponent's — is never hidden behind a closed
+    // drawer. Mirrors the old stack-chip auto-expand. The drawer does NOT
+    // auto-close when the stack empties (the overlay doesn't eat board
+    // space, so we leave it as the user last had it); they close it
+    // manually. `prevStackLen` lets us distinguish a genuine growth from a
+    // re-render at the same depth.
     effect(() => {
-      const empty = (this.state()?.stack.length ?? 0) === 0;
-      if (empty && this.stackExpandOverride() !== null) {
-        this.stackExpandOverride.set(null);
+      const len = this.state()?.stack.length ?? 0;
+      const prev = this.prevStackLen;
+      this.prevStackLen = len;
+      if (len > prev) {
+        this.layoutPrefs.setInfoDrawerOpen(true);
       }
     });
   }
+
+  // Last-seen stack depth, for the auto-open growth check above.
+  private prevStackLen = 0;
 
   ngAfterViewInit(): void {
     if (typeof window !== 'undefined') {
@@ -1502,31 +1438,6 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
     }
 
     this.combatLines.set(lines);
-  }
-
-  /**
-   * Manual user override for the stack-chip expand state. `null` = "no
-   * explicit choice, follow the auto rule"; `true`/`false` = the user
-   * clicked the toggle and we honour their pick until the stack empties.
-   *
-   * The auto rule (see `stackExpanded`) AUTO-EXPANDS the chip whenever the
-   * stack is non-empty so a freshly-cast spell is never hidden behind a
-   * collapsed chip — the whole point of this slice. When the stack is
-   * empty the chip collapses to reclaim battlefield space.
-   */
-  private readonly stackExpandOverride = signal<boolean | null>(null);
-
-  readonly stackExpanded = computed<boolean>(() => {
-    const override = this.stackExpandOverride();
-    if (override !== null) return override;
-    // Auto: open while there's anything on the stack, collapsed otherwise.
-    return (this.state()?.stack.length ?? 0) > 0;
-  });
-
-  toggleStack(): void {
-    // Flip relative to the currently-displayed state and pin it as an
-    // explicit override so the auto rule doesn't immediately undo it.
-    this.stackExpandOverride.set(!this.stackExpanded());
   }
 
   readonly self = computed<GamePlayer | null>(() => {
