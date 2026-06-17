@@ -216,6 +216,16 @@ export interface PromptEnvelope {
   // ChooseSurveilCommand partitioning the set. Privacy: per-recipient
   // SignalR routing — the opponent never sees these cards.
   surveilView?: CardSnapshot[];
+  // CR 701.20 — scry prompts (fetchland-style scry 1, Preordain scry 2, …).
+  // The engine peeks the top N cards of the scrying player's library and
+  // ships them here in top-to-bottom order. Null on every other prompt
+  // kind. The portal surfaces each card with two choices ("to bottom" /
+  // "keep on top") and assembles a ChooseScryCommand partitioning the set.
+  // Surveil's near-twin: the only difference is the non-kept cards go to
+  // the BOTTOM of the library (CR 701.20a) rather than the graveyard
+  // (surveil, CR 701.40). Privacy: per-recipient SignalR routing — the
+  // opponent never sees these cards.
+  scryView?: CardSnapshot[];
   // CR 117.x / 605.1 — Yes/No "may" prompts (shock-land "pay 2 life?"
   // is the seed caller). Carries the question text + optional source-card
   // label so the modal can be titled by the triggering permanent;
@@ -310,6 +320,7 @@ export type GameCommand =
   | CancelCastCommand
   | ChooseLibraryPickCommand
   | ChooseSurveilCommand
+  | ChooseScryCommand
   | ChooseYesNoCommand
   | ChooseFromRevealedCommand
   | ChoiceCommand;
@@ -387,6 +398,20 @@ export interface ChooseLibraryPickCommand extends CmdBase {
 export interface ChooseSurveilCommand extends CmdBase {
   $type: 'chooseSurveil';
   toGraveyardInstanceIds: string[];
+  topOrderInstanceIds: string[];
+}
+// CR 701.20 — response to a scry prompt. The engine peeked N cards
+// (shipped on PromptEnvelope.scryView in top-to-bottom order); the client
+// partitions them into two disjoint lists: which to put on the BOTTOM of
+// the library (CR 701.20a) and which to keep on top (in the order the
+// player wants them, where index 0 of topOrderInstanceIds becomes the new
+// top of library). Surveil's near-twin — the non-kept cards go to the
+// bottom rather than the graveyard. Server rejects payloads that don't
+// cover the peeked set exactly once. Matches the generated
+// GameCommandChooseScryCommand ($type "chooseScry").
+export interface ChooseScryCommand extends CmdBase {
+  $type: 'chooseScry';
+  toBottomInstanceIds: string[];
   topOrderInstanceIds: string[];
 }
 // CR 117.x / 605.1 — response to a Yes/No "may" prompt (shock-land

@@ -6,7 +6,7 @@
   },
   "servers": [
     {
-      "url": "https://majik-api.onrender.com/"
+      "url": "https://api.majik.tech/"
     }
   ],
   "paths": {
@@ -2070,6 +2070,9 @@
             "$ref": "#/components/schemas/GameCommandChooseSurveilCommand"
           },
           {
+            "$ref": "#/components/schemas/GameCommandChooseScryCommand"
+          },
+          {
             "$ref": "#/components/schemas/GameCommandChooseYesNoCommand"
           },
           {
@@ -2103,6 +2106,7 @@
             "bottom": "#/components/schemas/GameCommandChooseCardsToBottomCommand",
             "chooseLibraryPick": "#/components/schemas/GameCommandChooseLibraryPickCommand",
             "chooseSurveil": "#/components/schemas/GameCommandChooseSurveilCommand",
+            "chooseScry": "#/components/schemas/GameCommandChooseScryCommand",
             "chooseYesNo": "#/components/schemas/GameCommandChooseYesNoCommand",
             "chooseFromRevealed": "#/components/schemas/GameCommandChooseFromRevealedCommand",
             "choice": "#/components/schemas/GameCommandChoiceCommand",
@@ -2419,6 +2423,38 @@
               "string"
             ],
             "format": "int32"
+          },
+          "playerId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "GameCommandChooseScryCommand": {
+        "required": [
+          "toBottomInstanceIds",
+          "topOrderInstanceIds"
+        ],
+        "properties": {
+          "$type": {
+            "enum": [
+              "chooseScry"
+            ],
+            "type": "string"
+          },
+          "toBottomInstanceIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "topOrderInstanceIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
           },
           "playerId": {
             "type": "string",
@@ -3221,6 +3257,24 @@
             "items": {
               "$ref": "#/components/schemas/PlayerCandidateDto"
             }
+          },
+          "stackCandidates": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/StackCandidateDto"
+            }
+          },
+          "scryView": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/CardSnapshotDto"
+            }
           }
         }
       },
@@ -3309,6 +3363,27 @@
           },
           "label": {
             "type": "string"
+          }
+        }
+      },
+      "StackCandidateDto": {
+        "required": [
+          "id",
+          "cardName",
+          "controllerId"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "cardName": {
+            "type": "string"
+          },
+          "controllerId": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       },

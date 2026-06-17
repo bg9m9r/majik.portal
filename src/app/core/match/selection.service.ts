@@ -2,8 +2,8 @@ import { Injectable, computed, signal } from '@angular/core';
 import type { PromptEnvelope, SelectionMode } from './match.types';
 
 // In-scope prompt kinds for on-board click-to-select. Everything else
-// (libraryPick, surveil, yesNo, x, mana, mode, mulligan, bottom, revealPick)
-// stays on the existing modal grid.
+// (libraryPick, surveil, scry, yesNo, x, mana, mode, mulligan, bottom,
+// revealPick) stays on the existing modal grid.
 export const BOARD_SELECT_KINDS = ['targets', 'choice', 'attackers', 'blockers'] as const;
 export type BoardSelectKind = (typeof BOARD_SELECT_KINDS)[number];
 
