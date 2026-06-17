@@ -1826,3 +1826,137 @@ describe('PromptOverlayComponent — bottom-sheet on mobile', () => {
     expect(root.classList.contains('prompt-sheet')).toBe(false);
   });
 });
+
+// Candidate cards in the target / choice (tutor) pickers render the
+// Scryfall card ART via <app-card-tile> (name-box fallback when no image
+// resolves — which is always the case in jsdom). The selection toggle,
+// selected-state highlight, and the zone/controller caption must all
+// survive the art treatment. Green Sun's Zenith / fetchland searches are
+// the motivating callers.
+describe('PromptOverlayComponent — candidate card art (target / choice pickers)', () => {
+  function twoPlayerState(meCards: CardSnapshot[], oppCards: CardSnapshot[]): GameState {
+    const me = player({ id: 'me', name: 'Alice', battlefield: { cards: meCards } });
+    const opp = player({ id: 'opp', name: 'Bob', battlefield: { cards: oppCards } });
+    return {
+      phase: 'PreCombatMain', turnNumber: 1, activePlayerId: 'me',
+      players: [me, opp], stack: [], youPlayerId: null,
+    };
+  }
+
+  it('renders one app-card-tile per candidate in a targets prompt (not a bare name span)', () => {
+    const myLand = card({ instanceId: 'my-land', name: 'Forest', types: ['Land'] });
+    const enemyBear = card({ instanceId: 'enemy-bear', name: 'Grizzly Bears' });
+    const state = twoPlayerState([myLand], [enemyBear]);
+
+    const { fixture } = mountOverlay(
+      state, ['ChooseTargetsCommand'], ['me'], { candidates: [myLand, enemyBear] },
+    );
+
+    const el = fixture.nativeElement as HTMLElement;
+    const grid = el.querySelector('[data-grid="targets"]')!.parentElement as HTMLElement;
+    const tiles = grid.querySelectorAll('app-card-tile');
+    expect(tiles.length).toBe(2);
+
+    // The art tile still surfaces the card name (placeholder text in jsdom)
+    // so the player can read it even when no image resolves.
+    const tileText = Array.from(tiles).map(t => (t as HTMLElement).textContent ?? '');
+    expect(tileText.some(t => t.includes('Forest'))).toBe(true);
+    expect(tileText.some(t => t.includes('Grizzly Bears'))).toBe(true);
+    // The selectable button carries the candidate name as its aria-label.
+    const btnLabels = Array.from(el.querySelectorAll('.candidate-tile'))
+      .map(b => b.getAttribute('aria-label'));
+    expect(btnLabels).toEqual(expect.arrayContaining(['Forest', 'Grizzly Bears']));
+  });
+
+  it('keeps the zone/controller caption alongside the art in a targets prompt', () => {
+    const myLand = card({ instanceId: 'my-land', name: 'Forest', types: ['Land'] });
+    const state = twoPlayerState([myLand], []);
+
+    const { fixture } = mountOverlay(
+      state, ['ChooseTargetsCommand'], ['me'], { candidates: [myLand] },
+    );
+
+    const el = fixture.nativeElement as HTMLElement;
+    const caption = el.querySelector('.candidate-caption') as HTMLElement;
+    expect(caption).toBeTruthy();
+    expect(caption.textContent).toContain('(battlefield)');
+    expect(caption.textContent).toContain('Alice');
+  });
+
+  it('selection toggle still works on the art tile button (targets)', () => {
+    const myLand = card({ instanceId: 'my-land', name: 'Forest', types: ['Land'] });
+    const state = twoPlayerState([myLand], []);
+
+    const { component, fixture } = mountOverlay(
+      state, ['ChooseTargetsCommand'], ['me'], { candidates: [myLand] },
+    );
+
+    const el = fixture.nativeElement as HTMLElement;
+    const btn = el.querySelector('.candidate-tile') as HTMLButtonElement;
+    expect(btn).toBeTruthy();
+    expect(btn.getAttribute('aria-pressed')).toBe('false');
+
+    btn.click();
+    fixture.detectChanges();
+
+    expect(component.isSelected('my-land')).toBe(true);
+    expect(component.selected()).toEqual(['my-land']);
+    expect(btn.getAttribute('aria-pressed')).toBe('true');
+    expect(btn.getAttribute('aria-label')).toBe('Forest');
+    // Selected highlight reads as a ring around the art.
+    expect(btn.classList.contains('ring-2')).toBe(true);
+  });
+
+  it('renders one app-card-tile per candidate in a choice (tutor) prompt', () => {
+    const fodder = card({ instanceId: 'fod-1', name: 'Carrion Feeder' });
+    const ooze = card({ instanceId: 'ooze-1', name: 'Scavenging Ooze' });
+    const me = player({ id: 'me', name: 'Alice', battlefield: { cards: [fodder, ooze] } });
+    const opp = player({ id: 'opp', name: 'Bob' });
+    const state: GameState = {
+      phase: 'Main', turnNumber: 4, activePlayerId: 'me',
+      players: [me, opp], stack: [], youPlayerId: null,
+    };
+
+    const { fixture } = mountOverlay(
+      state, ['ChoiceCommand'], ['me'],
+      { candidates: [fodder, ooze], choiceView: { kind: 'PickN', min: 1, max: 2 } },
+    );
+
+    const el = fixture.nativeElement as HTMLElement;
+    const grid = el.querySelector('[data-grid="choice"]')!.parentElement as HTMLElement;
+    const tiles = grid.querySelectorAll('app-card-tile');
+    expect(tiles.length).toBe(2);
+
+    const caption = el.querySelector('.candidate-caption') as HTMLElement;
+    expect(caption).toBeTruthy();
+    expect(caption.textContent).toContain('(battlefield)');
+  });
+
+  it('selection toggle + count still works on the art tile button (choice)', () => {
+    const fodder = card({ instanceId: 'fod-1', name: 'Carrion Feeder' });
+    const me = player({ id: 'me', name: 'Alice', battlefield: { cards: [fodder] } });
+    const opp = player({ id: 'opp', name: 'Bob' });
+    const state: GameState = {
+      phase: 'Main', turnNumber: 4, activePlayerId: 'me',
+      players: [me, opp], stack: [], youPlayerId: null,
+    };
+
+    const { component, fixture } = mountOverlay(
+      state, ['ChoiceCommand'], ['me'],
+      { candidates: [fodder], choiceView: { kind: 'PickOne', min: 1, max: 1 } },
+    );
+
+    const el = fixture.nativeElement as HTMLElement;
+    const btn = el.querySelector('.candidate-tile') as HTMLButtonElement;
+    expect(btn.getAttribute('aria-pressed')).toBe('false');
+    expect(component.canConfirmChoice()).toBe(false);
+
+    btn.click();
+    fixture.detectChanges();
+
+    expect(component.isSelected('fod-1')).toBe(true);
+    expect(component.selected()).toEqual(['fod-1']);
+    expect(component.canConfirmChoice()).toBe(true);
+    expect(btn.getAttribute('aria-pressed')).toBe('true');
+  });
+});

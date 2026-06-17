@@ -14,6 +14,7 @@ import { ViewportService } from '../../../core/ui/viewport.service';
 import { FormsModule } from '@angular/forms';
 import { CardSnapshot, GameState, GamePlayer, SelectionMode } from '../../../core/match/match.types';
 import { SelectionService } from '../../../core/match/selection.service';
+import { CardTileComponent } from '../../../ui/card-tile.component';
 
 interface PromptInfo {
   expectedKinds?: string[];
@@ -183,7 +184,7 @@ export function detectKind(kinds: string[] | undefined): PromptKind {
 @Component({
   selector: 'app-prompt-overlay',
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, CardTileComponent],
   styles: [`
     // Mobile bottom-sheet: full-width, anchored to the bottom edge; board stays visible above.
     .prompt-sheet {
@@ -299,16 +300,20 @@ export function detectKind(kinds: string[] | undefined): PromptKind {
               @for (cand of candidates(); track cand.card.instanceId) {
                 <button
                   type="button"
-                  class="flex items-start justify-between rounded border px-2 py-1 text-left"
+                  class="candidate-tile flex flex-col gap-1 rounded border p-1 text-left"
                   [class.border-amber-400]="isSelected(cand.card.instanceId)"
+                  [class.ring-2]="isSelected(cand.card.instanceId)"
+                  [class.ring-amber-400]="isSelected(cand.card.instanceId)"
                   [class.bg-amber-400/10]="isSelected(cand.card.instanceId)"
                   [class.border-white/15]="!isSelected(cand.card.instanceId)"
+                  [attr.aria-label]="cand.card.name"
+                  [attr.aria-pressed]="isSelected(cand.card.instanceId)"
                   (click)="toggle(cand.card.instanceId)">
-                  <span>
-                    <span class="font-medium">{{ cand.card.name }}</span>
-                    <span class="ml-1 opacity-50">({{ cand.zone }})</span>
+                  <app-card-tile [name]="cand.card.name" [width]="88" [height]="123" />
+                  <span class="candidate-caption flex items-baseline justify-between gap-1 px-0.5 text-[10px]">
+                    <span class="opacity-60">({{ cand.zone }})</span>
+                    <span class="opacity-50">{{ cand.controllerName }}</span>
                   </span>
-                  <span class="opacity-60">{{ cand.controllerName }}</span>
                 </button>
               } @empty {
                 <p class="col-span-3 opacity-50">No candidates in play.</p>
@@ -347,16 +352,20 @@ export function detectKind(kinds: string[] | undefined): PromptKind {
               @for (cand of candidates(); track cand.card.instanceId) {
                 <button
                   type="button"
-                  class="flex items-start justify-between rounded border px-2 py-1 text-left"
+                  class="candidate-tile flex flex-col gap-1 rounded border p-1 text-left"
                   [class.border-amber-400]="isSelected(cand.card.instanceId)"
+                  [class.ring-2]="isSelected(cand.card.instanceId)"
+                  [class.ring-amber-400]="isSelected(cand.card.instanceId)"
                   [class.bg-amber-400/10]="isSelected(cand.card.instanceId)"
                   [class.border-white/15]="!isSelected(cand.card.instanceId)"
+                  [attr.aria-label]="cand.card.name"
+                  [attr.aria-pressed]="isSelected(cand.card.instanceId)"
                   (click)="toggle(cand.card.instanceId)">
-                  <span>
-                    <span class="font-medium">{{ cand.card.name }}</span>
-                    <span class="ml-1 opacity-50">({{ cand.zone }})</span>
+                  <app-card-tile [name]="cand.card.name" [width]="88" [height]="123" />
+                  <span class="candidate-caption flex items-baseline justify-between gap-1 px-0.5 text-[10px]">
+                    <span class="opacity-60">({{ cand.zone }})</span>
+                    <span class="opacity-50">{{ cand.controllerName }}</span>
                   </span>
-                  <span class="opacity-60">{{ cand.controllerName }}</span>
                 </button>
               } @empty {
                 <p class="col-span-3 opacity-50">No candidates to choose from.</p>
