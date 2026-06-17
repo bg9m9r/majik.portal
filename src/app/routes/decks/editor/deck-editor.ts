@@ -17,8 +17,8 @@ import { ZoneEditorComponent } from './components/zone-editor.component';
   imports: [NgClass, CardPoolComponent, ZoneEditorComponent, DeckInfoPanelComponent, DeckImportDialogComponent],
   providers: [DeckEditorStore],
   template: `
-    <main class="mx-auto flex min-w-[1024px] max-w-[1600px] flex-col gap-4 p-6">
-      <header class="flex items-center justify-between">
+    <main class="mx-auto flex w-full max-w-[1600px] flex-col gap-4 p-3 sm:p-6">
+      <header class="flex flex-wrap items-center justify-between gap-2">
         <h1 class="majik-display-2">{{ store.id() ? 'Edit deck' : 'New deck' }}</h1>
         <div class="flex gap-2">
           <button type="button"
@@ -38,7 +38,7 @@ import { ZoneEditorComponent } from './components/zone-editor.component';
         </div>
       </header>
 
-      <div class="grid grid-cols-[minmax(0,1fr)_320px] gap-6">
+      <div class="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
         <app-zone-editor />
         <app-deck-info-panel (save)="onSave()" (cancelled)="onCancel()" />
       </div>
