@@ -120,32 +120,17 @@ describe('LayoutPrefsService', () => {
     expect(svc.infoDrawerSplit()).toBe(DEFAULT_LAYOUT_PREFS.infoDrawerSplit);
   });
 
-  // ---- Controls-visibility pref (card-size slider show/hide) ----
-
-  it('controlsVisible defaults to false (slider hidden until the user opts in)', () => {
-    expect(make().controlsVisible()).toBe(false);
-    expect(DEFAULT_LAYOUT_PREFS.controlsVisible).toBe(false);
-  });
-
-  it('persists + reloads the controls-visible flag', () => {
-    make().setControlsVisible(true);
-    expect(make().controlsVisible()).toBe(true);
-  });
-
-  it('reset() restores controlsVisible to false', () => {
-    const svc = make();
-    svc.setControlsVisible(true);
-    svc.reset();
-    expect(svc.controlsVisible()).toBe(false);
-  });
-
-  it('backward-compat: a stored blob missing controlsVisible loads false and keeps card-scale', () => {
+  // The card-size slider show/hide state is no longer a persisted pref — it
+  // moved to the header cog's ephemeral dropdown (settingsOpen signal in
+  // MatchPage). A stored blob that still carries the old `controlsVisible`
+  // key is simply ignored by read() (backward-compat, no migration needed).
+  it('ignores a legacy controlsVisible key in a stored blob (no longer a pref)', () => {
     localStorage.setItem(
       LAYOUT_PREFS_KEY,
-      JSON.stringify({ version: 1, cardScale: 1.25, oppSelfRatio: 0.5, handStripPx: 116 }),
+      JSON.stringify({ version: 1, cardScale: 1.25, oppSelfRatio: 0.5, handStripPx: 116, controlsVisible: true }),
     );
     const svc = make();
     expect(svc.cardScale()).toBe(1.25); // preserved
-    expect(svc.controlsVisible()).toBe(false); // new key defaults
+    expect((svc as unknown as Record<string, unknown>)['controlsVisible']).toBeUndefined();
   });
 });

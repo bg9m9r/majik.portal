@@ -1,6 +1,7 @@
 import {
   Component,
   DestroyRef,
+  ElementRef,
   HostListener,
   OnDestroy,
   OnInit,
@@ -24,6 +25,7 @@ import { RollingStateComponent } from './components/rolling-state.component';
 import { PlayDrawPromptComponent } from './components/play-draw-prompt.component';
 import { CompletedStateComponent } from './components/completed-state.component';
 import { BoardComponent } from './components/board.component';
+import { LayoutControlsComponent } from './components/layout-controls.component';
 import { PromptOverlayComponent, PromptDecision } from './components/prompt-overlay.component';
 import { RotateOverlayComponent } from './components/rotate-overlay.component';
 import { Router } from '@angular/router';
@@ -49,6 +51,7 @@ import { ConnectionState } from '../../core/signalr/signalr.service';
     PlayDrawPromptComponent,
     CompletedStateComponent,
     BoardComponent,
+    LayoutControlsComponent,
     PromptOverlayComponent,
     RotateOverlayComponent,
   ],
@@ -98,30 +101,41 @@ import { ConnectionState } from '../../core/signalr/signalr.service';
               [attr.aria-label]="c.label">{{ c.label }}</span>
           }
           <span class="opacity-70">{{ profile.handle() ?? auth.principal()?.sub }}</span>
-          <button
-            type="button"
-            class="settings-cog inline-flex items-center justify-center rounded p-1 transition-opacity hover:opacity-100"
-            [class.settings-cog--on]="prefs.controlsVisible()"
-            [style.color]="prefs.controlsVisible() ? 'var(--majik-accent)' : null"
-            [style.opacity]="prefs.controlsVisible() ? '1' : '0.6'"
-            [attr.aria-pressed]="prefs.controlsVisible()"
-            aria-label="Toggle layout settings"
-            title="Layout settings"
-            (click)="prefs.setControlsVisible(!prefs.controlsVisible())">
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true">
-              <circle cx="12" cy="12" r="3" />
-              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-            </svg>
-          </button>
+          <div #settingsRoot class="settings-menu">
+            <button
+              type="button"
+              class="settings-cog inline-flex items-center justify-center rounded p-1 transition-opacity hover:opacity-100"
+              [class.settings-cog--on]="settingsOpen()"
+              [style.color]="settingsOpen() ? 'var(--majik-accent)' : null"
+              [style.opacity]="settingsOpen() ? '1' : '0.6'"
+              aria-haspopup="true"
+              [attr.aria-expanded]="settingsOpen()"
+              aria-label="Toggle layout settings"
+              title="Layout settings"
+              (click)="toggleSettings($event)">
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true">
+                <circle cx="12" cy="12" r="3" />
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+              </svg>
+            </button>
+            @if (settingsOpen()) {
+              <div
+                class="settings-popover"
+                role="dialog"
+                aria-label="Layout settings">
+                <app-layout-controls />
+              </div>
+            }
+          </div>
           <a routerLink="/lobby" class="text-[color:var(--majik-accent)] underline">Back</a>
         </div>
       </header>
@@ -196,6 +210,29 @@ import { ConnectionState } from '../../core/signalr/signalr.service';
       </section>
     </main>
   `,
+  // Inline so the popover styling is asserted under jsdom (external .scss
+  // isn't loaded in the test renderer). `//` comments only — Angular's
+  // inline-style parser rejects /* */ in some toolchains here.
+  styles: [`
+    .settings-menu {
+      position: relative;
+      display: inline-flex;
+    }
+    // Cog-anchored popover: floats just below the cog, right-aligned to it
+    // (top-right of the header). Card-styled with the shared --majik-* tokens.
+    .settings-popover {
+      position: absolute;
+      top: calc(100% + 0.5rem);
+      right: 0;
+      z-index: 50;
+      min-width: 12rem;
+      padding: 0.75rem;
+      border: 1px solid var(--majik-line);
+      border-radius: 0.5rem;
+      background: var(--majik-surface, var(--majik-bg, #14141b));
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+    }
+  `],
 })
 export class MatchPage implements OnInit, OnDestroy {
   private readonly route = inject(ActivatedRoute);
@@ -208,9 +245,21 @@ export class MatchPage implements OnInit, OnDestroy {
   readonly game = inject(GameStore);
   private readonly selection = inject(SelectionService);
   private readonly toast = inject(ToastService);
-  // Shared layout prefs — the settings cog in the header toggles
-  // controlsVisible(), which gates the card-size slider on the board.
+  // Shared layout prefs — the settings cog dropdown hosts the card-size
+  // slider (<app-layout-controls />); the slider's VALUE (cardScale) still
+  // persists via LayoutPrefs. Only the popover's open/closed state is
+  // ephemeral (settingsOpen below), so a settings popover always starts
+  // closed on a fresh load.
   readonly prefs = inject(LayoutPrefsService);
+
+  // Ephemeral open state of the cog-anchored settings dropdown. Deliberately
+  // a local signal (NOT a persisted pref): the popover starts closed on every
+  // load. Closed on cog re-click, Escape, and outside-click.
+  readonly settingsOpen = signal(false);
+  // The cog + popover wrapper — used by the outside-click check to decide
+  // whether a document click landed inside the menu (keep open) or outside
+  // (close).
+  @ViewChild('settingsRoot') settingsRootRef?: ElementRef<HTMLElement>;
 
   readonly id = this.route.snapshot.paramMap.get('id') ?? '';
   readonly loadError = signal<string | null>(null);
@@ -668,6 +717,35 @@ export class MatchPage implements OnInit, OnDestroy {
 
   async onPlayDraw(choice: 'play' | 'draw'): Promise<void> {
     await this.matchSvc.playDraw(this.id, { choice });
+  }
+
+  // ---------------- Settings dropdown ----------------
+
+  // Cog click — toggle the popover. stopPropagation so this same click
+  // doesn't immediately bubble to the document:click outside-click handler
+  // and re-close what we just opened.
+  toggleSettings(evt: Event): void {
+    evt.stopPropagation();
+    this.settingsOpen.update(v => !v);
+  }
+
+  // Escape closes the popover (no-op when already closed).
+  @HostListener('document:keydown.escape')
+  closeSettings(): void {
+    if (this.settingsOpen()) this.settingsOpen.set(false);
+  }
+
+  // Outside-click close. Any document click that lands outside the cog +
+  // popover wrapper dismisses the popover. The cog's own click is handled by
+  // toggleSettings (which stops propagation), so this only fires for clicks
+  // elsewhere on the page.
+  @HostListener('document:click', ['$event'])
+  onDocumentClick(evt: MouseEvent): void {
+    if (!this.settingsOpen()) return;
+    const root = this.settingsRootRef?.nativeElement;
+    const target = evt.target as Node | null;
+    if (root && target && root.contains(target)) return;
+    this.settingsOpen.set(false);
   }
 
   // ---------------- Game command dispatch ----------------

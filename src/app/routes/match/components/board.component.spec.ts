@@ -153,7 +153,7 @@ describe('BoardComponent — opponent hand rendering', () => {
   });
 });
 
-describe('BoardComponent — card-size slider visibility (app-layout-controls)', () => {
+describe('BoardComponent — card-size slider relocated to the header cog', () => {
   function emptyState(): GameState {
     const me = player({ id: 'me', name: 'Alice' });
     const opp = player({ id: 'opp', name: 'Bob' });
@@ -167,21 +167,13 @@ describe('BoardComponent — card-size slider visibility (app-layout-controls)',
     };
   }
 
-  it('does NOT render <app-layout-controls> by default (controlsVisible false)', () => {
-    // mountBoard resets LayoutPrefs to defaults before the first
-    // change-detection pass, so this asserts the hidden-by-default state
-    // regardless of any flag CI's localStorage file left behind.
+  // The card-size slider (<app-layout-controls>) used to render inline at the
+  // bottom of the board, gated by LayoutPrefs.controlsVisible(). It now lives
+  // exclusively in the header cog's dropdown (MatchPage), so the board must
+  // never render it.
+  it('never renders <app-layout-controls> (the inline board slider is gone)', () => {
     const { fixture } = mountBoard(emptyState(), ['me']);
     expect(fixture.nativeElement.querySelector('app-layout-controls')).toBeNull();
-  });
-
-  it('renders <app-layout-controls> once controlsVisible is turned on', () => {
-    const { fixture } = mountBoard(emptyState(), ['me']);
-    expect(fixture.nativeElement.querySelector('app-layout-controls')).toBeNull();
-
-    TestBed.inject(LayoutPrefsService).setControlsVisible(true);
-    fixture.detectChanges();
-    expect(fixture.nativeElement.querySelector('app-layout-controls')).not.toBeNull();
   });
 });
 

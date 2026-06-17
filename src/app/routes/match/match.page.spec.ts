@@ -493,13 +493,15 @@ describe('MatchPage — resilience wiring', () => {
 });
 
 // ---------------------------------------------------------------------
-// MatchPage — header settings cog (card-size slider show/hide)
+// MatchPage — header settings cog (card-size slider dropdown)
 //
 // The cog lives in the header's right-side row, immediately LEFT of the
-// Back link, and toggles the shared LayoutPrefs.controlsVisible() flag
-// (default false → slider hidden). Clicking it flips the flag.
+// Back link. Clicking it opens a top-right dropdown popover that hosts the
+// card-size slider (<app-layout-controls>). The popover's open state is an
+// EPHEMERAL local signal (settingsOpen) — it starts closed on every mount,
+// is NOT persisted, and closes on cog re-click / Escape / outside-click.
 // ---------------------------------------------------------------------
-describe('MatchPage — header settings cog', () => {
+describe('MatchPage — header settings cog dropdown', () => {
   function mountPage() {
     const stateSig = signal<ConnectionState>('idle');
     const currentSig = signal<Match | null>(null);
@@ -564,12 +566,25 @@ describe('MatchPage — header settings cog', () => {
     return btn!;
   }
 
-  it('renders the settings cog button in the header', () => {
+  // The popover (and its slider) is only in the DOM when open.
+  function popover(fixture: ReturnType<typeof mountPage>['fixture']): HTMLElement | null {
+    return fixture.nativeElement.querySelector('.settings-popover[role="dialog"]') as HTMLElement | null;
+  }
+  // The card-size range input lives inside <app-layout-controls> in the popover.
+  function slider(fixture: ReturnType<typeof mountPage>['fixture']): HTMLElement | null {
+    return fixture.nativeElement.querySelector('.settings-popover app-layout-controls input[type="range"]') as HTMLElement | null;
+  }
+
+  it('renders the settings cog button in the header, closed by default', () => {
     const { fixture } = mountPage();
     const btn = cogButton(fixture);
     expect(btn.getAttribute('type')).toBe('button');
-    expect(btn.getAttribute('aria-pressed')).toBe('false');
+    expect(btn.getAttribute('aria-haspopup')).toBe('true');
+    expect(btn.getAttribute('aria-expanded')).toBe('false');
     expect(btn.querySelector('svg')).toBeTruthy(); // inline gear icon
+    // Closed on mount → no popover, no slider.
+    expect(popover(fixture)).toBeNull();
+    expect(slider(fixture)).toBeNull();
   });
 
   it('places the cog immediately BEFORE the Back link in the header row', () => {
@@ -577,26 +592,83 @@ describe('MatchPage — header settings cog', () => {
     const btn = cogButton(fixture);
     const back = fixture.nativeElement.querySelector('a[routerLink="/lobby"]') as HTMLElement;
     expect(back).toBeTruthy();
-    // Same parent row, cog precedes Back (DOM order).
-    expect(btn.parentElement).toBe(back.parentElement);
+    // The cog precedes Back in DOM order (the cog now sits in a wrapper, so
+    // compare document position rather than a shared parentElement).
     expect(btn.compareDocumentPosition(back) & Node.DOCUMENT_POSITION_FOLLOWING)
       .toBeTruthy();
   });
 
-  it('clicking the cog flips controlsVisible (false → true → false) and aria-pressed tracks it', () => {
-    const { fixture, prefs } = mountPage();
+  it('clicking the cog OPENS the dropdown with the card-size slider inside it', () => {
+    const { fixture } = mountPage();
     const btn = cogButton(fixture);
-    expect(prefs.controlsVisible()).toBe(false);
+    expect(slider(fixture)).toBeNull();
 
     btn.click();
     fixture.detectChanges();
-    expect(prefs.controlsVisible()).toBe(true);
-    expect(btn.getAttribute('aria-pressed')).toBe('true');
+
+    expect(btn.getAttribute('aria-expanded')).toBe('true');
+    expect(popover(fixture)).not.toBeNull();
+    // The slider is now rendered INSIDE the popover, not at the board bottom.
+    expect(slider(fixture)).not.toBeNull();
+  });
+
+  it('re-clicking the cog toggles the dropdown closed', () => {
+    const { fixture } = mountPage();
+    const btn = cogButton(fixture);
 
     btn.click();
     fixture.detectChanges();
-    expect(prefs.controlsVisible()).toBe(false);
-    expect(btn.getAttribute('aria-pressed')).toBe('false');
+    expect(popover(fixture)).not.toBeNull();
+
+    btn.click();
+    fixture.detectChanges();
+    expect(btn.getAttribute('aria-expanded')).toBe('false');
+    expect(popover(fixture)).toBeNull();
+  });
+
+  it('Escape closes the open dropdown', () => {
+    const { fixture } = mountPage();
+    const btn = cogButton(fixture);
+    btn.click();
+    fixture.detectChanges();
+    expect(popover(fixture)).not.toBeNull();
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    fixture.detectChanges();
+    expect(popover(fixture)).toBeNull();
+    expect(btn.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('an outside click closes the dropdown; a click inside it does not', () => {
+    const { fixture } = mountPage();
+    const btn = cogButton(fixture);
+    btn.click();
+    fixture.detectChanges();
+    expect(popover(fixture)).not.toBeNull();
+
+    // A click that lands inside the popover keeps it open.
+    popover(fixture)!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    fixture.detectChanges();
+    expect(popover(fixture)).not.toBeNull();
+
+    // A click elsewhere on the document closes it.
+    document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    fixture.detectChanges();
+    expect(popover(fixture)).toBeNull();
+    expect(btn.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('the dropdown starts closed on a fresh mount (ephemeral, not persisted)', () => {
+    // Open it on one mount...
+    const first = mountPage();
+    cogButton(first.fixture).click();
+    first.fixture.detectChanges();
+    expect(popover(first.fixture)).not.toBeNull();
+
+    // ...a brand-new mount starts closed regardless (open state is ephemeral).
+    const second = mountPage();
+    expect(popover(second.fixture)).toBeNull();
+    expect(cogButton(second.fixture).getAttribute('aria-expanded')).toBe('false');
   });
 });
 
