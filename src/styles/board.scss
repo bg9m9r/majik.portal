@@ -515,74 +515,10 @@
 // doesn't eat a row of vertical space — reclaiming that space is
 // the point of the zoned-battlefield refactor.
 // =============================================================
-.stack-chip {
-  position: absolute;
-  top: var(--majik-space-3);
-  right: var(--majik-space-3);
-  z-index: 6;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: var(--majik-space-1);
-  pointer-events: auto;
-
-  &__toggle {
-    appearance: none;
-    background: rgba(0, 0, 0, 0.65);
-    border: 1px solid var(--majik-line-faint);
-    border-radius: var(--majik-radius-pill);
-    color: var(--majik-fg-muted);
-    font-family: var(--font-mono);
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    padding: 3px 10px;
-    cursor: pointer;
-    transition: border-color 220ms ease-out, color 220ms ease-out, box-shadow 220ms ease-out, background-color 220ms ease-out;
-  }
-
-  &--populated &__toggle {
-    border-color: var(--majik-accent);
-    color: var(--majik-accent-strong);
-    background: rgba(0, 0, 0, 0.85);
-    box-shadow: 0 0 0 1px var(--majik-accent-soft);
-  }
-
-  &__body {
-    display: flex;
-    flex-direction: column;
-    gap: var(--majik-space-1);
-    width: 200px;
-    max-height: 40vh;
-    padding: var(--majik-space-2);
-    border-radius: var(--majik-radius-panel);
-    border: 1px solid var(--majik-line-faint);
-    background: rgba(0, 0, 0, 0.75);
-    overflow-y: auto;
-
-    &--collapsed {
-      // Keep stack-item nodes mounted for tests + animate.leave, but
-      // off-screen so they don't paint.
-      position: absolute;
-      width: 1px;
-      height: 1px;
-      overflow: hidden;
-      padding: 0;
-      border: 0;
-      clip: rect(0 0 0 0);
-      clip-path: inset(50%);
-    }
-  }
-}
-
-// Backwards-compat alias so any deep selector / test still referencing
-// .stack-floating doesn't break. Maps to the new chip body styling.
-.stack-floating {
-  position: absolute;
-  top: var(--majik-space-3);
-  right: var(--majik-space-3);
-  z-index: 5;
-}
+// The stack now lives in the unified info drawer's top pane (see
+// InfoDrawerComponent + StackListComponent). The old top-right
+// .stack-chip / .stack-floating corner badge was removed; the per-item
+// .stack-item* treatment below is shared by the drawer's stack list.
 
 .stack-item {
   padding-left: var(--majik-space-2);
@@ -670,18 +606,10 @@
   }
 }
 
-// Chip toggle glows RED (not the calm accent) while an opponent-controlled
-// object sits on the stack — a louder corner cue.
-.stack-chip--opponent .stack-chip__toggle {
-  border-color: var(--majik-foe, #fca5a5);
-  color: var(--majik-foe, #fca5a5);
-  box-shadow: 0 0 0 1px rgba(252, 165, 165, 0.45);
-}
-
 // =============================================================
 // Stack priority callout — the loud "a spell is on the stack and the
-// engine is waiting on YOU" banner above the action bar. Impossible to
-// miss without expanding the chip; aria-live announces it to SR users.
+// engine is waiting on YOU" banner above the action bar. Independent of
+// the info drawer; aria-live announces it to SR users.
 // =============================================================
 .stack-callout {
   display: flex;
@@ -1277,43 +1205,15 @@
 .prompt-readout[data-kind="none"]      { border-left-color: var(--majik-accent); .prompt-readout__label { color: var(--majik-accent-strong); } }
 
 // =============================================================
-// Action-log drawer — collapsible right-edge feed of every game
-// action. Overlays the board (.board-arena is position: relative);
-// closed by default. The wrapper is pointer-events:none so it never
-// steals board clicks; the tab + scroll panel re-enable pointers.
+// Action-log list — now hosted inside the unified info drawer's bottom
+// pane (see InfoDrawerComponent). The drawer owns chrome / positioning;
+// these rules only style the scroll container's fill + each row's
+// actor-coded colour. (The old left-edge .game-log wrapper + edge tab
+// were removed when the log moved into the drawer.)
 // =============================================================
-// Anchored to the LEFT edge of the board arena so the tab + open panel
-// never collide with the right-anchored .stack-chip / .zone-rail. Tab
-// sits at the left edge (protruding right), panel slides in rightward.
-.game-log {
-  position: absolute;
-  top: 0;
-  left: 0;
-  height: 100%;
-  display: flex;
-  align-items: flex-start;
-  z-index: 20;
-  pointer-events: none;            // tab + panel re-enable below
-}
-.game-log__tab {
-  pointer-events: auto;
-  writing-mode: vertical-rl;
-  padding: var(--majik-space-2) var(--majik-space-1);
-  margin-top: var(--majik-space-2);
-  background: rgba(0, 0, 0, 0.55);
-  border: 1px solid var(--majik-line-faint);
-  border-radius: 0 var(--majik-radius-panel) var(--majik-radius-panel) 0;
-  font-size: 11px;
-  cursor: pointer;
-}
 .game-log__scroll {
-  pointer-events: auto;
-  width: 260px;
   height: 100%;
   overflow-y: auto;
-  padding: var(--majik-space-2);
-  background: rgba(0, 0, 0, 0.72);
-  border-right: 1px solid var(--majik-line-faint);
   font-size: 11px;
   display: flex;
   flex-direction: column;

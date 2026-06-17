@@ -7,12 +7,18 @@ export interface LayoutPrefs {
   cardScale: number;    // multiplier on base card size
   oppSelfRatio: number; // opponent's share of the battlefield band (clamped 0.2..0.8)
   handStripPx: number;  // self bottom strip height in px
+  infoDrawerOpen: boolean;       // right-edge info drawer open/closed
+  infoDrawerTab: 'log' | 'bot';  // last-selected bottom tab (Log / Bot Decisions)
+  infoDrawerSplit: number;       // stack's share of the drawer height (clamped 0.2..0.8)
 }
 
 export const DEFAULT_LAYOUT_PREFS: LayoutPrefs = {
   cardScale: 1.0,
   oppSelfRatio: 0.5,
   handStripPx: 116,
+  infoDrawerOpen: false,
+  infoDrawerTab: 'log',
+  infoDrawerSplit: 0.5,
 };
 
 // Exported so UI controls (e.g. the card-scale slider) derive their
@@ -21,6 +27,7 @@ export const CLAMP = {
   cardScale: [0.7, 1.4] as const,
   oppSelfRatio: [0.2, 0.8] as const,
   handStripPx: [80, 280] as const,
+  infoDrawerSplit: [0.2, 0.8] as const,
 };
 
 function clamp(n: number, [lo, hi]: readonly [number, number]): number {
@@ -38,6 +45,9 @@ function read(): LayoutPrefs {
       cardScale: clamp(parsed.cardScale ?? DEFAULT_LAYOUT_PREFS.cardScale, CLAMP.cardScale),
       oppSelfRatio: clamp(parsed.oppSelfRatio ?? DEFAULT_LAYOUT_PREFS.oppSelfRatio, CLAMP.oppSelfRatio),
       handStripPx: clamp(parsed.handStripPx ?? DEFAULT_LAYOUT_PREFS.handStripPx, CLAMP.handStripPx),
+      infoDrawerOpen: parsed.infoDrawerOpen ?? DEFAULT_LAYOUT_PREFS.infoDrawerOpen,
+      infoDrawerTab: parsed.infoDrawerTab === 'bot' ? 'bot' : DEFAULT_LAYOUT_PREFS.infoDrawerTab,
+      infoDrawerSplit: clamp(parsed.infoDrawerSplit ?? DEFAULT_LAYOUT_PREFS.infoDrawerSplit, CLAMP.infoDrawerSplit),
     };
   } catch {
     return { ...DEFAULT_LAYOUT_PREFS };
@@ -50,15 +60,24 @@ export class LayoutPrefsService {
   readonly cardScale = signal(this.initial.cardScale);
   readonly oppSelfRatio = signal(this.initial.oppSelfRatio);
   readonly handStripPx = signal(this.initial.handStripPx);
+  readonly infoDrawerOpen = signal(this.initial.infoDrawerOpen);
+  readonly infoDrawerTab = signal<'log' | 'bot'>(this.initial.infoDrawerTab);
+  readonly infoDrawerSplit = signal(this.initial.infoDrawerSplit);
 
   setCardScale(n: number): void { this.cardScale.set(clamp(n, CLAMP.cardScale)); this.persist(); }
   setOppSelfRatio(n: number): void { this.oppSelfRatio.set(clamp(n, CLAMP.oppSelfRatio)); this.persist(); }
   setHandStripPx(n: number): void { this.handStripPx.set(clamp(n, CLAMP.handStripPx)); this.persist(); }
+  setInfoDrawerOpen(v: boolean): void { this.infoDrawerOpen.set(v); this.persist(); }
+  setInfoDrawerTab(t: 'log' | 'bot'): void { this.infoDrawerTab.set(t); this.persist(); }
+  setInfoDrawerSplit(n: number): void { this.infoDrawerSplit.set(clamp(n, CLAMP.infoDrawerSplit)); this.persist(); }
 
   reset(): void {
     this.cardScale.set(DEFAULT_LAYOUT_PREFS.cardScale);
     this.oppSelfRatio.set(DEFAULT_LAYOUT_PREFS.oppSelfRatio);
     this.handStripPx.set(DEFAULT_LAYOUT_PREFS.handStripPx);
+    this.infoDrawerOpen.set(DEFAULT_LAYOUT_PREFS.infoDrawerOpen);
+    this.infoDrawerTab.set(DEFAULT_LAYOUT_PREFS.infoDrawerTab);
+    this.infoDrawerSplit.set(DEFAULT_LAYOUT_PREFS.infoDrawerSplit);
     try { globalThis.localStorage?.removeItem(LAYOUT_PREFS_KEY); } catch { /* storage unavailable */ }
   }
 
@@ -68,6 +87,9 @@ export class LayoutPrefsService {
       cardScale: this.cardScale(),
       oppSelfRatio: this.oppSelfRatio(),
       handStripPx: this.handStripPx(),
+      infoDrawerOpen: this.infoDrawerOpen(),
+      infoDrawerTab: this.infoDrawerTab(),
+      infoDrawerSplit: this.infoDrawerSplit(),
     };
     try {
       globalThis.localStorage?.setItem(LAYOUT_PREFS_KEY, JSON.stringify(payload));
