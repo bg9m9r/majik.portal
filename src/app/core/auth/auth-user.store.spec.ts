@@ -4,7 +4,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { describe, expect, it, beforeEach } from 'vitest';
 import { BehaviorSubject, NEVER, ReplaySubject, Subject, of, throwError } from 'rxjs';
 import { AuthService as Auth0Service, GetTokenSilentlyOptions } from '@auth0/auth0-angular';
-import { AUTH_BOOTSTRAP_TIMEOUT_MS, AuthUserStore } from './auth-user.store';
+import { AUTH_BOOTSTRAP_TIMEOUT_MS, AuthUserStore, isDeadRefreshError } from './auth-user.store';
 import { MAJIK_AUTH_CONFIG, MajikAuthConfig } from './auth.config';
 import { environment } from '../../../environments/environment';
 
@@ -64,6 +64,78 @@ async function tick(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
 }
+
+describe('isDeadRefreshError — dead-session detection', () => {
+  const deadCodes = ['invalid_grant', 'missing_refresh_token', 'invalid_refresh_token', 'login_required'];
+
+  for (const code of deadCodes) {
+    it(`returns true for flat { error: '${code}' }`, () => {
+      expect(isDeadRefreshError({ error: code })).toBe(true);
+    });
+    it(`returns true for nested { error: { error: '${code}' } }`, () => {
+      expect(isDeadRefreshError({ error: { error: code } })).toBe(true);
+    });
+  }
+
+  it('returns false for an unrelated Auth0 error code', () => {
+    expect(isDeadRefreshError({ error: 'something_else' })).toBe(false);
+    expect(isDeadRefreshError({ error: { error: 'mfa_required' } })).toBe(false);
+  });
+
+  it('returns false for null/undefined/non-object', () => {
+    expect(isDeadRefreshError(null)).toBe(false);
+    expect(isDeadRefreshError(undefined)).toBe(false);
+    expect(isDeadRefreshError('invalid_grant')).toBe(false);
+    expect(isDeadRefreshError(42)).toBe(false);
+  });
+
+  it('returns false for network/status-0 shapes (transient — must NOT log out)', () => {
+    expect(isDeadRefreshError({ status: 0 })).toBe(false);
+    expect(isDeadRefreshError({ message: 'network error' })).toBe(false);
+    expect(isDeadRefreshError(new Error('boom'))).toBe(false);
+  });
+});
+
+describe('AuthUserStore.signOutDeadSession()', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  it('patches a fully logged-out state and does NOT redirect in stub mode', () => {
+    const store = configure([
+      { provide: MAJIK_AUTH_CONFIG, useValue: STUB_CFG },
+      { provide: Auth0Service, useValue: null },
+    ]);
+    store.signOutDeadSession();
+    expect(store.isAuthenticated()).toBe(false);
+    expect(store.principal()).toBeNull();
+    expect(store.profile()).toBeNull();
+    expect(store.ready()).toBe(true);
+    expect(store.sessionExpired()).toBe(false);
+  });
+
+  it('patches logged-out state and delegates to Auth0.logout in real mode', () => {
+    let loggedOut = false;
+    const store = configure([
+      { provide: MAJIK_AUTH_CONFIG, useValue: REAL_CFG },
+      {
+        provide: Auth0Service,
+        useValue: {
+          isAuthenticated$: new BehaviorSubject<boolean>(true),
+          idTokenClaims$: new BehaviorSubject<unknown>(null),
+          error$: new Subject<any>(),
+          logout: () => {
+            loggedOut = true;
+            return of(undefined);
+          },
+        },
+      },
+    ]);
+    store.signOutDeadSession();
+    expect(loggedOut).toBe(true);
+    expect(store.isAuthenticated()).toBe(false);
+    expect(store.profile()).toBeNull();
+    expect(store.ready()).toBe(true);
+  });
+});
 
 describe('AuthUserStore.bootstrap() — auth bridge', () => {
   beforeEach(() => {
@@ -359,6 +431,97 @@ describe('AuthUserStore token retrieval', () => {
     expect(store.sessionExpired()).toBe(true);
     store.clearSessionExpired();
     expect(store.sessionExpired()).toBe(false);
+  });
+
+  it('getAccessToken() logs out the dead session on an invalid_grant rejection', async () => {
+    let loggedOut = false;
+    const store = configure([
+      { provide: MAJIK_AUTH_CONFIG, useValue: REAL_CFG },
+      {
+        provide: Auth0Service,
+        useValue: {
+          isAuthenticated$: new BehaviorSubject<boolean>(true),
+          idTokenClaims$: new BehaviorSubject<unknown>(null),
+          error$: new Subject<any>(),
+          getAccessTokenSilently: () => throwError(() => ({ error: 'invalid_grant' })),
+          logout: () => {
+            loggedOut = true;
+            return of(undefined);
+          },
+        },
+      },
+    ]);
+    await store.getAccessToken();
+    expect(loggedOut).toBe(true);
+    expect(store.isAuthenticated()).toBe(false);
+  });
+
+  it('getAccessToken() does NOT log out on a transient rejection', async () => {
+    let loggedOut = false;
+    const store = configure([
+      { provide: MAJIK_AUTH_CONFIG, useValue: REAL_CFG },
+      {
+        provide: Auth0Service,
+        useValue: {
+          isAuthenticated$: new BehaviorSubject<boolean>(true),
+          idTokenClaims$: new BehaviorSubject<unknown>(null),
+          error$: new Subject<any>(),
+          getAccessTokenSilently: () => throwError(() => new Error('blip')),
+          logout: () => {
+            loggedOut = true;
+            return of(undefined);
+          },
+        },
+      },
+    ]);
+    await store.getAccessToken();
+    expect(loggedOut).toBe(false);
+  });
+
+  it('forceRefresh() logs out the dead session on an invalid_grant rejection', async () => {
+    let loggedOut = false;
+    const store = configure([
+      { provide: MAJIK_AUTH_CONFIG, useValue: REAL_CFG },
+      {
+        provide: Auth0Service,
+        useValue: {
+          isAuthenticated$: new BehaviorSubject<boolean>(true),
+          idTokenClaims$: new BehaviorSubject<unknown>(null),
+          error$: new Subject<any>(),
+          getAccessTokenSilently: () => throwError(() => ({ error: 'invalid_grant' })),
+          logout: () => {
+            loggedOut = true;
+            return of(undefined);
+          },
+        },
+      },
+    ]);
+    await store.forceRefresh();
+    expect(loggedOut).toBe(true);
+    expect(store.isAuthenticated()).toBe(false);
+  });
+
+  it('forceRefresh() does NOT log out on a transient rejection (latches sessionExpired only)', async () => {
+    let loggedOut = false;
+    const store = configure([
+      { provide: MAJIK_AUTH_CONFIG, useValue: REAL_CFG },
+      {
+        provide: Auth0Service,
+        useValue: {
+          isAuthenticated$: new BehaviorSubject<boolean>(true),
+          idTokenClaims$: new BehaviorSubject<unknown>(null),
+          error$: new Subject<any>(),
+          getAccessTokenSilently: () => throwError(() => new Error('blip')),
+          logout: () => {
+            loggedOut = true;
+            return of(undefined);
+          },
+        },
+      },
+    ]);
+    await store.forceRefresh();
+    expect(loggedOut).toBe(false);
+    expect(store.sessionExpired()).toBe(true);
   });
 
   it('returns the cached signal in stub mode without invoking Auth0', async () => {

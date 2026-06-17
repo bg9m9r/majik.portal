@@ -1,8 +1,8 @@
 import { HttpInterceptorFn } from '@angular/common/http';
 import { inject } from '@angular/core';
 import { AuthService as Auth0Service } from '@auth0/auth0-angular';
-import { switchMap } from 'rxjs';
-import { AuthUserStore } from './auth-user.store';
+import { EMPTY, catchError, switchMap, throwError } from 'rxjs';
+import { AuthUserStore, isDeadRefreshError } from './auth-user.store';
 import { environment } from '../../../environments/environment';
 
 /**
@@ -42,6 +42,19 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
   // getAccessTokenSilently uses the SDK's internal cache by default and
   // only hits the network when the cached token is near expiry.
   return auth0.getAccessTokenSilently().pipe(
+    catchError(err => {
+      // A genuinely-dead refresh token (e.g. invalid_grant from refresh-token
+      // rotation): log out + purge tokens and cancel the request. A full-page
+      // logout redirect is now in flight, so EMPTY (complete-without-emit) is
+      // correct — forwarding the request would just 401. Transient/network
+      // errors are rethrown unchanged so they propagate to the caller and do
+      // NOT trigger a logout.
+      if (isDeadRefreshError(err)) {
+        auth.signOutDeadSession();
+        return EMPTY;
+      }
+      return throwError(() => err);
+    }),
     switchMap(token => next(req.clone({
       setHeaders: { Authorization: `Bearer ${token}` }
     })))
