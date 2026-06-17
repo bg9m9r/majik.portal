@@ -45,24 +45,60 @@ const DEAD_REFRESH_ERROR_CODES: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * True when `err` is an Auth0 error whose code signals a genuinely-dead
- * session/refresh token (see {@link DEAD_REFRESH_ERROR_CODES}). Defensive
- * about shape: `err` is `unknown` and may be the raw Auth0 error
- * (`{ error, error_description }`) OR an `HttpErrorResponse` that nests it
- * under `.error.error`. Anything else (network failures, generic `Error`s,
- * null/undefined, non-objects) returns false so transient problems never
- * trigger a logout.
+ * The strict subset of {@link DEAD_REFRESH_ERROR_CODES} that mean a refresh
+ * token actually EXISTED and Auth0 REVOKED/REJECTED it. Deliberately excludes
+ * `login_required`: a normal logged-out visitor's init-time `checkSession()`
+ * emits `login_required` on every page load, so treating it as a trigger for
+ * `signOutDeadSession()` → `logout()` → redirect → reload would loop forever.
+ * Only these three signal "purge the stored (now-dead) refresh token".
  */
-export function isDeadRefreshError(err: unknown): boolean {
-  if (!err || typeof err !== 'object') return false;
+const REVOKED_REFRESH_ERROR_CODES: ReadonlySet<string> = new Set([
+  'invalid_grant',
+  'missing_refresh_token',
+  'invalid_refresh_token',
+]);
+
+/**
+ * Extracts the Auth0 error `code` from an `unknown` error, defensive about
+ * shape: it may be the raw Auth0 error (`{ error, error_description }`) OR an
+ * `HttpErrorResponse` that nests it under `.error.error`. Returns the first
+ * string code found (flat preferred), else `undefined`.
+ */
+function readAuth0ErrorCode(err: unknown): string | undefined {
+  if (!err || typeof err !== 'object') return undefined;
   const e = err as any;
   // Flat Auth0 error: { error: 'invalid_grant', ... }
-  const flat = e.error;
-  if (typeof flat === 'string' && DEAD_REFRESH_ERROR_CODES.has(flat)) return true;
+  if (typeof e.error === 'string') return e.error;
   // Nested (HttpErrorResponse-wrapped): { error: { error: 'invalid_grant' } }
-  const nested = e.error?.error;
-  if (typeof nested === 'string' && DEAD_REFRESH_ERROR_CODES.has(nested)) return true;
-  return false;
+  if (typeof e.error?.error === 'string') return e.error.error;
+  return undefined;
+}
+
+/**
+ * True when `err` is an Auth0 error whose code means a refresh token existed
+ * and Auth0 revoked/rejected it (see {@link REVOKED_REFRESH_ERROR_CODES}).
+ * Loop-safe: returns FALSE for `login_required` so it is safe to use as an
+ * init-time `error$` trigger (a logged-out visitor's `checkSession` emits
+ * `login_required` every load). Anything non-revoked returns false.
+ */
+export function isRevokedRefreshTokenError(err: unknown): boolean {
+  const code = readAuth0ErrorCode(err);
+  return code !== undefined && REVOKED_REFRESH_ERROR_CODES.has(code);
+}
+
+/**
+ * True when `err` is an Auth0 error whose code signals a genuinely-dead
+ * session/refresh token (see {@link DEAD_REFRESH_ERROR_CODES}). This is the
+ * broader set used by the token-required paths (`getAccessToken`/`forceRefresh`
+ * and the HTTP interceptor): it additionally includes `login_required`, which
+ * on those paths means "Auth0 cannot silently satisfy a token request, the
+ * session is gone — re-auth required". Defensive about shape; anything else
+ * (network failures, generic `Error`s, null/undefined, non-objects) returns
+ * false so transient problems never trigger a logout.
+ */
+export function isDeadRefreshError(err: unknown): boolean {
+  if (isRevokedRefreshTokenError(err)) return true;
+  return readAuth0ErrorCode(err) === 'login_required';
 }
 
 export interface Principal {
@@ -164,6 +200,14 @@ export const AuthUserStore = signalStore(
     const http = inject(HttpClient);
     const destroyRef = inject(DestroyRef);
 
+    // Loop-safety latch for signOutDeadSession(): the init-time `error$`
+    // subscription can emit a revoked-token error more than once, but
+    // Auth0.logout() triggers a full-page redirect — invoking it repeatedly
+    // would be wasteful and, combined with the redirect/reload cycle, risks a
+    // logout loop. First call sets the flag and proceeds; subsequent calls
+    // early-return.
+    let signingOut = false;
+
     /**
      * Subscribes to Auth0 auth-state streams and resolves once Auth0 has
      * settled its initial state (either `authenticated=true` after a
@@ -229,6 +273,24 @@ export const AuthUserStore = signalStore(
           }
         });
 
+      // Init-time self-heal for a revoked refresh token. When a returning
+      // user's id token is ALSO expired on load, bootstrapProfile skips
+      // GET /me (no API call), so no interceptor 403 fires and the dead
+      // refresh token would linger until a manual re-login. Auth0's init-time
+      // `checkSession()` pushes its failure to `error$`; if that failure is a
+      // revoked-token error (NOT `login_required` — that fires for every
+      // normal logged-out visitor and would loop), proactively purge the
+      // session here. Uses the LOCAL signOutDeadSession (same pattern as the
+      // getAccessToken/forceRefresh catch blocks); the latch inside makes
+      // repeated emissions a single logout.
+      auth0.error$
+        .pipe(takeUntilDestroyed(destroyRef))
+        .subscribe(err => {
+          if (isRevokedRefreshTokenError(err)) {
+            signOutDeadSession();
+          }
+        });
+
       // Wait for the first definite auth-state emission, with a timeout
       // fallback so a misbehaving SDK can't deadlock app-init.
       await firstValueFrom(
@@ -269,6 +331,11 @@ export const AuthUserStore = signalStore(
      * routed dead sessions to /onboarding.
      */
     function signOutDeadSession(): void {
+      // Idempotent: only the first call drives the logout + redirect. Repeated
+      // `error$` emissions (or interceptor + error$ racing) must not fire
+      // Auth0.logout() more than once.
+      if (signingOut) return;
+      signingOut = true;
       const loggedOut = {
         authed: false,
         principal: null,
