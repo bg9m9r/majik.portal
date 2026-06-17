@@ -1830,6 +1830,30 @@ function mobileVpStub(isMobile: boolean) {
   return { isMobileBoard: signal(isMobile), isPortrait: signal(false) } as unknown as ViewportService;
 }
 
+describe('BoardComponent mobile chrome class', () => {
+  it('adds the mobile-board host class on mobile', () => {
+    TestBed.configureTestingModule({
+      imports: [BoardComponent],
+      providers: [SelectionService],
+    });
+    TestBed.overrideProvider(ViewportService, { useValue: mobileVpStub(true) });
+    const fixture = TestBed.createComponent(BoardComponent);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.classList.contains('mobile-board')).toBe(true);
+  });
+
+  it('omits the mobile-board host class on desktop', () => {
+    TestBed.configureTestingModule({
+      imports: [BoardComponent],
+      providers: [SelectionService],
+    });
+    TestBed.overrideProvider(ViewportService, { useValue: mobileVpStub(false) });
+    const fixture = TestBed.createComponent(BoardComponent);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.classList.contains('mobile-board')).toBe(false);
+  });
+});
+
 describe('BoardComponent mobile card scale', () => {
   it('caps the effective card scale at the mobile default on mobile', () => {
     TestBed.configureTestingModule({

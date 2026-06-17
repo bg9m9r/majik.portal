@@ -77,6 +77,7 @@ const MOBILE_CARD_SCALE = 0.6;
     '[style.--majik-card-w.px]': 'scaledCardW()',
     '[style.--majik-card-h.px]': 'scaledCardH()',
     '[style.--majik-card-scale]': 'cardScale()',
+    '[class.mobile-board]': 'isMobileBoard()',
   },
   imports: [
     CardViewComponent,
@@ -184,6 +185,11 @@ const MOBILE_CARD_SCALE = 0.6;
       background: var(--majik-accent, rgba(202,167,90,0.6));
       outline: none;
     }
+    // Mobile chrome compression. Only structural rules; scoped to mobile so
+    // desktop spacing is unchanged. board.scss is not loaded under jsdom.
+    :host(.mobile-board) .arena-strip { min-height: 64px; max-height: 64px; }
+    :host(.mobile-board) app-phase-bar { font-size: 11px; padding-block: 2px; }
+    :host(.mobile-board) app-action-bar { padding: 4px 6px; gap: 4px; }
   `],
   // Layout overview (Arena-style, zoned battlefield):
   //
@@ -1293,6 +1299,9 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
 
   readonly scaledCardW = computed(() => Math.round(this.baseCardW * this.layoutPrefs.cardScale()));
   readonly scaledCardH = computed(() => Math.round(this.baseCardH * this.layoutPrefs.cardScale()));
+  // Public alias used by the host `[class.mobile-board]` binding (host
+  // expressions can't access private members).
+  readonly isMobileBoard = computed(() => this.viewport.isMobileBoard());
   // Raw multiplier exposed as --majik-card-scale so the absolute-sized hand /
   // opp-hand zone overrides (board.scss) can multiply their base px and scale
   // along with the slider. Public so the host binding type-checks.
