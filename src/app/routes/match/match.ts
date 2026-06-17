@@ -23,7 +23,6 @@ import { RollingStateComponent } from './components/rolling-state.component';
 import { PlayDrawPromptComponent } from './components/play-draw-prompt.component';
 import { CompletedStateComponent } from './components/completed-state.component';
 import { BoardComponent } from './components/board.component';
-import { BotDecisionsPanelComponent } from './components/bot-decisions-panel.component';
 import { PromptOverlayComponent, PromptDecision } from './components/prompt-overlay.component';
 import { RotateOverlayComponent } from './components/rotate-overlay.component';
 import { Router } from '@angular/router';
@@ -49,7 +48,6 @@ import { ConnectionState } from '../../core/signalr/signalr.service';
     PlayDrawPromptComponent,
     CompletedStateComponent,
     BoardComponent,
-    BotDecisionsPanelComponent,
     PromptOverlayComponent,
     RotateOverlayComponent,
   ],
@@ -161,7 +159,6 @@ import { ConnectionState } from '../../core/signalr/signalr.service';
                     (assignmentsChanged)="onAssignmentsChanged($event)" />
                 }
               }
-              <app-bot-decisions-panel [decisions]="game.recentDecisions()" />
               <app-rotate-overlay />
             }
             @case ('Completed') { <app-completed-state [match]="m" /> }

@@ -6,8 +6,9 @@ import { DevErrorToastService, DevErrorRecord } from './dev-error-toast.service'
  * formatted-JSON dump of an HTTP failure or uncaught JS error. Cards do not
  * auto-dismiss — the user reads at leisure and clicks the close button.
  *
- * Positioned top-right so it doesn't collide with `BotDecisionsPanelComponent`
- * which lives bottom-right. The existing `<app-toast>` (single ephemeral
+ * Positioned top-right, clear of the action bar and the right-edge info
+ * drawer (bot decisions now live in that drawer's bottom pane, not a
+ * bottom-right floating panel). The existing `<app-toast>` (single ephemeral
  * notice) also lives top-right but auto-clears after 3s; the two only
  * collide briefly and the dev-error stack flows downward beneath it.
  */
