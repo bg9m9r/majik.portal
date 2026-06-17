@@ -18,6 +18,7 @@ import { AuthUserStore } from '../../core/auth/auth-user.store';
 import { GameStore } from '../../core/match/game.store';
 import { SelectionService } from '../../core/match/selection.service';
 import { isPriorityPrompt } from '../../core/match/match-session';
+import { LayoutPrefsService } from './layout-prefs.service';
 import { WaitingStateComponent } from './components/waiting-state.component';
 import { RollingStateComponent } from './components/rolling-state.component';
 import { PlayDrawPromptComponent } from './components/play-draw-prompt.component';
@@ -97,6 +98,30 @@ import { ConnectionState } from '../../core/signalr/signalr.service';
               [attr.aria-label]="c.label">{{ c.label }}</span>
           }
           <span class="opacity-70">{{ profile.handle() ?? auth.principal()?.sub }}</span>
+          <button
+            type="button"
+            class="settings-cog inline-flex items-center justify-center rounded p-1 transition-opacity hover:opacity-100"
+            [class.settings-cog--on]="prefs.controlsVisible()"
+            [style.color]="prefs.controlsVisible() ? 'var(--majik-accent)' : null"
+            [style.opacity]="prefs.controlsVisible() ? '1' : '0.6'"
+            [attr.aria-pressed]="prefs.controlsVisible()"
+            aria-label="Toggle layout settings"
+            title="Layout settings"
+            (click)="prefs.setControlsVisible(!prefs.controlsVisible())">
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
+          </button>
           <a routerLink="/lobby" class="text-[color:var(--majik-accent)] underline">Back</a>
         </div>
       </header>
@@ -183,6 +208,9 @@ export class MatchPage implements OnInit, OnDestroy {
   readonly game = inject(GameStore);
   private readonly selection = inject(SelectionService);
   private readonly toast = inject(ToastService);
+  // Shared layout prefs — the settings cog in the header toggles
+  // controlsVisible(), which gates the card-size slider on the board.
+  readonly prefs = inject(LayoutPrefsService);
 
   readonly id = this.route.snapshot.paramMap.get('id') ?? '';
   readonly loadError = signal<string | null>(null);

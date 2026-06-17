@@ -153,6 +153,38 @@ describe('BoardComponent — opponent hand rendering', () => {
   });
 });
 
+describe('BoardComponent — card-size slider visibility (app-layout-controls)', () => {
+  function emptyState(): GameState {
+    const me = player({ id: 'me', name: 'Alice' });
+    const opp = player({ id: 'opp', name: 'Bob' });
+    return {
+      phase: 'Main',
+      turnNumber: 1,
+      activePlayerId: 'me',
+      players: [me, opp],
+      stack: [],
+      youPlayerId: null,
+    };
+  }
+
+  it('does NOT render <app-layout-controls> by default (controlsVisible false)', () => {
+    // mountBoard resets LayoutPrefs to defaults before the first
+    // change-detection pass, so this asserts the hidden-by-default state
+    // regardless of any flag CI's localStorage file left behind.
+    const { fixture } = mountBoard(emptyState(), ['me']);
+    expect(fixture.nativeElement.querySelector('app-layout-controls')).toBeNull();
+  });
+
+  it('renders <app-layout-controls> once controlsVisible is turned on', () => {
+    const { fixture } = mountBoard(emptyState(), ['me']);
+    expect(fixture.nativeElement.querySelector('app-layout-controls')).toBeNull();
+
+    TestBed.inject(LayoutPrefsService).setControlsVisible(true);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('app-layout-controls')).not.toBeNull();
+  });
+});
+
 describe('BoardComponent — stack viewer trigger highlight', () => {
   it('marks TriggeredAbility items with stack-item--trigger so the user notices them', () => {
     // Bug repro coverage: when an ETB trigger lands on the stack the
