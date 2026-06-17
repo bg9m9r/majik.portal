@@ -1815,3 +1815,39 @@ describe('BoardComponent — on-board blocker pairing', () => {
     expect(component.isTargetable('blk')).toBe(true);
   });
 });
+
+// -----------------------------------------------------------------------
+// Mobile card-scale cap.
+// On phones (isMobileBoard = true) the board caps cardScale() at
+// MOBILE_CARD_SCALE (0.6) so two seats + hands fit a short landscape
+// height. On desktop the raw LayoutPrefsService value flows through
+// unchanged.
+// -----------------------------------------------------------------------
+import { signal } from '@angular/core';
+import { ViewportService } from '../../../core/ui/viewport.service';
+
+function mobileVpStub(isMobile: boolean) {
+  return { isMobileBoard: signal(isMobile), isPortrait: signal(false) } as unknown as ViewportService;
+}
+
+describe('BoardComponent mobile card scale', () => {
+  it('caps the effective card scale at the mobile default on mobile', () => {
+    TestBed.configureTestingModule({
+      imports: [BoardComponent],
+      providers: [SelectionService],
+    });
+    TestBed.overrideProvider(ViewportService, { useValue: mobileVpStub(true) });
+    const fixture = TestBed.createComponent(BoardComponent);
+    expect(fixture.componentInstance.cardScale()).toBeCloseTo(0.6); // MOBILE_CARD_SCALE; LayoutPrefs default cardScale is 1.0
+  });
+
+  it('uses the full pref scale on desktop', () => {
+    TestBed.configureTestingModule({
+      imports: [BoardComponent],
+      providers: [SelectionService],
+    });
+    TestBed.overrideProvider(ViewportService, { useValue: mobileVpStub(false) });
+    const fixture = TestBed.createComponent(BoardComponent);
+    expect(fixture.componentInstance.cardScale()).toBeCloseTo(1.0);
+  });
+});

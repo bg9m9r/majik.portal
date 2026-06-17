@@ -18,7 +18,7 @@ export const DEFAULT_LAYOUT_PREFS: LayoutPrefs = {
 // Exported so UI controls (e.g. the card-scale slider) derive their
 // min/max from the same source of truth instead of re-hardcoding bounds.
 export const CLAMP = {
-  cardScale: [0.7, 1.4] as const,
+  cardScale: [0.45, 1.4] as const, // floor lowered from 0.7 so mobile can shrink below the desktop minimum
   oppSelfRatio: [0.2, 0.8] as const,
   handStripPx: [80, 280] as const,
 };

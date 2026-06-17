@@ -42,6 +42,7 @@ import { ZoneModalComponent } from './zone-modal.component';
 import { ZoneKind } from './zone-pile.component';
 import { GameLogComponent } from './game-log.component';
 import { LayoutPrefsService } from '../layout-prefs.service';
+import { ViewportService } from '../../../core/ui/viewport.service';
 import { ResizeHandleDirective } from './resize-handle.directive';
 
 /**
@@ -56,6 +57,10 @@ export interface StackItemView extends StackItem {
   controllerName: string | null;
   label: string;
 }
+
+// Effective card-scale ceiling on a phone: two seats + hands must fit a short
+// landscape height. The user can still shrink further via the layout slider.
+const MOBILE_CARD_SCALE = 0.6;
 
 @Component({
   selector: 'app-board',
@@ -1280,6 +1285,7 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
   private readonly gameStore = inject(GameStore);
 
   private readonly layoutPrefs = inject(LayoutPrefsService);
+  private readonly viewport = inject(ViewportService);
 
   // Base card geometry (matches tokens.scss / board.scss :root).
   private readonly baseCardW = 100;
@@ -1290,7 +1296,11 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
   // Raw multiplier exposed as --majik-card-scale so the absolute-sized hand /
   // opp-hand zone overrides (board.scss) can multiply their base px and scale
   // along with the slider. Public so the host binding type-checks.
-  readonly cardScale = computed(() => this.layoutPrefs.cardScale());
+  readonly cardScale = computed(() =>
+    this.viewport.isMobileBoard()
+      ? Math.min(this.layoutPrefs.cardScale(), MOBILE_CARD_SCALE)
+      : this.layoutPrefs.cardScale(),
+  );
   readonly foeGrow = computed(() => this.layoutPrefs.oppSelfRatio() * 2);
   readonly selfGrow = computed(() => (1 - this.layoutPrefs.oppSelfRatio()) * 2);
   // Effective self-strip height = the user's chosen handStripPx, but never
