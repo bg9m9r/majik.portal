@@ -8,7 +8,7 @@ import { Deck } from '../../../core/deck/deck.types';
   standalone: true,
   imports: [RouterLink],
   template: `
-    <main class="mx-auto flex max-w-3xl flex-col gap-6 p-8">
+    <main class="mx-auto flex max-w-3xl flex-col gap-6 p-4 sm:p-8">
       <header class="flex items-center justify-between">
         <h1 class="majik-display-2">Decks</h1>
         <a routerLink="/decks/new"

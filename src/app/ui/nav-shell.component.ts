@@ -10,7 +10,7 @@ import { AuthUserStore } from '../core/auth/auth-user.store';
   imports: [RouterLink, RouterLinkActive],
   template: `
     @if (visible()) {
-      <nav class="sticky top-0 z-30 flex items-center gap-6 border-b border-[color:var(--majik-line)] bg-[color:var(--majik-bg)]/90 px-6 py-3 backdrop-blur">
+      <nav class="sticky top-0 z-30 flex items-center gap-3 border-b border-[color:var(--majik-line)] bg-[color:var(--majik-bg)]/90 px-3 py-3 backdrop-blur sm:gap-6 sm:px-6">
         <a routerLink="/lobby" class="majik-display-3 text-[color:var(--majik-accent)] tracking-wide">Majik</a>
         <a routerLink="/lobby"
            routerLinkActive="text-[color:var(--majik-accent)]"
@@ -18,7 +18,7 @@ import { AuthUserStore } from '../core/auth/auth-user.store';
         <a routerLink="/decks"
            routerLinkActive="text-[color:var(--majik-accent)]"
            class="text-sm opacity-80 hover:text-[color:var(--majik-accent)]">Decks</a>
-        <span class="ml-auto text-sm opacity-60">{{ handle() }}</span>
+        <span class="ml-auto hidden truncate text-sm opacity-60 sm:inline">{{ handle() }}</span>
         <button type="button"
                 class="rounded border border-[color:var(--majik-line)] px-3 py-1 text-xs uppercase tracking-wider opacity-80 hover:border-[color:var(--majik-accent)] hover:opacity-100"
                 aria-label="Log out"

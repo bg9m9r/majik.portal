@@ -9,7 +9,7 @@ import { CreateMatchWizardComponent } from '../match/components/create-match-wiz
   standalone: true,
   imports: [CreateMatchWizardComponent],
   template: `
-    <main class="mx-auto flex max-w-3xl flex-col gap-6 p-8">
+    <main class="mx-auto flex max-w-3xl flex-col gap-6 p-4 sm:p-8">
       <header class="flex items-center justify-between">
         <h1 class="majik-display-2">Lobby</h1>
       </header>
