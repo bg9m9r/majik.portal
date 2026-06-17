@@ -1897,3 +1897,49 @@ describe('BoardComponent hand drag disabling', () => {
     expect(fixture.componentInstance.dragDisabled()).toBe(false);
   });
 });
+
+describe('BoardComponent tap-to-play (mobile)', () => {
+  function handCard(): CardSnapshot {
+    return {
+      instanceId: 'hand-card-1',
+      name: 'Lightning Bolt',
+      manaCost: '{R}',
+      types: ['Instant'],
+      power: null,
+      toughness: null,
+      tapped: false,
+      summoningSickness: false,
+      producedManaColors: '',
+    };
+  }
+
+  it('emits castOrPlayRequested when a self-hand card is tapped on mobile', () => {
+    TestBed.configureTestingModule({
+      imports: [BoardComponent],
+      providers: [SelectionService],
+    });
+    TestBed.overrideProvider(ViewportService, { useValue: mobileVpStub(true) });
+    const fixture = TestBed.createComponent(BoardComponent);
+    const cmp = fixture.componentInstance;
+    const card = handCard();
+    const emitted: CardSnapshot[] = [];
+    cmp.castOrPlayRequested.subscribe((e: CardSnapshot) => emitted.push(e));
+    cmp.onHandCardTap(card);
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]).toBe(card);
+  });
+
+  it('does NOT emit on tap on desktop (drag handles play there)', () => {
+    TestBed.configureTestingModule({
+      imports: [BoardComponent],
+      providers: [SelectionService],
+    });
+    TestBed.overrideProvider(ViewportService, { useValue: mobileVpStub(false) });
+    const fixture = TestBed.createComponent(BoardComponent);
+    const cmp = fixture.componentInstance;
+    const emitted: CardSnapshot[] = [];
+    cmp.castOrPlayRequested.subscribe((e: CardSnapshot) => emitted.push(e));
+    cmp.onHandCardTap(handCard());
+    expect(emitted).toHaveLength(0);
+  });
+});

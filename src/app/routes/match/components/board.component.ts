@@ -535,7 +535,8 @@ const MOBILE_CARD_SCALE = 0.6;
                     [cdkDragDisabled]="dragDisabled()"
                     [attr.aria-label]="'play ' + c.name"
                     animate.enter="zone-enter-from-top"
-                    animate.leave="zone-leave-down">
+                    animate.leave="zone-leave-down"
+                    (click)="onHandCardTap(c)">
                     <app-card-view
                       [snapshot]="c"
                       zone="hand"
@@ -1758,6 +1759,15 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
     if (event.previousContainer === event.container) return;
     const card = event.item?.data as CardSnapshot | undefined;
     if (!card) return;
+    this.castOrPlayRequested.emit(card);
+  }
+
+  /**
+   * Mobile single-tap play. Desktop uses drag (no-op here). Emits the same
+   * castOrPlayRequested payload as the battlefield-drop path.
+   */
+  onHandCardTap(card: CardSnapshot): void {
+    if (!this.viewport.isMobileBoard()) return;
     this.castOrPlayRequested.emit(card);
   }
 }
