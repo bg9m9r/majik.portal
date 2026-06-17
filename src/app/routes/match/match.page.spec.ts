@@ -4,6 +4,7 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { Subject } from 'rxjs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MatchPage, boardInstanceIds } from './match';
+import { LayoutPrefsService } from './layout-prefs.service';
 import { MatchService } from '../../core/match/match.service';
 import { SignalrService, ConnectionState } from '../../core/signalr/signalr.service';
 import { GameStore } from '../../core/match/game.store';
@@ -488,6 +489,114 @@ describe('MatchPage — resilience wiring', () => {
     await vi.runOnlyPendingTimersAsync();
 
     expect(matchSvc.updateAutoPassPrefs.mock.calls.length).toBe(afterInitCount);
+  });
+});
+
+// ---------------------------------------------------------------------
+// MatchPage — header settings cog (card-size slider show/hide)
+//
+// The cog lives in the header's right-side row, immediately LEFT of the
+// Back link, and toggles the shared LayoutPrefs.controlsVisible() flag
+// (default false → slider hidden). Clicking it flips the flag.
+// ---------------------------------------------------------------------
+describe('MatchPage — header settings cog', () => {
+  function mountPage() {
+    const stateSig = signal<ConnectionState>('idle');
+    const currentSig = signal<Match | null>(null);
+    const matchSvc = {
+      current: currentSig.asReadonly(),
+      setCurrent: (m: Match | null) => currentSig.set(m),
+      get: vi.fn(() => Promise.resolve({ ok: true, value: playingMatch() })),
+      getState: vi.fn(() => Promise.resolve({ ok: true, value: { gameId: 'g-1', youPlayerId: 'p1' } as unknown as GameState })),
+      submitCommand: vi.fn(() => Promise.resolve({ ok: true, value: undefined })),
+      concede: vi.fn(() => Promise.resolve({ ok: true, value: playingMatch() })),
+      submitRoll: vi.fn(() => Promise.resolve({ ok: true, value: playingMatch() })),
+      playDraw: vi.fn(() => Promise.resolve({ ok: true, value: playingMatch() })),
+      updateAutoPassPrefs: vi.fn(() => Promise.resolve({ ok: true, value: undefined })),
+    };
+    const signalr = {
+      opponentJoined$: new Subject(), stateChanged$: new Subject(), rolled$: new Subject(),
+      playerRolled$: new Subject(), playDrawChosen$: new Subject(), clockUpdate$: new Subject(),
+      timedOut$: new Subject(), engineError$: new Subject(), botThinking$: new Subject(),
+      botDecisions$: new Subject(), event$: new Subject(), prompt$: new Subject(),
+      state$: new Subject<unknown>(),
+      state: stateSig.asReadonly(),
+      reconnectFailed: signal(false).asReadonly(),
+      sessionExpired: signal(false).asReadonly(),
+      connect: vi.fn(() => Promise.resolve()),
+      disconnect: vi.fn(() => Promise.resolve()),
+    };
+    const game = {
+      setState: vi.fn(), setPrompt: vi.fn(), clearPrompt: vi.fn(), applyEvent: vi.fn(() => true),
+      pushBotDecision: vi.fn(), recordStackMutation: vi.fn(), setClockAnchor: vi.fn(), reset: vi.fn(),
+      state: signal<GameState | null>(null), prompt: signal(null), selfPlayerIds: signal<string[]>([]),
+      isMyTurnPrompt: signal(false), selfTimerState: signal(null), opponentTimerState: signal(null),
+      fullControl: signal(false).asReadonly(), phaseStops: signal<Record<string, 'mine' | 'theirs'>>({}).asReadonly(),
+      recentDecisions: signal([]), toggleFullControl: vi.fn(), togglePhaseStop: vi.fn(),
+    };
+
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        SelectionService, ToastService,
+        { provide: MatchService, useValue: matchSvc },
+        { provide: SignalrService, useValue: signalr },
+        { provide: GameStore, useValue: game },
+        { provide: Router, useValue: { navigate: vi.fn(() => Promise.resolve(true)) } },
+        { provide: AuthUserStore, useValue: { principal: signal({ sub: 'me' }), handle: signal('Me'), sessionExpired: signal(false).asReadonly() } },
+        { provide: ActivatedRoute, useValue: { snapshot: { paramMap: { get: () => 'm-1' } } } },
+      ],
+    });
+    // Reset shared layout prefs to defaults (slider hidden) BEFORE the first
+    // change-detection pass so a flag CI's localStorage file left behind can't
+    // leak the cog into the "on" state across tests.
+    TestBed.inject(LayoutPrefsService).reset();
+    const fixture = TestBed.createComponent(MatchPage);
+    fixture.detectChanges();
+    return { fixture, prefs: TestBed.inject(LayoutPrefsService) };
+  }
+
+  function cogButton(fixture: ReturnType<typeof mountPage>['fixture']): HTMLButtonElement {
+    const btn = fixture.nativeElement.querySelector(
+      'button[aria-label="Toggle layout settings"]',
+    ) as HTMLButtonElement | null;
+    expect(btn).toBeTruthy();
+    return btn!;
+  }
+
+  it('renders the settings cog button in the header', () => {
+    const { fixture } = mountPage();
+    const btn = cogButton(fixture);
+    expect(btn.getAttribute('type')).toBe('button');
+    expect(btn.getAttribute('aria-pressed')).toBe('false');
+    expect(btn.querySelector('svg')).toBeTruthy(); // inline gear icon
+  });
+
+  it('places the cog immediately BEFORE the Back link in the header row', () => {
+    const { fixture } = mountPage();
+    const btn = cogButton(fixture);
+    const back = fixture.nativeElement.querySelector('a[routerLink="/lobby"]') as HTMLElement;
+    expect(back).toBeTruthy();
+    // Same parent row, cog precedes Back (DOM order).
+    expect(btn.parentElement).toBe(back.parentElement);
+    expect(btn.compareDocumentPosition(back) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy();
+  });
+
+  it('clicking the cog flips controlsVisible (false → true → false) and aria-pressed tracks it', () => {
+    const { fixture, prefs } = mountPage();
+    const btn = cogButton(fixture);
+    expect(prefs.controlsVisible()).toBe(false);
+
+    btn.click();
+    fixture.detectChanges();
+    expect(prefs.controlsVisible()).toBe(true);
+    expect(btn.getAttribute('aria-pressed')).toBe('true');
+
+    btn.click();
+    fixture.detectChanges();
+    expect(prefs.controlsVisible()).toBe(false);
+    expect(btn.getAttribute('aria-pressed')).toBe('false');
   });
 });
 

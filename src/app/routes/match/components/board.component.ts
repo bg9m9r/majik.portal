@@ -606,7 +606,9 @@ const MOBILE_CARD_SCALE = 0.6;
           </div>
         }
 
-        <app-layout-controls />
+        @if (layoutPrefs.controlsVisible()) {
+          <app-layout-controls />
+        }
 
         <app-action-bar
           [canPass]="canPass()"
@@ -1212,7 +1214,9 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
 
   private readonly gameStore = inject(GameStore);
 
-  private readonly layoutPrefs = inject(LayoutPrefsService);
+  // `protected` (not private) so the template can read controlsVisible()
+  // to gate the <app-layout-controls> card-size slider under strictTemplates.
+  protected readonly layoutPrefs = inject(LayoutPrefsService);
   private readonly viewport = inject(ViewportService);
 
   // Base card geometry (matches tokens.scss / board.scss :root).
