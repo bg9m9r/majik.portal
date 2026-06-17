@@ -10,6 +10,7 @@ import {
   output,
   signal,
 } from '@angular/core';
+import { ViewportService } from '../../../core/ui/viewport.service';
 import { FormsModule } from '@angular/forms';
 import { CardSnapshot, GameState, GamePlayer, SelectionMode } from '../../../core/match/match.types';
 import { SelectionService } from '../../../core/match/selection.service';
@@ -183,11 +184,29 @@ export function detectKind(kinds: string[] | undefined): PromptKind {
   selector: 'app-prompt-overlay',
   standalone: true,
   imports: [FormsModule],
+  styles: [`
+    // Mobile bottom-sheet: full-width, anchored to the bottom edge; board stays visible above.
+    .prompt-sheet {
+      inset-inline: 0;
+      bottom: 0;
+      border-top-left-radius: 12px;
+      border-top-right-radius: 12px;
+      max-height: 60vh;
+      overflow-y: auto;
+    }
+  `],
   template: `
     @if (kind() !== 'none') {
       <div
         #overlayRoot
-        class="prompt-overlay fixed inset-x-0 top-0 z-50 mx-auto mt-3 max-w-3xl rounded bg-black/80 p-3 shadow-xl"
+        class="prompt-overlay fixed z-50 bg-black/80 p-3 shadow-xl"
+        [class.prompt-sheet]="sheetMode()"
+        [class.inset-x-0]="!sheetMode()"
+        [class.top-0]="!sheetMode()"
+        [class.mx-auto]="!sheetMode()"
+        [class.mt-3]="!sheetMode()"
+        [class.max-w-3xl]="!sheetMode()"
+        [class.rounded]="!sheetMode()"
         [attr.data-kind]="kind()"
         role="dialog"
         aria-modal="true"
@@ -966,6 +985,12 @@ export class PromptOverlayComponent implements AfterViewInit, OnDestroy {
   // template can read selected()/blockPairs() directly.
   readonly selection = inject(SelectionService);
   readonly boardMode = computed<SelectionMode | null>(() => this.selection.mode());
+
+  private readonly viewport = inject(ViewportService);
+  // True when the overlay should render as a bottom-anchored sheet instead
+  // of the centered max-w-3xl modal. Only applies to non-board-mode prompts
+  // (the slim banner has its own layout and is not affected).
+  readonly sheetMode = computed(() => this.viewport.isMobileBoard() && !this.boardMode());
 
   // Explicit (non-auto) submit for a board-resident targets/choice pick:
   // the banner's Done button. Emits the SAME PromptDecision the modal grid
