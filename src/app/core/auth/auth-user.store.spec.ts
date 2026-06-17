@@ -4,7 +4,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { describe, expect, it, beforeEach } from 'vitest';
 import { BehaviorSubject, NEVER, ReplaySubject, Subject, of, throwError } from 'rxjs';
 import { AuthService as Auth0Service, GetTokenSilentlyOptions } from '@auth0/auth0-angular';
-import { AUTH_BOOTSTRAP_TIMEOUT_MS, AuthUserStore, isDeadRefreshError } from './auth-user.store';
+import { AUTH_BOOTSTRAP_TIMEOUT_MS, AuthUserStore, isDeadRefreshError, isRevokedRefreshTokenError } from './auth-user.store';
 import { MAJIK_AUTH_CONFIG, MajikAuthConfig } from './auth.config';
 import { environment } from '../../../environments/environment';
 
@@ -93,6 +93,91 @@ describe('isDeadRefreshError — dead-session detection', () => {
     expect(isDeadRefreshError({ status: 0 })).toBe(false);
     expect(isDeadRefreshError({ message: 'network error' })).toBe(false);
     expect(isDeadRefreshError(new Error('boom'))).toBe(false);
+  });
+});
+
+describe('isRevokedRefreshTokenError — revoked-token detection (loop-safe subset)', () => {
+  const revokedCodes = ['invalid_grant', 'missing_refresh_token', 'invalid_refresh_token'];
+
+  for (const code of revokedCodes) {
+    it(`returns true for flat { error: '${code}' }`, () => {
+      expect(isRevokedRefreshTokenError({ error: code })).toBe(true);
+    });
+    it(`returns true for nested { error: { error: '${code}' } }`, () => {
+      expect(isRevokedRefreshTokenError({ error: { error: code } })).toBe(true);
+    });
+  }
+
+  it('returns FALSE for login_required (a normal logged-out visitor — must not trigger a logout loop)', () => {
+    expect(isRevokedRefreshTokenError({ error: 'login_required' })).toBe(false);
+    expect(isRevokedRefreshTokenError({ error: { error: 'login_required' } })).toBe(false);
+  });
+
+  it('returns false for unrelated codes / null / non-objects', () => {
+    expect(isRevokedRefreshTokenError({ error: 'mfa_required' })).toBe(false);
+    expect(isRevokedRefreshTokenError(null)).toBe(false);
+    expect(isRevokedRefreshTokenError(undefined)).toBe(false);
+    expect(isRevokedRefreshTokenError('invalid_grant')).toBe(false);
+    expect(isRevokedRefreshTokenError(new Error('boom'))).toBe(false);
+  });
+
+  it('isDeadRefreshError STILL matches login_required (regression guard — token-required paths unchanged)', () => {
+    expect(isDeadRefreshError({ error: 'login_required' })).toBe(true);
+    expect(isDeadRefreshError({ error: { error: 'login_required' } })).toBe(true);
+  });
+});
+
+describe('AuthUserStore.bootstrap() — init-time error$ self-heal', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  function withError$(error$: Subject<any>, logoutSpy: { count: number }) {
+    return {
+      isAuthenticated$: new BehaviorSubject<boolean>(false),
+      idTokenClaims$: new BehaviorSubject<unknown>(null),
+      error$: error$ as any,
+      logout: () => {
+        logoutSpy.count++;
+        return of(undefined);
+      },
+    };
+  }
+
+  it('purges the session when error$ emits a revoked-token error (invalid_grant) after bootstrap', async () => {
+    const error$ = new Subject<any>();
+    const spy = { count: 0 };
+    const store = configure([
+      { provide: MAJIK_AUTH_CONFIG, useValue: REAL_CFG },
+      { provide: Auth0Service, useValue: withError$(error$, spy) },
+    ]);
+    await store.bootstrap();
+    error$.next({ error: 'invalid_grant' });
+    expect(spy.count).toBe(1);
+    expect(store.isAuthenticated()).toBe(false);
+  });
+
+  it('does NOT purge (no logout) when error$ emits login_required — avoids the logout loop', async () => {
+    const error$ = new Subject<any>();
+    const spy = { count: 0 };
+    const store = configure([
+      { provide: MAJIK_AUTH_CONFIG, useValue: REAL_CFG },
+      { provide: Auth0Service, useValue: withError$(error$, spy) },
+    ]);
+    await store.bootstrap();
+    error$.next({ error: 'login_required' });
+    expect(spy.count).toBe(0);
+  });
+
+  it('is idempotent: two revoked-token emissions call Auth0.logout exactly once', async () => {
+    const error$ = new Subject<any>();
+    const spy = { count: 0 };
+    const store = configure([
+      { provide: MAJIK_AUTH_CONFIG, useValue: REAL_CFG },
+      { provide: Auth0Service, useValue: withError$(error$, spy) },
+    ]);
+    await store.bootstrap();
+    error$.next({ error: 'invalid_grant' });
+    error$.next({ error: 'invalid_refresh_token' });
+    expect(spy.count).toBe(1);
   });
 });
 
