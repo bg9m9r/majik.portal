@@ -10,7 +10,6 @@ export interface LayoutPrefs {
   infoDrawerOpen: boolean;       // right-edge info drawer open/closed
   infoDrawerTab: 'log' | 'bot';  // last-selected bottom tab (Log / Bot Decisions)
   infoDrawerSplit: number;       // stack's share of the drawer height (clamped 0.2..0.8)
-  controlsVisible: boolean;      // card-size slider (app-layout-controls) shown/hidden — hidden by default
 }
 
 export const DEFAULT_LAYOUT_PREFS: LayoutPrefs = {
@@ -20,7 +19,6 @@ export const DEFAULT_LAYOUT_PREFS: LayoutPrefs = {
   infoDrawerOpen: false,
   infoDrawerTab: 'log',
   infoDrawerSplit: 0.5,
-  controlsVisible: false,
 };
 
 // Exported so UI controls (e.g. the card-scale slider) derive their
@@ -50,7 +48,6 @@ function read(): LayoutPrefs {
       infoDrawerOpen: parsed.infoDrawerOpen ?? DEFAULT_LAYOUT_PREFS.infoDrawerOpen,
       infoDrawerTab: parsed.infoDrawerTab === 'bot' ? 'bot' : DEFAULT_LAYOUT_PREFS.infoDrawerTab,
       infoDrawerSplit: clamp(parsed.infoDrawerSplit ?? DEFAULT_LAYOUT_PREFS.infoDrawerSplit, CLAMP.infoDrawerSplit),
-      controlsVisible: parsed.controlsVisible ?? DEFAULT_LAYOUT_PREFS.controlsVisible,
     };
   } catch {
     return { ...DEFAULT_LAYOUT_PREFS };
@@ -66,7 +63,6 @@ export class LayoutPrefsService {
   readonly infoDrawerOpen = signal(this.initial.infoDrawerOpen);
   readonly infoDrawerTab = signal<'log' | 'bot'>(this.initial.infoDrawerTab);
   readonly infoDrawerSplit = signal(this.initial.infoDrawerSplit);
-  readonly controlsVisible = signal(this.initial.controlsVisible);
 
   setCardScale(n: number): void { this.cardScale.set(clamp(n, CLAMP.cardScale)); this.persist(); }
   setOppSelfRatio(n: number): void { this.oppSelfRatio.set(clamp(n, CLAMP.oppSelfRatio)); this.persist(); }
@@ -74,7 +70,6 @@ export class LayoutPrefsService {
   setInfoDrawerOpen(v: boolean): void { this.infoDrawerOpen.set(v); this.persist(); }
   setInfoDrawerTab(t: 'log' | 'bot'): void { this.infoDrawerTab.set(t); this.persist(); }
   setInfoDrawerSplit(n: number): void { this.infoDrawerSplit.set(clamp(n, CLAMP.infoDrawerSplit)); this.persist(); }
-  setControlsVisible(v: boolean): void { this.controlsVisible.set(v); this.persist(); }
 
   reset(): void {
     this.cardScale.set(DEFAULT_LAYOUT_PREFS.cardScale);
@@ -83,7 +78,6 @@ export class LayoutPrefsService {
     this.infoDrawerOpen.set(DEFAULT_LAYOUT_PREFS.infoDrawerOpen);
     this.infoDrawerTab.set(DEFAULT_LAYOUT_PREFS.infoDrawerTab);
     this.infoDrawerSplit.set(DEFAULT_LAYOUT_PREFS.infoDrawerSplit);
-    this.controlsVisible.set(DEFAULT_LAYOUT_PREFS.controlsVisible);
     try { globalThis.localStorage?.removeItem(LAYOUT_PREFS_KEY); } catch { /* storage unavailable */ }
   }
 
@@ -96,7 +90,6 @@ export class LayoutPrefsService {
       infoDrawerOpen: this.infoDrawerOpen(),
       infoDrawerTab: this.infoDrawerTab(),
       infoDrawerSplit: this.infoDrawerSplit(),
-      controlsVisible: this.controlsVisible(),
     };
     try {
       globalThis.localStorage?.setItem(LAYOUT_PREFS_KEY, JSON.stringify(payload));

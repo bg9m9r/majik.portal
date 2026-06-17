@@ -27,7 +27,6 @@ import { PlayerHudComponent } from '../../../ui/player-hud.component';
 import { ManaPoolRowComponent } from '../../../ui/mana-pool-row.component';
 import { PhaseBarComponent } from '../../../ui/phase-bar.component';
 import { ActionBarComponent } from './action-bar.component';
-import { LayoutControlsComponent } from './layout-controls.component';
 import {
   ActivatableAbility,
   CardContextMenuAction,
@@ -80,7 +79,6 @@ const MOBILE_CARD_SCALE = 0.6;
     ManaPoolRowComponent,
     PhaseBarComponent,
     ActionBarComponent,
-    LayoutControlsComponent,
     CardContextMenuComponent,
     ManaColorPickerComponent,
     CdkDropList,
@@ -615,10 +613,6 @@ const MOBILE_CARD_SCALE = 0.6;
               <span class="stack-callout__detail">{{ callout.detail }}</span>
             </span>
           </div>
-        }
-
-        @if (layoutPrefs.controlsVisible()) {
-          <app-layout-controls />
         }
 
         <app-action-bar
@@ -1281,8 +1275,10 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
 
   private readonly gameStore = inject(GameStore);
 
-  // `protected` (not private) so the template can read controlsVisible()
-  // to gate the <app-layout-controls> card-size slider under strictTemplates.
+  // `protected` (not private) so the template can read cardScale() /
+  // oppSelfRatio() (the host card-scale + battlefield-band bindings below)
+  // under strictTemplates. The card-size slider itself moved to the header's
+  // cog dropdown (match.ts); the board no longer renders <app-layout-controls>.
   protected readonly layoutPrefs = inject(LayoutPrefsService);
   private readonly viewport = inject(ViewportService);
 
