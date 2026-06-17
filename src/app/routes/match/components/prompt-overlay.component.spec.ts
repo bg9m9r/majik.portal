@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { TestBed } from '@angular/core/testing';
-import { ComponentRef } from '@angular/core';
+import { ComponentRef, signal } from '@angular/core';
 import { PromptOverlayComponent, PromptDecision, detectKind } from './prompt-overlay.component';
 import { SelectionService } from '../../../core/match/selection.service';
+import { ViewportService } from '../../../core/ui/viewport.service';
 import {
   CardSnapshot,
   GamePlayer,
@@ -1750,5 +1751,78 @@ describe('PromptOverlayComponent — on-board blocker confirm', () => {
     component.decision.subscribe(d => captured.push(d));
     component.confirmBoardBlockers();
     expect(captured).toEqual([{ kind: 'blockers', blockers: [{ blockerInstanceId: 'blk', attackerInstanceId: 'atk' }] }]);
+  });
+});
+
+// -----------------------------------------------------------------------
+// Mobile bottom-sheet: non-board prompts render as a bottom-anchored sheet
+// on mobile (isMobileBoard() = true); desktop keeps the centered modal.
+// The slim-banner boardMode() path is unchanged by this feature.
+// -----------------------------------------------------------------------
+describe('PromptOverlayComponent — bottom-sheet on mobile', () => {
+  function vpStub(isMobile: boolean) {
+    return { isMobileBoard: signal(isMobile), isPortrait: signal(false) } as unknown as ViewportService;
+  }
+
+  it('uses the bottom-sheet container for a non-board prompt on mobile', () => {
+    const me = player({ id: 'me', name: 'Alice' });
+    const opp = player({ id: 'opp', name: 'Bob' });
+    const state: GameState = {
+      phase: 'Main', turnNumber: 1, activePlayerId: 'me',
+      players: [me, opp], stack: [], youPlayerId: null,
+    };
+
+    TestBed.configureTestingModule({
+      imports: [PromptOverlayComponent],
+      providers: [
+        SelectionService,
+        { provide: ViewportService, useValue: vpStub(true) },
+      ],
+    });
+    const fixture = TestBed.createComponent(PromptOverlayComponent);
+    const ref: ComponentRef<PromptOverlayComponent> = fixture.componentRef;
+    ref.setInput('state', state);
+    ref.setInput('prompt', {
+      expectedKinds: ['ChooseYesNoCommand'],
+      yesNoView: { question: 'Pay 2 life?' },
+    });
+    ref.setInput('selfPlayerIds', ['me']);
+    fixture.detectChanges();
+
+    const root = fixture.nativeElement.querySelector('.prompt-overlay') as HTMLElement;
+    expect(root).not.toBeNull();
+    expect(root.classList.contains('prompt-sheet')).toBe(true);
+    expect(root.classList.contains('max-w-3xl')).toBe(false);
+  });
+
+  it('keeps the centered modal on desktop', () => {
+    const me = player({ id: 'me', name: 'Alice' });
+    const opp = player({ id: 'opp', name: 'Bob' });
+    const state: GameState = {
+      phase: 'Main', turnNumber: 1, activePlayerId: 'me',
+      players: [me, opp], stack: [], youPlayerId: null,
+    };
+
+    TestBed.configureTestingModule({
+      imports: [PromptOverlayComponent],
+      providers: [
+        SelectionService,
+        { provide: ViewportService, useValue: vpStub(false) },
+      ],
+    });
+    const fixture = TestBed.createComponent(PromptOverlayComponent);
+    const ref: ComponentRef<PromptOverlayComponent> = fixture.componentRef;
+    ref.setInput('state', state);
+    ref.setInput('prompt', {
+      expectedKinds: ['ChooseYesNoCommand'],
+      yesNoView: { question: 'Pay 2 life?' },
+    });
+    ref.setInput('selfPlayerIds', ['me']);
+    fixture.detectChanges();
+
+    const root = fixture.nativeElement.querySelector('.prompt-overlay') as HTMLElement;
+    expect(root).not.toBeNull();
+    expect(root.classList.contains('max-w-3xl')).toBe(true);
+    expect(root.classList.contains('prompt-sheet')).toBe(false);
   });
 });
