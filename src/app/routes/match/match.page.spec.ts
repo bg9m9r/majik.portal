@@ -311,6 +311,51 @@ describe('MatchPage — resilience wiring', () => {
     expect(lateWrites.length).toBeGreaterThanOrEqual(1);
   });
 
+  // --- engine-error / terminal-abort wiring -------------------------
+  // PR #142 — a backend MatchEngineWatchdog hang/fault aborts the match
+  // into the terminal "Errored" state and emits a match.engine-error
+  // SignalR event. MatchPage subscribes to engineError$ and refreshes the
+  // match so the @switch unmounts the live board (which owns the clock +
+  // prompt overlay, the source of the frozen "no active prompt" dead-end)
+  // and renders <app-completed-state> on the now-terminal state. This
+  // pins the page-level wiring (match.ts load()) that the isolated
+  // signalr / completed-state specs don't cover end-to-end.
+
+  it('an engineError$ emission refetches the match (so the terminal state lands)', async () => {
+    const page = init();
+    page.ngOnInit();
+    await vi.runOnlyPendingTimersAsync();
+    currentSig.set(playingMatch());
+    TestBed.tick();
+
+    // The watchdog-aborted match the refetch will now return.
+    matchSvc.get.mockResolvedValue({ ok: true, value: playingMatch({ state: 'Errored' }) });
+    const before = matchSvc.get.mock.calls.length;
+
+    signalr.engineError$.next({ matchId: 'm-1', reason: 'engine-hang' });
+    await vi.runOnlyPendingTimersAsync();
+
+    // The page refetched and adopted the terminal Errored snapshot, so the
+    // template switches off 'Playing' (board unmounts) onto the abort screen.
+    expect(matchSvc.get.mock.calls.length).toBeGreaterThan(before);
+    expect(currentSig()?.state).toBe('Errored');
+  });
+
+  it('engine-error refetch failure surfaces the fetch-error banner instead of failing silently', async () => {
+    const page = init();
+    page.ngOnInit();
+    await vi.runOnlyPendingTimersAsync();
+    currentSig.set(playingMatch());
+    TestBed.tick();
+
+    matchSvc.get.mockResolvedValue({ ok: false, error: { code: 'network' } });
+
+    signalr.engineError$.next({ matchId: 'm-1', reason: 'engine-fault' });
+    await vi.runOnlyPendingTimersAsync();
+
+    expect(page.fetchError()).toBeTruthy();
+  });
+
   // --- session expiry recovery --------------------------------------
 
   it('SignalR sessionExpired latch toasts and redirects to /login', () => {
