@@ -1813,6 +1813,15 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
    */
   onHandCardTap(card: CardSnapshot): void {
     if (!this.viewport.isMobileBoard()) return;
+    const m = this.selection.mode();
+    if (m) {
+      // A board-select prompt owns hand taps (its modal grid is suppressed for
+      // board-locatable candidates). Route candidates to selection; ignore others.
+      if ((m.kind === 'targets' || m.kind === 'choice') && m.candidateIds.has(card.instanceId)) {
+        this.onBoardCardClick(card);
+      }
+      return;
+    }
     this.castOrPlayRequested.emit(card);
   }
 }

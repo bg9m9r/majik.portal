@@ -2061,4 +2061,33 @@ describe('BoardComponent tap-to-play (mobile)', () => {
     cmp.onHandCardTap(handCard());
     expect(emitted).toHaveLength(0);
   });
+
+  it('does NOT play a hand card on mobile while a board-select prompt owns it (routes to selection)', () => {
+    TestBed.configureTestingModule({
+      imports: [BoardComponent],
+      providers: [SelectionService],
+    });
+    TestBed.overrideProvider(ViewportService, { useValue: mobileVpStub(true) });
+    const fixture = TestBed.createComponent(BoardComponent);
+    const cmp = fixture.componentInstance;
+    const sel = TestBed.inject(SelectionService);
+    const card = handCard(); // instanceId = 'hand-card-1'
+    const card2: CardSnapshot = { ...card, instanceId: 'hand-card-2' };
+    // Use a choice prompt with max:2 so toggling one card does NOT auto-submit
+    // (auto-submit fires only when min===max and we hit max).
+    sel.setBoardInstanceIds(new Set([card.instanceId, card2.instanceId]));
+    sel.setPrompt({
+      gameId: 'g',
+      playerId: 'me',
+      expectedKinds: ['ChoiceCommand'],
+      candidates: [card, card2],
+      label: 'Choose a card in your hand',
+      choiceView: { kind: 'PickN', min: 1, max: 2 },
+    } as PromptEnvelope);
+    const emitted: unknown[] = [];
+    cmp.castOrPlayRequested.subscribe((e: unknown) => emitted.push(e));
+    cmp.onHandCardTap(card);
+    expect(emitted).toHaveLength(0);           // did NOT play
+    expect(sel.selected()).toContain(card.instanceId); // routed to selection instead
+  });
 });
