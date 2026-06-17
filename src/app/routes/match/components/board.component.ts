@@ -45,6 +45,7 @@ import { StackItemView } from './stack-list.component';
 import { LayoutPrefsService } from '../layout-prefs.service';
 import { ViewportService } from '../../../core/ui/viewport.service';
 import { ResizeHandleDirective } from './resize-handle.directive';
+import { LongPressDirective } from '../../../ui/long-press.directive';
 
 // StackItemView (the enriched-for-display stack item) now lives in
 // stack-list.component.ts so the presentational list owns the shape it
@@ -89,6 +90,7 @@ const MOBILE_CARD_SCALE = 0.6;
     ZoneModalComponent,
     InfoDrawerComponent,
     ResizeHandleDirective,
+    LongPressDirective,
   ],
   // ----------------------------------------------------------------
   // Host display.
@@ -325,7 +327,8 @@ const MOBILE_CARD_SCALE = 0.6;
                         (click)="onBoardCardClick(c)"
                         animate.enter="zone-enter-from-top"
                         animate.leave="zone-leave-down"
-                        (contextmenu)="onContextMenu($event, c, 'opponent')" />
+                        (contextmenu)="onContextMenu($event, c, 'opponent')"
+                        appLongPress (longPress)="onCardLongPress(c, $event)" />
                     }
                   </div>
                   <div class="backline__utility" data-zone="utility" role="list"
@@ -342,7 +345,8 @@ const MOBILE_CARD_SCALE = 0.6;
                         (click)="onBoardCardClick(c)"
                         animate.enter="zone-enter-from-top"
                         animate.leave="zone-leave-down"
-                        (contextmenu)="onContextMenu($event, c, 'opponent')" />
+                        (contextmenu)="onContextMenu($event, c, 'opponent')"
+                        appLongPress (longPress)="onCardLongPress(c, $event)" />
                     }
                   </div>
                 </div>
@@ -363,7 +367,8 @@ const MOBILE_CARD_SCALE = 0.6;
                       (click)="onBoardCardClick(c)"
                       animate.enter="zone-enter-from-top"
                       animate.leave="zone-leave-down"
-                      (contextmenu)="onContextMenu($event, c, 'opponent')" />
+                      (contextmenu)="onContextMenu($event, c, 'opponent')"
+                      appLongPress (longPress)="onCardLongPress(c, $event)" />
                   }
                 </div>
                 @if (b.frontline.length === 0 && b.lands.length === 0 && b.utility.length === 0) {
@@ -435,7 +440,8 @@ const MOBILE_CARD_SCALE = 0.6;
                       animate.enter="zone-enter-from-bottom"
                       animate.leave="zone-leave-up"
                       (contextmenu)="onContextMenu($event, c, 'self')"
-                      (cardDoubleClick)="onSelfBattlefieldDoubleClick($event)" />
+                      (cardDoubleClick)="onSelfBattlefieldDoubleClick($event)"
+                      appLongPress (longPress)="onCardLongPress(c, $event)" />
                   }
                 </div>
                 <div class="backline" data-zone="backline">
@@ -454,7 +460,8 @@ const MOBILE_CARD_SCALE = 0.6;
                         animate.enter="zone-enter-from-bottom"
                         animate.leave="zone-leave-up"
                         (contextmenu)="onContextMenu($event, c, 'self')"
-                        (cardDoubleClick)="onSelfBattlefieldDoubleClick($event)" />
+                        (cardDoubleClick)="onSelfBattlefieldDoubleClick($event)"
+                        appLongPress (longPress)="onCardLongPress(c, $event)" />
                     }
                   </div>
                   <div class="backline__utility" data-zone="utility" role="list"
@@ -472,7 +479,8 @@ const MOBILE_CARD_SCALE = 0.6;
                         animate.enter="zone-enter-from-bottom"
                         animate.leave="zone-leave-up"
                         (contextmenu)="onContextMenu($event, c, 'self')"
-                        (cardDoubleClick)="onSelfBattlefieldDoubleClick($event)" />
+                        (cardDoubleClick)="onSelfBattlefieldDoubleClick($event)"
+                        appLongPress (longPress)="onCardLongPress(c, $event)" />
                     }
                   </div>
                 </div>
@@ -530,7 +538,8 @@ const MOBILE_CARD_SCALE = 0.6;
                     [attr.aria-label]="'play ' + c.name"
                     animate.enter="zone-enter-from-top"
                     animate.leave="zone-leave-down"
-                    (click)="onHandCardTap(c)">
+                    (click)="onHandCardTap(c)"
+                    appLongPress (longPress)="onCardLongPress(c, $event)">
                     <app-card-view
                       [snapshot]="c"
                       zone="hand"
@@ -1065,6 +1074,17 @@ export class BoardComponent implements AfterViewInit, OnDestroy {
 
   closeZone(): void {
     this.openedZoneRef.set(null);
+  }
+
+  /**
+   * Long-press a card anywhere on the board to preview its full details
+   * in the card-detail popover. Works on both touch (mobile) and mouse
+   * (desktop hold). Reuses the same popover.show(snapshotToCard, rect)
+   * path as the context-menu "Details" action.
+   */
+  onCardLongPress(c: CardSnapshot, e: Event): void {
+    const rect = (e.target as HTMLElement).getBoundingClientRect();
+    this.popover.show(snapshotToCard(c), rect);
   }
 
   onContextMenu(event: MouseEvent, card: CardSnapshot, owner: 'self' | 'opponent'): void {
