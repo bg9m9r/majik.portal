@@ -54,6 +54,12 @@ function player(over: Partial<GamePlayer> & Pick<GamePlayer, 'id' | 'name'>): Ga
 function mountBoard(state: GameState, selfPlayerIds: string[]) {
   TestBed.configureTestingModule({ imports: [BoardComponent], providers: [SelectionService] });
   const fixture = TestBed.createComponent(BoardComponent);
+  // Reset the persisted layout prefs to defaults (drawer closed) BEFORE the
+  // first change-detection pass so the info-drawer auto-open is driven purely
+  // by this mount's stack, not by a flag a sibling test left in localStorage
+  // (CI runs with a backing localStorage file, so state would otherwise leak
+  // across tests in this file).
+  TestBed.inject(LayoutPrefsService).reset();
   const ref: ComponentRef<BoardComponent> = fixture.componentRef;
   ref.setInput('state', state);
   ref.setInput('selfPlayerIds', selfPlayerIds);
