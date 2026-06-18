@@ -105,6 +105,15 @@ describe('CardViewComponent selection affordance', () => {
 });
 
 describe('CardViewComponent', () => {
+  it('does not open the detail popover on hover (hover removed)', () => {
+    const popover = makePopoverStub();
+    const { fixture } = render(makeSnapshot(), false, makeCacheStub(), 'battlefield', { popover });
+    const card = fixture.nativeElement.querySelector('.card') as HTMLElement;
+    card.dispatchEvent(new MouseEvent('mouseenter'));
+    card.dispatchEvent(new MouseEvent('mouseleave'));
+    expect(popover.show).not.toHaveBeenCalled();
+  });
+
   it('renders cached Scryfall image when URL is available', () => {
     const cache = makeCacheStub({ 'Grizzly Bears': 'https://img.example/bears.png' });
     const { fixture } = render(makeSnapshot(), false, cache);
