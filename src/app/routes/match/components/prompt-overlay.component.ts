@@ -640,7 +640,7 @@ export function detectKind(kinds: string[] | undefined): PromptKind {
                   single eligible instanceId of the clicked stack.
                 -->
                 <div class="max-h-96 overflow-y-auto rounded border border-white/10">
-                  <div class="grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-2 p-2">
+                  <div class="grid grid-cols-[repeat(auto-fill,minmax(7.5rem,1fr))] gap-1.5 p-2">
                     @for (stack of eligibleLibraryStacks(); track stack.name) {
                       <button
                         type="button"
@@ -675,7 +675,7 @@ export function detectKind(kinds: string[] | undefined): PromptKind {
                   companion core PR deploys to majik-api.
                 -->
                 <div class="max-h-96 overflow-y-auto rounded border border-white/10">
-                  <div class="grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-2 p-2">
+                  <div class="grid grid-cols-[repeat(auto-fill,minmax(7.5rem,1fr))] gap-1.5 p-2">
                     @for (c of filteredLibraryCandidates(); track c.instanceId) {
                       <button
                         type="button"
@@ -936,7 +936,7 @@ export function detectKind(kinds: string[] | undefined): PromptKind {
                 </span>
               }
               <div class="max-h-96 overflow-y-auto rounded border border-white/10">
-                <div class="grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-2 p-2">
+                <div class="grid grid-cols-[repeat(auto-fill,minmax(7.5rem,1fr))] gap-1.5 p-2">
                   @for (c of revealPickRevealed(); track c.instanceId) {
                     @if (revealPickEligibleIds().has(c.instanceId)) {
                       <button
