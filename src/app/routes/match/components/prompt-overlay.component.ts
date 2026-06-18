@@ -151,6 +151,21 @@ interface CandidateCard {
   controllerName: string;
 }
 
+// CR 701.19a — a presentational grouping of library cards by name. The
+// library can hold many duplicates (3× Verdant Catacombs); rather than one
+// tile per instance, the picker renders ONE art tile per unique name with a
+// count badge. `instanceIds` holds every instance of that name in first-
+// appearance order; `eligibleInstanceId` is the first eligible instance to
+// select on click (null when the whole stack is ineligible/muted). Grouping
+// is purely visual — the emitted wire pick is still a single instanceId.
+interface LibraryStack {
+  name: string;
+  count: number;
+  instanceIds: string[];
+  eligible: boolean;
+  eligibleInstanceId: string | null;
+}
+
 export function detectKind(kinds: string[] | undefined): PromptKind {
   const ks = (kinds ?? []).map(k => k.toLowerCase());
   // CR 701.19a — match BEFORE 'targets' / 'mode' / 'mulligan' so the
@@ -615,39 +630,40 @@ export function detectKind(kinds: string[] | undefined): PromptKind {
                   looks through the entire library and picks an eligible
                   card or declines.
                 -->
+                <!--
+                  Art-tile stacks (CR 701.19a). Duplicate cards are grouped
+                  by name into a single art tile with a count badge so a deck
+                  with 3× Verdant Catacombs shows ONE tile reading "3" rather
+                  than three identical rows. Eligible stacks come first
+                  (clickable + selectable), muted (ineligible) stacks after
+                  (dimmed, non-interactive). Selection still resolves to a
+                  single eligible instanceId of the clicked stack.
+                -->
                 <div class="max-h-96 overflow-y-auto rounded border border-white/10">
                   <div class="grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-2 p-2">
-                    @for (c of filteredLibraryView(); track c.instanceId) {
-                      @if (eligibleInstanceIds().has(c.instanceId)) {
-                        <button
-                          type="button"
-                          class="flex flex-col items-start rounded border px-2 py-1 text-left transition-colors"
-                          [class.border-amber-400]="selectedLibraryInstanceId() === c.instanceId"
-                          [class.bg-amber-400/10]="selectedLibraryInstanceId() === c.instanceId"
-                          [class.border-white/25]="selectedLibraryInstanceId() !== c.instanceId"
-                          [class.hover:bg-white/10]="selectedLibraryInstanceId() !== c.instanceId"
-                          [attr.data-eligible]="true"
-                          (click)="selectLibraryCandidate(c.instanceId)">
-                          <span class="font-medium leading-tight">{{ c.name }}</span>
-                          <span class="opacity-60">{{ c.manaCost }}</span>
-                          @if (c.power !== null && c.toughness !== null) {
-                            <span class="opacity-70">{{ c.power }}/{{ c.toughness }}</span>
-                          }
-                        </button>
-                      } @else {
-                        <div
-                          class="flex flex-col items-start rounded border border-white/10 px-2 py-1 opacity-30 cursor-not-allowed"
-                          [attr.data-muted]="true"
-                          [attr.tabindex]="-1"
-                          title="not eligible">
-                          <span class="font-medium leading-tight">{{ c.name }}</span>
-                          <span class="opacity-60">{{ c.manaCost }}</span>
-                          @if (c.power !== null && c.toughness !== null) {
-                            <span class="opacity-70">{{ c.power }}/{{ c.toughness }}</span>
-                          }
-                        </div>
-                      }
-                    } @empty {
+                    @for (stack of eligibleLibraryStacks(); track stack.name) {
+                      <button
+                        type="button"
+                        class="rounded transition-shadow"
+                        [class.ring-2]="isLibraryStackSelected(stack)"
+                        [class.ring-amber-400]="isLibraryStackSelected(stack)"
+                        [attr.data-eligible]="true"
+                        [attr.data-stack-name]="stack.name"
+                        (click)="selectLibraryCandidate(stack.eligibleInstanceId!)">
+                        <app-card-tile [name]="stack.name" [count]="stack.count > 1 ? stack.count : 0" [width]="120" [height]="168" />
+                      </button>
+                    }
+                    @for (stack of mutedLibraryStacks(); track stack.name) {
+                      <div
+                        class="rounded opacity-30 cursor-not-allowed"
+                        [attr.data-muted]="true"
+                        [attr.data-stack-name]="stack.name"
+                        [attr.tabindex]="-1"
+                        title="not eligible">
+                        <app-card-tile [name]="stack.name" [count]="stack.count > 1 ? stack.count : 0" [width]="120" [height]="168" />
+                      </div>
+                    }
+                    @if (filteredLibraryView().length === 0) {
                       <p class="col-span-full p-2 opacity-50">No matching cards.</p>
                     }
                   </div>
@@ -658,27 +674,21 @@ export function detectKind(kinds: string[] | undefined): PromptKind {
                   Rendered when libraryView is absent — e.g. before the
                   companion core PR deploys to majik-api.
                 -->
-                <div class="max-h-60 overflow-y-auto rounded border border-white/10">
-                  @for (c of filteredLibraryCandidates(); track c.instanceId) {
-                    <button
-                      type="button"
-                      class="flex w-full items-center justify-between border-b border-white/5 px-2 py-1 text-left last:border-b-0"
-                      [class.bg-amber-400/10]="selectedLibraryInstanceId() === c.instanceId"
-                      [class.border-l-2]="selectedLibraryInstanceId() === c.instanceId"
-                      [class.border-l-amber-400]="selectedLibraryInstanceId() === c.instanceId"
-                      (click)="selectLibraryCandidate(c.instanceId)">
-                      <span class="flex-1">
-                        <span class="font-medium">{{ c.name }}</span>
-                        <span class="ml-2 opacity-60">{{ c.manaCost }}</span>
-                        <span class="ml-2 opacity-50">{{ libraryCardTypeLine(c) }}</span>
-                      </span>
-                      @if (c.power !== null && c.toughness !== null) {
-                        <span class="ml-2 opacity-70">{{ c.power }}/{{ c.toughness }}</span>
-                      }
-                    </button>
-                  } @empty {
-                    <p class="p-2 opacity-50">No matching cards.</p>
-                  }
+                <div class="max-h-96 overflow-y-auto rounded border border-white/10">
+                  <div class="grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-2 p-2">
+                    @for (c of filteredLibraryCandidates(); track c.instanceId) {
+                      <button
+                        type="button"
+                        class="rounded transition-shadow"
+                        [class.ring-2]="selectedLibraryInstanceId() === c.instanceId"
+                        [class.ring-amber-400]="selectedLibraryInstanceId() === c.instanceId"
+                        (click)="selectLibraryCandidate(c.instanceId)">
+                        <app-card-tile [name]="c.name" [width]="120" [height]="168" />
+                      </button>
+                    } @empty {
+                      <p class="col-span-full p-2 opacity-50">No matching cards.</p>
+                    }
+                  </div>
                 </div>
               }
 
@@ -931,32 +941,22 @@ export function detectKind(kinds: string[] | undefined): PromptKind {
                     @if (revealPickEligibleIds().has(c.instanceId)) {
                       <button
                         type="button"
-                        class="flex flex-col items-start rounded border px-2 py-1 text-left transition-colors"
-                        [class.border-amber-400]="selectedRevealInstanceId() === c.instanceId"
-                        [class.bg-amber-400/10]="selectedRevealInstanceId() === c.instanceId"
-                        [class.border-white/25]="selectedRevealInstanceId() !== c.instanceId"
-                        [class.hover:bg-white/10]="selectedRevealInstanceId() !== c.instanceId"
+                        class="rounded transition-shadow"
+                        [class.ring-2]="selectedRevealInstanceId() === c.instanceId"
+                        [class.ring-amber-400]="selectedRevealInstanceId() === c.instanceId"
                         [attr.data-eligible]="true"
                         [attr.data-instance-id]="c.instanceId"
                         (click)="selectRevealCandidate(c.instanceId)">
-                        <span class="font-medium leading-tight">{{ c.name }}</span>
-                        <span class="opacity-60">{{ c.manaCost }}</span>
-                        @if (c.power !== null && c.toughness !== null) {
-                          <span class="opacity-70">{{ c.power }}/{{ c.toughness }}</span>
-                        }
+                        <app-card-tile [name]="c.name" [width]="120" [height]="168" />
                       </button>
                     } @else {
                       <div
-                        class="flex flex-col items-start rounded border border-white/10 px-2 py-1 opacity-30 cursor-not-allowed"
+                        class="rounded opacity-30 cursor-not-allowed"
                         [attr.data-muted]="true"
                         [attr.data-instance-id]="c.instanceId"
                         [attr.tabindex]="-1"
                         title="not eligible">
-                        <span class="font-medium leading-tight">{{ c.name }}</span>
-                        <span class="opacity-60">{{ c.manaCost }}</span>
-                        @if (c.power !== null && c.toughness !== null) {
-                          <span class="opacity-70">{{ c.power }}/{{ c.toughness }}</span>
-                        }
+                        <app-card-tile [name]="c.name" [width]="120" [height]="168" />
                       </div>
                     }
                   } @empty {
@@ -1325,6 +1325,50 @@ export class PromptOverlayComponent implements AfterViewInit, OnDestroy {
     const eligible = this.eligibleInstanceIds();
     return this.filteredLibraryView().filter(c => eligible.has(c.instanceId)).length;
   });
+
+  // CR 701.19a — group the (filtered) full library by card name into stacks
+  // for the art-tile picker. Eligible and muted stacks are split so the
+  // template can render the eligible-vs-muted halves without re-walking the
+  // list. A name is treated as eligible if ≥1 of its instances is eligible
+  // (defensive — for library search eligibility is by card identity so all
+  // instances of a name share it, but we don't rely on that). First-
+  // appearance order is preserved for a stable, sensible layout.
+  private groupLibraryStacks(): { eligible: LibraryStack[]; muted: LibraryStack[] } {
+    const eligibleIds = this.eligibleInstanceIds();
+    const order: string[] = [];
+    const byName = new Map<string, LibraryStack>();
+    for (const c of this.filteredLibraryView()) {
+      let stack = byName.get(c.name);
+      if (!stack) {
+        stack = { name: c.name, count: 0, instanceIds: [], eligible: false, eligibleInstanceId: null };
+        byName.set(c.name, stack);
+        order.push(c.name);
+      }
+      stack.count += 1;
+      stack.instanceIds.push(c.instanceId);
+      if (eligibleIds.has(c.instanceId)) {
+        stack.eligible = true;
+        if (stack.eligibleInstanceId === null) stack.eligibleInstanceId = c.instanceId;
+      }
+    }
+    const eligible: LibraryStack[] = [];
+    const muted: LibraryStack[] = [];
+    for (const name of order) {
+      const stack = byName.get(name)!;
+      (stack.eligible ? eligible : muted).push(stack);
+    }
+    return { eligible, muted };
+  }
+
+  readonly eligibleLibraryStacks = computed<LibraryStack[]>(() => this.groupLibraryStacks().eligible);
+  readonly mutedLibraryStacks = computed<LibraryStack[]>(() => this.groupLibraryStacks().muted);
+
+  // True when the current selection belongs to the given stack (any of its
+  // instances), so the template can show the selected ring on the right tile.
+  isLibraryStackSelected(stack: LibraryStack): boolean {
+    const sel = this.selectedLibraryInstanceId();
+    return sel !== null && stack.instanceIds.includes(sel);
+  }
 
   // CR 701.42 — peeked top-N of the surveilling player's library.
   // Library zone is hidden in GameState (CR 706), so the cards must
