@@ -1,4 +1,7 @@
-import { Component, computed, inject } from '@angular/core';
+import { Component, HostListener, computed, effect, inject } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { NavigationStart, Router } from '@angular/router';
+import { filter } from 'rxjs/operators';
 import { CardPopoverService } from './card-popover.service';
 
 @Component({
@@ -34,6 +37,55 @@ import { CardPopoverService } from './card-popover.service';
 })
 export class CardDetailPopoverComponent {
   readonly popover = inject(CardPopoverService);
+  private readonly router = inject(Router);
+
+  /**
+   * Document-level click dismissal is only armed one event-loop tick AFTER the
+   * popover opens. This prevents the SAME click that opened it (the context-menu
+   * "View details" click, which calls popover.show() during its own click event,
+   * and the desktop long-press preview) from immediately closing it — that click
+   * is still in flight / bubbling when current() flips truthy, so without this
+   * guard the document:click listener would fire on it and self-dismiss.
+   */
+  private clickArmed = false;
+
+  constructor() {
+    // Arm/disarm the click-anywhere dismissal as the popover opens/closes.
+    effect(() => {
+      if (this.popover.current()) {
+        this.clickArmed = false;
+        setTimeout(() => {
+          // Only arm if still open after the tick (opening click has settled).
+          if (this.popover.current()) this.clickArmed = true;
+        }, 0);
+      } else {
+        this.clickArmed = false;
+      }
+    });
+
+    // Leaving the current view (e.g. match → lobby) must always clear the
+    // popover; CardPopoverService is a root singleton whose state would
+    // otherwise survive router navigation.
+    this.router.events
+      .pipe(
+        filter((e) => e instanceof NavigationStart),
+        takeUntilDestroyed(),
+      )
+      .subscribe(() => this.popover.hide());
+  }
+
+  @HostListener('document:keydown.escape')
+  onEscape(): void {
+    if (!this.popover.current()) return;
+    this.popover.hide();
+  }
+
+  @HostListener('document:click')
+  onDocumentClick(): void {
+    if (!this.clickArmed) return;
+    if (!this.popover.current()) return;
+    this.popover.hide();
+  }
 
   readonly position = computed(() => {
     const cur = this.popover.current();
