@@ -1070,6 +1070,175 @@ describe('PromptOverlayComponent — full library-view grid', () => {
 });
 
 // -----------------------------------------------------------------------
+// The library search picker renders cards as ART STACKS: duplicate cards
+// (3× Verdant Catacombs) collapse into ONE <app-card-tile> with a count
+// badge rather than three identical rows. Eligible-vs-muted split is
+// preserved; selection still resolves to a single eligible instanceId of
+// the clicked stack (the wire shape is unchanged).
+// -----------------------------------------------------------------------
+describe('PromptOverlayComponent — library-pick art stacks', () => {
+  function makeState(): GameState {
+    return {
+      phase: 'Main', turnNumber: 3, activePlayerId: 'me',
+      players: [player({ id: 'me', name: 'Alice' })], stack: [], youPlayerId: null,
+    };
+  }
+
+  // 3× Verdant Catacombs (eligible) + 2× Island (ineligible) + 1× Forest
+  // (eligible). 6 instances, 3 unique names.
+  function dupLibrary(): { libraryView: CardSnapshot[]; candidates: CardSnapshot[] } {
+    const cat1 = card({ instanceId: 'cat-1', name: 'Verdant Catacombs', types: ['Land'] });
+    const cat2 = card({ instanceId: 'cat-2', name: 'Verdant Catacombs', types: ['Land'] });
+    const cat3 = card({ instanceId: 'cat-3', name: 'Verdant Catacombs', types: ['Land'] });
+    const isl1 = card({ instanceId: 'isl-1', name: 'Island', types: ['Land'] });
+    const isl2 = card({ instanceId: 'isl-2', name: 'Island', types: ['Land'] });
+    const forest = card({ instanceId: 'for-1', name: 'Forest', types: ['Land'] });
+    const libraryView = [cat1, isl1, cat2, forest, isl2, cat3];
+    // Eligibility is by card identity (fetchland fetches duals/Catacombs etc.);
+    // here Catacombs + Forest are eligible, Islands are not.
+    const candidates = [cat1, cat2, cat3, forest];
+    return { libraryView, candidates };
+  }
+
+  it('groups duplicates into ONE app-card-tile per unique name with a count badge', () => {
+    const { libraryView, candidates } = dupLibrary();
+    const { fixture } = mountOverlay(
+      makeState(), ['ChooseLibraryPickCommand'], ['me'], { candidates, libraryView, label: 'a land' },
+    );
+    const el = fixture.nativeElement as HTMLElement;
+
+    // 3 unique names → 3 tiles (NOT 6 instance rows).
+    const tiles = el.querySelectorAll('app-card-tile');
+    expect(tiles.length).toBe(3);
+
+    // 2 eligible stacks (Verdant Catacombs, Forest), 1 muted stack (Island).
+    const eligibleStacks = el.querySelectorAll('[data-eligible="true"]');
+    const mutedStacks = el.querySelectorAll('[data-muted="true"]');
+    expect(eligibleStacks.length).toBe(2);
+    expect(mutedStacks.length).toBe(1);
+
+    // The Catacombs stack shows a "3" count badge; Island shows "2".
+    const catStack = el.querySelector('[data-stack-name="Verdant Catacombs"]') as HTMLElement;
+    expect(catStack.querySelector('[data-count-badge]')?.textContent?.trim()).toBe('3');
+    const islStack = el.querySelector('[data-stack-name="Island"]') as HTMLElement;
+    expect(islStack.querySelector('[data-count-badge]')?.textContent?.trim()).toBe('2');
+    // Forest is a singleton — no badge (count input 0 hides it).
+    const forStack = el.querySelector('[data-stack-name="Forest"]') as HTMLElement;
+    expect(forStack.querySelector('[data-count-badge]')).toBeNull();
+  });
+
+  it('clicking an eligible stack selects ONE eligible instanceId of that name + shows the ring', () => {
+    const { libraryView, candidates } = dupLibrary();
+    const { component, fixture } = mountOverlay(
+      makeState(), ['ChooseLibraryPickCommand'], ['me'], { candidates, libraryView },
+    );
+    const el = fixture.nativeElement as HTMLElement;
+    const catStack = el.querySelector('[data-stack-name="Verdant Catacombs"]') as HTMLButtonElement;
+    expect(catStack.tagName.toLowerCase()).toBe('button');
+
+    catStack.click();
+    fixture.detectChanges();
+
+    // Selection resolves to one of the Catacombs instances.
+    expect(['cat-1', 'cat-2', 'cat-3']).toContain(component.selectedLibraryInstanceId());
+    // The clicked stack shows the selected amber ring.
+    expect(catStack.classList.contains('ring-2')).toBe(true);
+    expect(catStack.classList.contains('ring-amber-400')).toBe(true);
+
+    // Confirm emits the single picked instanceId (wire shape unchanged).
+    const captured: PromptDecision[] = [];
+    component.decision.subscribe(d => captured.push(d));
+    component.confirmLibraryPick();
+    expect(captured).toHaveLength(1);
+    expect(captured[0].kind).toBe('libraryPick');
+    expect(['cat-1', 'cat-2', 'cat-3']).toContain(captured[0].selectedInstanceId);
+  });
+
+  it('muted (ineligible) stacks render data-muted as non-clickable divs', () => {
+    const { libraryView, candidates } = dupLibrary();
+    const { component, fixture } = mountOverlay(
+      makeState(), ['ChooseLibraryPickCommand'], ['me'], { candidates, libraryView },
+    );
+    const el = fixture.nativeElement as HTMLElement;
+    const islStack = el.querySelector('[data-stack-name="Island"]') as HTMLElement;
+    expect(islStack.getAttribute('data-muted')).toBe('true');
+    expect(islStack.tagName.toLowerCase()).toBe('div');
+
+    islStack.click();
+    fixture.detectChanges();
+    expect(component.selectedLibraryInstanceId()).toBeNull();
+  });
+
+  it('filter still narrows the stacks by name', () => {
+    const { libraryView, candidates } = dupLibrary();
+    const { component, fixture } = mountOverlay(
+      makeState(), ['ChooseLibraryPickCommand'], ['me'], { candidates, libraryView },
+    );
+    component.libraryPickFilter.set('catacombs');
+    fixture.detectChanges();
+
+    const el = fixture.nativeElement as HTMLElement;
+    const tiles = el.querySelectorAll('app-card-tile');
+    // Only the Verdant Catacombs stack survives the filter.
+    expect(tiles.length).toBe(1);
+    expect(el.querySelector('[data-stack-name="Verdant Catacombs"]')).toBeTruthy();
+    expect(el.querySelector('[data-stack-name="Island"]')).toBeNull();
+  });
+
+  it('keeps the dual buttons (no banner/OK) when something is eligible, alongside the stacks', () => {
+    const { libraryView, candidates } = dupLibrary();
+    const { fixture } = mountOverlay(
+      makeState(), ['ChooseLibraryPickCommand'], ['me'], { candidates, libraryView },
+    );
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('[data-testid="library-pick-empty-banner"]')).toBeNull();
+    expect(el.querySelector('[data-testid="library-pick-acknowledge"]')).toBeNull();
+    const labels = Array.from(el.querySelectorAll('button')).map(b => b.textContent?.trim());
+    expect(labels).toContain('Search and pick');
+    expect(labels).toContain('Pick nothing');
+  });
+
+  it('zero eligible: banner + OK, every (grouped) stack muted', () => {
+    const islandOnly = card({ instanceId: 'isl-x', name: 'Island', types: ['Land'] });
+    const islandTwo = card({ instanceId: 'isl-y', name: 'Island', types: ['Land'] });
+    const { fixture } = mountOverlay(
+      makeState(), ['ChooseLibraryPickCommand'], ['me'],
+      { candidates: [], libraryView: [islandOnly, islandTwo] },
+    );
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('[data-testid="library-pick-empty-banner"]')).toBeTruthy();
+    expect(el.querySelector('[data-testid="library-pick-acknowledge"]')).toBeTruthy();
+    expect(el.querySelectorAll('[data-eligible="true"]').length).toBe(0);
+    // 2 Islands → ONE muted stack with a "2" badge.
+    expect(el.querySelectorAll('[data-muted="true"]').length).toBe(1);
+    const islStack = el.querySelector('[data-stack-name="Island"]') as HTMLElement;
+    expect(islStack.querySelector('[data-count-badge]')?.textContent?.trim()).toBe('2');
+  });
+
+  it('fallback flat list (no libraryView) renders an art tile per candidate', () => {
+    const elf = card({ instanceId: 'elf-1', name: 'Llanowar Elves' });
+    const bop = card({ instanceId: 'bop-1', name: 'Birds of Paradise' });
+    const { component, fixture } = mountOverlay(
+      makeState(), ['ChooseLibraryPickCommand'], ['me'], { candidates: [elf, bop], label: 'green creature' },
+    );
+    expect(component.hasLibraryView()).toBe(false);
+
+    const el = fixture.nativeElement as HTMLElement;
+    const tiles = el.querySelectorAll('app-card-tile');
+    expect(tiles.length).toBe(2);
+    const tileText = Array.from(tiles).map(t => (t as HTMLElement).textContent ?? '');
+    expect(tileText.some(t => t.includes('Llanowar Elves'))).toBe(true);
+    expect(tileText.some(t => t.includes('Birds of Paradise'))).toBe(true);
+
+    // Selection toggle still works on the tile button.
+    const firstBtn = el.querySelector('button') as HTMLButtonElement;
+    firstBtn.click();
+    fixture.detectChanges();
+    expect(component.selectedLibraryInstanceId()).not.toBeNull();
+  });
+});
+
+// -----------------------------------------------------------------------
 // CR 701.42 — surveil prompts (Underground Mortuary ETB et al.)
 // -----------------------------------------------------------------------
 
@@ -1550,6 +1719,40 @@ describe('PromptOverlayComponent — reveal-and-choose prompt (CR 701.15)', () =
     expect(muted.length).toBe(1);
     expect((eligible[0] as HTMLElement).getAttribute('data-instance-id')).toBe('bear');
     expect((muted[0] as HTMLElement).getAttribute('data-instance-id')).toBe('bolt');
+  });
+
+  it('renders one app-card-tile per revealed card (no grouping); names visible', () => {
+    const bear = card({ instanceId: 'bear', name: 'Bear', types: ['Creature'] });
+    const bolt = card({ instanceId: 'bolt', name: 'Bolt', types: ['Instant'] });
+    // Two copies of the same name must NOT collapse — reveal order matters.
+    const bolt2 = card({ instanceId: 'bolt2', name: 'Bolt', types: ['Instant'] });
+    const { fixture } = mountReveal([bolt, bear, bolt2], ['bear'], true);
+    const el = fixture.nativeElement as HTMLElement;
+
+    const tiles = el.querySelectorAll('app-card-tile');
+    expect(tiles.length).toBe(3);
+    const tileText = Array.from(tiles).map(t => (t as HTMLElement).textContent ?? '');
+    expect(tileText.filter(t => t.includes('Bolt')).length).toBe(2);
+    expect(tileText.some(t => t.includes('Bear'))).toBe(true);
+
+    // The eligible tile is a button + carries data-instance-id; muted are divs.
+    const eligible = el.querySelector('[data-eligible="true"]') as HTMLElement;
+    expect(eligible.tagName.toLowerCase()).toBe('button');
+    expect(eligible.getAttribute('data-instance-id')).toBe('bear');
+  });
+
+  it('clicking an eligible reveal tile shows the selected ring', () => {
+    const bear = card({ instanceId: 'bear', name: 'Bear' });
+    const { component, fixture } = mountReveal([bear], ['bear'], true);
+    const el = fixture.nativeElement as HTMLElement;
+    const btn = el.querySelector('[data-eligible="true"]') as HTMLButtonElement;
+
+    btn.click();
+    fixture.detectChanges();
+
+    expect(component.selectedRevealInstanceId()).toBe('bear');
+    expect(btn.classList.contains('ring-2')).toBe(true);
+    expect(btn.classList.contains('ring-amber-400')).toBe(true);
   });
 
   it('clicking an eligible card + Done emits chooseFromRevealed with that instanceId', () => {
