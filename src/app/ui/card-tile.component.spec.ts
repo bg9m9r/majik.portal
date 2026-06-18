@@ -65,8 +65,7 @@ describe('CardTileComponent', () => {
     expect(fx.nativeElement.querySelector('[data-count-badge]')).toBeNull();
   });
 
-  it('mouseenter sets popover after 200ms delay', () => {
-    vi.useFakeTimers();
+  function renderWithPopover(card: Card | null) {
     const show = vi.fn();
     const hide = vi.fn();
     TestBed.configureTestingModule({
@@ -77,45 +76,87 @@ describe('CardTileComponent', () => {
       ],
     });
     const fx = TestBed.createComponent(CardTileComponent);
-    const card: Card = {
-      name: 'Bolt', manaCost: '{R}', types: ['Instant'], power: null, toughness: null,
-      isImplemented: true, cmc: 1, colors: ['R'], oracleText: 'Bolt deals 3.',
-    };
-    fx.componentRef.setInput('name', 'Bolt');
+    fx.componentRef.setInput('name', card?.name ?? 'X');
     fx.componentRef.setInput('card', card);
     fx.detectChanges();
+    const tile = fx.nativeElement.querySelector('[aria-label]') as HTMLElement;
+    return { fx, show, hide, tile };
+  }
 
-    const host = fx.nativeElement.querySelector('div') as HTMLElement;
-    host.dispatchEvent(new MouseEvent('mouseenter'));
-    vi.advanceTimersByTime(199);
+  const BOLT: Card = {
+    name: 'Lightning Bolt', manaCost: '{R}', types: ['Instant'], power: null, toughness: null,
+    isImplemented: true, cmc: 1, colors: ['R'], oracleText: 'Bolt deals 3.',
+  };
+
+  it('does not open the popover on hover (hover removed)', () => {
+    const { fx, show } = renderWithPopover(BOLT);
+    const tile = fx.nativeElement.querySelector('[aria-label]') as HTMLElement;
+    tile.dispatchEvent(new MouseEvent('mouseenter'));
+    tile.dispatchEvent(new MouseEvent('mouseleave'));
+    fx.detectChanges();
     expect(show).not.toHaveBeenCalled();
-    vi.advanceTimersByTime(1);
-    expect(show).toHaveBeenCalled();
-
-    vi.useRealTimers();
   });
 
-  it('mouseleave cancels timer and hides popover', () => {
-    vi.useFakeTimers();
-    const show = vi.fn();
-    const hide = vi.fn();
-    TestBed.configureTestingModule({
-      imports: [CardTileComponent],
-      providers: [
-        { provide: CardPopoverService, useValue: { show, hide, current: () => null } },
-        { provide: ScryfallImageCache, useValue: makeCacheStub() },
-      ],
-    });
-    const fx = TestBed.createComponent(CardTileComponent);
-    fx.componentRef.setInput('name', 'X');
+  it('right-click with a card opens the menu and View details shows the popover', () => {
+    const { fx, show, tile } = renderWithPopover(BOLT);
+    tile.dispatchEvent(new MouseEvent('contextmenu', { clientX: 10, clientY: 20 }));
     fx.detectChanges();
-    const host = fx.nativeElement.querySelector('div') as HTMLElement;
-    host.dispatchEvent(new MouseEvent('mouseenter'));
-    host.dispatchEvent(new MouseEvent('mouseleave'));
-    vi.advanceTimersByTime(500);
-    expect(show).not.toHaveBeenCalled();
-    expect(hide).toHaveBeenCalled();
+    const menu = fx.nativeElement.querySelector('[role="menu"]') as HTMLElement | null;
+    expect(menu).not.toBeNull();
 
-    vi.useRealTimers();
+    const buttons = Array.from(menu!.querySelectorAll('button')) as HTMLButtonElement[];
+    const details = buttons.find((b) => b.textContent?.includes('View details'))!;
+    details.click();
+    fx.detectChanges();
+    expect(show).toHaveBeenCalled();
+    // menu closes after the action
+    expect(fx.nativeElement.querySelector('[role="menu"]')).toBeNull();
+  });
+
+  it('right-click with a null card shows no menu and no popover', () => {
+    const { fx, show, tile } = renderWithPopover(null);
+    tile.dispatchEvent(new MouseEvent('contextmenu', { clientX: 10, clientY: 20 }));
+    fx.detectChanges();
+    expect(fx.nativeElement.querySelector('[role="menu"]')).toBeNull();
+    expect(show).not.toHaveBeenCalled();
+  });
+
+  it('Open on Scryfall opens an exact-name search tab', () => {
+    const openSpy = vi.fn();
+    const orig = window.open;
+    window.open = openSpy as unknown as typeof window.open;
+    try {
+      const { fx, tile } = renderWithPopover(BOLT);
+      tile.dispatchEvent(new MouseEvent('contextmenu', { clientX: 10, clientY: 20 }));
+      fx.detectChanges();
+      const scry = Array.from(fx.nativeElement.querySelectorAll('[role="menu"] button') as NodeListOf<HTMLButtonElement>)
+        .find((b) => b.textContent?.includes('Scryfall'))!;
+      scry.click();
+      expect(openSpy).toHaveBeenCalled();
+      expect((openSpy.mock.calls[0][0] as string)).toContain('scryfall.com/search');
+      expect((openSpy.mock.calls[0][0] as string)).toContain('Lightning%20Bolt');
+    } finally {
+      window.open = orig;
+    }
+  });
+
+  it('outside-click dismisses the open menu', () => {
+    const { fx, tile } = renderWithPopover(BOLT);
+    tile.dispatchEvent(new MouseEvent('contextmenu', { clientX: 10, clientY: 20 }));
+    fx.detectChanges();
+    expect(fx.nativeElement.querySelector('[role="menu"]')).not.toBeNull();
+    document.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    fx.detectChanges();
+    expect(fx.nativeElement.querySelector('[role="menu"]')).toBeNull();
+  });
+
+  it('Escape dismisses the open menu', () => {
+    const { fx, tile } = renderWithPopover(BOLT);
+    tile.dispatchEvent(new MouseEvent('contextmenu', { clientX: 10, clientY: 20 }));
+    fx.detectChanges();
+    expect(fx.nativeElement.querySelector('[role="menu"]')).not.toBeNull();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    fx.detectChanges();
+    expect(fx.nativeElement.querySelector('[role="menu"]')).toBeNull();
   });
 });

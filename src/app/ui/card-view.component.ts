@@ -1,8 +1,7 @@
-import { Component, ElementRef, EventEmitter, Output, computed, effect, inject, input, signal } from '@angular/core';
+import { Component, EventEmitter, Output, computed, effect, inject, input, signal } from '@angular/core';
 import { CardSnapshot } from '../core/match/match.types';
 import { Card } from '../core/card/card.types';
 import { ScryfallImageCache } from '../core/card/scryfall-image-cache.service';
-import { CardPopoverService } from './card-popover.service';
 import { ManaCostComponent } from './mana-cost.component';
 
 // Where this card view is rendered. Summoning-sickness only applies to
@@ -76,7 +75,7 @@ export function makeCounterPip(kind: string, count: number): CounterPip {
   `],
   template: `
     <div class="flex flex-col items-stretch">
-    <div #host
+    <div
       class="card relative overflow-hidden flex flex-col justify-between p-1 text-[10px] text-stone-900"
       [class.is-tapped]="snapshot()?.tapped"
       [class.is-hidden]="hidden()"
@@ -88,8 +87,6 @@ export function makeCounterPip(kind: string, count: number): CounterPip {
       [title]="ariaLabel()"
       [attr.aria-label]="ariaLabel()"
       role="img"
-      (mouseenter)="onHover()"
-      (mouseleave)="onLeave()"
       (dblclick)="onDoubleClick()">
       @if (snapshot()?.tapped && !hidden()) {
         <span class="card__tap-pin" aria-hidden="true">TAP</span>
@@ -197,9 +194,6 @@ export class CardViewComponent {
   });
 
   private readonly cache = inject(ScryfallImageCache);
-  private readonly popover = inject(CardPopoverService);
-  private readonly host = inject(ElementRef<HTMLElement>);
-  private hoverTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Cards exiled WITH this permanent (e.g. creatures imprinted under
   // Agatha's Soul Cauldron — the engine surfaces them on
@@ -275,36 +269,6 @@ export class CardViewComponent {
       this.cache.version();
       if (!this.cache.get(name)) this.cache.request([name]);
     });
-  }
-
-  /**
-   * Open the detail popover on hover with a 250ms delay so accidental
-   * mouse passes don't spam show/hide.
-   *
-   * Eligible zones: battlefield, hand, other. The face-down opponent
-   * hand (`hidden=true`) is suppressed — we don't reveal opaque cards.
-   * Stack-zone renderings are also suppressed; the stack panel has its
-   * own dedicated readout.
-   */
-  onHover(): void {
-    if (this.hoverTimer) clearTimeout(this.hoverTimer);
-    if (this.hidden()) return;
-    const snap = this.snapshot();
-    if (!snap) return;
-    const z = this.zone();
-    if (z !== 'battlefield' && z !== 'hand' && z !== 'other') return;
-    this.hoverTimer = setTimeout(() => {
-      const rect = this.host.nativeElement.getBoundingClientRect();
-      this.popover.show(snapshotToCard(snap), rect);
-    }, 250);
-  }
-
-  onLeave(): void {
-    if (this.hoverTimer) {
-      clearTimeout(this.hoverTimer);
-      this.hoverTimer = null;
-    }
-    this.popover.hide();
   }
 }
 
