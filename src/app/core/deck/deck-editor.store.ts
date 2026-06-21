@@ -35,7 +35,7 @@ const blank: EditorState = {
   error: null,
 };
 
-function clone<T>(x: T): T { return JSON.parse(JSON.stringify(x)); }
+function clone<T>(x: T): T { return structuredClone(x); }
 function deepEq<T>(a: T, b: T): boolean { return JSON.stringify(a) === JSON.stringify(b); }
 
 function hydrateFrom(deck: Deck | null): Partial<EditorState> {

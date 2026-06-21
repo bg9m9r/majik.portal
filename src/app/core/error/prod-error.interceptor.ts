@@ -2,7 +2,7 @@ import { HttpErrorResponse, HttpInterceptorFn } from '@angular/common/http';
 import { inject } from '@angular/core';
 import { catchError, throwError } from 'rxjs';
 import { ToastService } from '../../ui/toast.service';
-import { safeProdMessage } from './prod-error';
+import { PROD_ERROR_MESSAGE } from './prod-error';
 
 /**
  * Endpoints whose failures MatchPage surfaces itself at the call site with
@@ -63,7 +63,7 @@ export const prodErrorInterceptor: HttpInterceptorFn = (req, next) => {
   return next(req).pipe(
     catchError(err => {
       if (err instanceof HttpErrorResponse && !isCallSiteHandledMatchRequest(req.url)) {
-        toast.error(safeProdMessage(err));
+        toast.error(PROD_ERROR_MESSAGE);
       }
       return throwError(() => err);
     })

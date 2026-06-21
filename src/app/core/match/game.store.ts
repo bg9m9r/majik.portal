@@ -1,4 +1,4 @@
-import { InjectionToken, computed, inject } from '@angular/core';
+import { computed, inject } from '@angular/core';
 import { patchState, signalStore, withComputed, withHooks, withMethods, withState } from '@ngrx/signals';
 import { NormalisedEventDto, normaliseEvent, pickBoolean, pickString, pickStringArray } from './event.types';
 import { patchGameState } from './event.reducer';
@@ -6,7 +6,7 @@ import { LogLine, describeEvent } from './log.types';
 import { AutoPassDeps, shouldAutoPass, stackSignature } from './match-session';
 import { AuthUserStore } from '../auth/auth-user.store';
 import { MatchService } from './match.service';
-import { BotDecision, GameCommand, GameState, Match, PromptEnvelope } from './match.types';
+import { BotDecision, GameState, Match, PromptEnvelope } from './match.types';
 
 // Re-export so existing consumers (and the component) can keep a single
 // import surface; STACK_MUTATION_DISPLAY_MS lives in match-session.
@@ -16,33 +16,6 @@ export { STACK_MUTATION_DISPLAY_MS } from './match-session';
 // resyncs the canonical countdown; this just smooths the display
 // between syncs.
 const CLOCK_TICK_MS = 1000;
-
-/**
- * Abstraction over "send a GameCommand to the active match". Retained for
- * external commands (concede, cast, etc.) — no longer used for auto-pass
- * (the server now drives the auto-pass loop, Slice 5a).
- */
-export interface GameCommandSender {
-  send(cmd: GameCommand): void;
-}
-
-export const GAME_COMMAND_SENDER = new InjectionToken<GameCommandSender>('GAME_COMMAND_SENDER', {
-  providedIn: 'root',
-  factory: () => {
-    const matchSvc = inject(MatchService);
-    return {
-      send(cmd: GameCommand): void {
-        const id = matchSvc.current()?.id;
-        if (!id) return;
-        matchSvc.submitCommand(id, cmd)
-          .then(r => {
-            if (!r.ok) console.warn('submitCommand failed', cmd, r.error);
-          })
-          .catch((err: unknown) => console.warn('submitCommand threw', cmd, err));
-      },
-    };
-  },
-});
 
 export interface TimerState { text: string; active: boolean; low: boolean }
 export interface ClockAnchor {
