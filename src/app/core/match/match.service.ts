@@ -1,8 +1,8 @@
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Injectable, inject, signal } from '@angular/core';
-import { firstValueFrom } from 'rxjs';
+import { firstValueFrom, map } from 'rxjs';
 import { environment } from '../../../environments/environment';
-import { BotArchetypeDto } from '../api';
+import { BotArchetypeDto, listBotArchetypes } from '../api';
 import {
   CreateMatchRequest, GameCommand, GameState, JoinMatchRequest, Match,
   MatchError, MatchErrorCode, MatchReplay, PlayDrawRequest
@@ -12,12 +12,32 @@ import {
 export class MatchService {
   private readonly http = inject(HttpClient);
   private readonly base = `${environment.apiBaseUrl}/matches`;
+  // Root URL the generated OpenAPI fns prepend to their {PATH} constants.
+  // The generated fns already include the `/matches` segment, so this is
+  // the API origin only (environment.apiBaseUrl == origin + maybe prefix).
+  private readonly rootUrl = environment.apiBaseUrl;
 
   private readonly _current = signal<Match | null>(null);
   readonly current = this._current.asReadonly();
 
   setCurrent(m: Match | null): void { this._current.set(m); }
 
+  // NOTE on the generated OpenAPI client: most /matches/* methods below
+  // keep hand-built HttpClient calls on purpose. The server's OpenAPI
+  // document declares no response schema for them, so ng-openapi-gen
+  // emits functions that (a) for JSON endpoints typed
+  // `StrictHttpResponse<void>` actively DISCARD the body
+  // (`clone({ body: undefined })`) — folding list/create/get/join/
+  // play-draw/roll/concede would return `undefined` where callers consume
+  // a populated Match (e.g. `r.value.id`, `setCurrent(r.value)`); and
+  // (b) request `responseType: 'text'`, so on an error response Angular
+  // hands `mapError` the raw STRING body instead of the parsed
+  // `{ error, detail }` object — collapsing every Result error code to
+  // 'unknown' (breaks `commandRejectionMessage`). `getState`/`getReplay`
+  // additionally return the generated *Dto shapes, which diverge from the
+  // hand-curated GameState / MatchReplay types. Only `listBotArchetypes`
+  // (json responseType, body preserved, errors ignored at the call site)
+  // is folded onto `../api`.
   async list(): Promise<Result<Match[]>> {
     return this.req(() => firstValueFrom(
       this.http.get<Match[]>(`${this.base}?visibility=public`)));
@@ -29,7 +49,7 @@ export class MatchService {
   // from the server's BotDeckCatalog so the list stays in sync.
   async listBotArchetypes(): Promise<Result<BotArchetypeDto[]>> {
     return this.req(() => firstValueFrom(
-      this.http.get<BotArchetypeDto[]>(`${this.base}/archetypes`)));
+      listBotArchetypes(this.http, this.rootUrl).pipe(map(r => r.body))));
   }
 
   async create(body: CreateMatchRequest): Promise<Result<Match>> {
@@ -60,11 +80,6 @@ export class MatchService {
   async concede(id: string): Promise<Result<Match>> {
     return this.req(() => firstValueFrom(
       this.http.post<Match>(`${this.base}/${id}/concede`, {})));
-  }
-
-  async abandon(id: string): Promise<Result<void>> {
-    return this.req(() => firstValueFrom(
-      this.http.delete<void>(`${this.base}/${id}`)));
   }
 
   // Game-state + command channel — used once a match transitions to

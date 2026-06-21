@@ -1,11 +1,11 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { GameStore, GAME_COMMAND_SENDER, GameCommandSender } from './game.store';
+import { GameStore } from './game.store';
 import { AuthUserStore } from '../auth/auth-user.store';
 import { MatchService } from './match.service';
 import { STACK_MUTATION_DISPLAY_MS } from './match-session';
-import { BotDecision, CardSnapshot, GameCommand, GameState, Match } from './match.types';
+import { BotDecision, CardSnapshot, GameState, Match } from './match.types';
 
 const ALICE = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const BOB = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
@@ -13,8 +13,8 @@ const BOB = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
 // ----------------------------------------------------------------
 // Fakes for the store's injected collaborators. These let the store
 // be exercised without standing up Auth0 / HttpClient / SignalR — the
-// store reads only the viewer `sub` (AuthUserStore.principal), the live
-// MatchDto (MatchService.current), and a command sender.
+// store reads only the viewer `sub` (AuthUserStore.principal) and the
+// live MatchDto (MatchService.current).
 // ----------------------------------------------------------------
 class FakeAuth {
   readonly _principal = signal<{ sub: string } | null>(null);
@@ -32,13 +32,6 @@ class FakeMatch {
   }
 }
 
-class FakeSender implements GameCommandSender {
-  readonly sent: GameCommand[] = [];
-  send(cmd: GameCommand): void {
-    this.sent.push(cmd);
-  }
-}
-
 // Default fake providers so the store's injected collaborators resolve
 // without standing up Auth0 / HttpClient. The existing describe blocks
 // that only need the plain store reuse this via `storeProviders()`.
@@ -46,7 +39,6 @@ function storeProviders() {
   return [
     { provide: AuthUserStore, useValue: new FakeAuth() },
     { provide: MatchService, useValue: new FakeMatch() },
-    { provide: GAME_COMMAND_SENDER, useValue: new FakeSender() },
   ];
 }
 
@@ -54,21 +46,18 @@ function configureStore(): {
   store: InstanceType<typeof GameStore>;
   auth: FakeAuth;
   match: FakeMatch;
-  sender: FakeSender;
 } {
   const auth = new FakeAuth();
   const match = new FakeMatch();
-  const sender = new FakeSender();
   TestBed.configureTestingModule({
     providers: [
       { provide: AuthUserStore, useValue: auth },
       { provide: MatchService, useValue: match },
-      { provide: GAME_COMMAND_SENDER, useValue: sender },
     ],
   });
   const store = TestBed.inject(GameStore);
   store.reset();
-  return { store, auth, match, sender };
+  return { store, auth, match };
 }
 
 function matchDto(over: Partial<Match> = {}): Match {

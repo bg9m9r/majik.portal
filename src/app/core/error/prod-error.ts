@@ -11,21 +11,13 @@ import { DevToastErrorHandler } from '../dev-error/dev-toast-error-handler';
 export const PROD_ERROR_MESSAGE = 'Something went wrong — retry';
 
 /**
- * The maximum length a surfaced prod message may have. The generic
- * message is well within this; the cap is a belt-and-braces guard in
- * case a future caller passes a longer canned string.
- */
-const MAX_PROD_MESSAGE_LEN = 80;
-
-/**
  * Map any error to the user-facing prod message. Intentionally ignores
  * the error payload entirely — the dev toast (gated, opt-in) carries the
- * full detail; this path is always-on and must stay non-leaking. Returns
- * a single, truncated, generic line.
+ * full detail; this path is always-on and must stay non-leaking. Always
+ * returns the single generic line.
  */
 export function safeProdMessage(_err: unknown): string {
-  const msg = PROD_ERROR_MESSAGE;
-  return msg.length <= MAX_PROD_MESSAGE_LEN ? msg : msg.slice(0, MAX_PROD_MESSAGE_LEN - 1) + '…';
+  return PROD_ERROR_MESSAGE;
 }
 
 /** Rxjs sometimes wraps the original error inside `{ rejection: ... }` etc. */
@@ -61,7 +53,7 @@ export class ProdErrorHandler implements ErrorHandler {
     const unwrapped = unwrapRxjs(error);
     if (!(unwrapped instanceof HttpErrorResponse)) {
       try {
-        this.toast.error(safeProdMessage(unwrapped));
+        this.toast.error(PROD_ERROR_MESSAGE);
       } catch {
         // Never let the error handler itself throw — that would loop.
       }
