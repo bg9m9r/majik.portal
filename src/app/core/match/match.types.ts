@@ -45,7 +45,8 @@ export type MatchErrorCode =
   | 'invalid-choice' | 'not-roll-winner' | 'cannot-concede'
   | 'match-in-progress' | 'forbidden' | 'no-profile'
   | 'private-match' | 'game-not-started' | 'mongo-not-configured'
-  | 'not-a-player' | 'network' | 'unknown';
+  | 'not-a-player' | 'not-allowlisted' | 'rate-limited'
+  | 'issue-create-failed' | 'not-found' | 'network' | 'unknown';
 
 export interface MatchError { code: MatchErrorCode; detail?: string }
 

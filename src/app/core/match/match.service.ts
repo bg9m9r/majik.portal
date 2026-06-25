@@ -125,6 +125,25 @@ export class MatchService {
       this.http.put<void>(`${this.base}/${matchId}/me/prefs`, prefs)));
   }
 
+  // In-app issue report (Slice 1). Allowlisted, seated testers file a bug
+  // from inside a match: POST /matches/{id}/report bundles the description
+  // + client telemetry, the server snapshots replay/state and opens a
+  // labelled GitHub issue. Mirrors the concede/req() pattern; mapError
+  // turns the server's { error } body into a typed Result error code.
+  async reportIssue(id: string, body: ReportIssueBody): Promise<Result<ReportIssueResponse>> {
+    return this.req(() => firstValueFrom(
+      this.http.post<ReportIssueResponse>(`${this.base}/${id}/report`, body)));
+  }
+
+  // Allowlist gate for the Report button. GET /matches/{id}/can-report →
+  // { canReport }. Any error (not allowlisted, not seated, network, …)
+  // resolves false so the button simply stays hidden — never throws.
+  async canReport(id: string): Promise<boolean> {
+    const r = await this.req(() => firstValueFrom(
+      this.http.get<CanReportResponse>(`${this.base}/${id}/can-report`)));
+    return r.ok && r.value.canReport;
+  }
+
   private async req<T>(fn: () => Promise<T>): Promise<Result<T>> {
     try {
       return { ok: true, value: await fn() };
@@ -135,6 +154,20 @@ export class MatchService {
 }
 
 export type Result<T> = { ok: true; value: T } | { ok: false; error: MatchError };
+
+// In-app issue-report wire shapes (Slice 1). The telemetry is free-form
+// client diagnostics assembled by the match page; the server stores it
+// only inside the GitHub issue body.
+export interface ReportTelemetry {
+  route: string;
+  buildSha: string;
+  consoleErrors: string[];
+  recentSignalR: string[];
+  promptState: unknown;
+}
+export interface ReportIssueBody { description: string; telemetry: ReportTelemetry | null }
+export interface ReportIssueResponse { reportId: string; issueNumber: number; issueUrl: string }
+export interface CanReportResponse { canReport: boolean }
 
 function mapError(err: unknown): MatchError {
   const e = err as HttpErrorResponse;
