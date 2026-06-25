@@ -6,6 +6,7 @@ export const environment = {
   buildTime: '',
   apiBaseUrl: 'http://localhost:5057',
   signalRHubUrl: 'http://localhost:5057/hubs/match',
+  notificationsHubUrl: 'http://localhost:5057/hubs/notifications',
   auth0: {
     domain: 'auth.majik.tech',
     clientId: 'oVC0iZQ9aoj5ScorEHa3Ys4O9KjBSGxv',
