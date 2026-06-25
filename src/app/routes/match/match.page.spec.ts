@@ -106,6 +106,8 @@ describe('MatchPage — resilience wiring', () => {
       submitRoll: vi.fn(() => Promise.resolve({ ok: true, value: playingMatch() })),
       playDraw: vi.fn(() => Promise.resolve({ ok: true, value: playingMatch() })),
       updateAutoPassPrefs: vi.fn(() => Promise.resolve({ ok: true, value: undefined })),
+      canReport: vi.fn(() => Promise.resolve(false)),
+      reportIssue: vi.fn(() => Promise.resolve({ ok: true, value: { reportId: 'r1', issueNumber: 7, issueUrl: 'https://x/7' } })),
     };
 
     signalr = {
