@@ -25,6 +25,8 @@ services:
       cat > src/environments/environment.production.ts <<EOF
       export const environment = {
         production: true,
+        commitSha: '${RENDER_GIT_COMMIT}',
+        buildTime: '$(date -u +%Y-%m-%dT%H:%M:%SZ)',
         apiBaseUrl: '${MAJIK_API_URL}',
         signalRHubUrl: '${MAJIK_API_URL}/hubs/match',
         auth0: {
