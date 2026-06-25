@@ -1,5 +1,9 @@
 export const environment = {
   production: false,
+  // Build-time version stamp. Dev keeps the placeholder; `npm run build`
+  // rewrites these via scripts/stamp-version.mjs (prebuild hook).
+  commitSha: 'dev',
+  buildTime: '',
   apiBaseUrl: 'http://localhost:5057',
   signalRHubUrl: 'http://localhost:5057/hubs/match',
   auth0: {
