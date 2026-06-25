@@ -2,6 +2,7 @@ import { ErrorHandler, Injectable, inject } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ToastService } from '../../ui/toast.service';
 import { DevToastErrorHandler } from '../dev-error/dev-toast-error-handler';
+import { ConsoleErrorBuffer } from '../diagnostics/console-error-buffer.service';
 
 /**
  * Generic, safe, user-facing error message. Deliberately content-free so
@@ -48,8 +49,16 @@ function unwrapRxjs(err: unknown): unknown {
 export class ProdErrorHandler implements ErrorHandler {
   private readonly toast = inject(ToastService);
   private readonly dev = inject(DevToastErrorHandler);
+  private readonly buffer = inject(ConsoleErrorBuffer);
 
   handleError(error: unknown): void {
+    // Record into the report telemetry ring buffer before anything else,
+    // so an in-app issue report can carry the most-recent client errors.
+    try {
+      this.buffer.record(String(error));
+    } catch {
+      // Never let buffering break the error path.
+    }
     const unwrapped = unwrapRxjs(error);
     if (!(unwrapped instanceof HttpErrorResponse)) {
       try {
