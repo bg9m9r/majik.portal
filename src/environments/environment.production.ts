@@ -6,6 +6,7 @@ export const environment = {
   buildTime: '',
   apiBaseUrl: '',
   signalRHubUrl: '/hubs/match',
+  notificationsHubUrl: '/hubs/notifications',
   auth0: {
     domain: '',
     clientId: '',
