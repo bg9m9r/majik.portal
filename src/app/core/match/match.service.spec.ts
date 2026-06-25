@@ -177,4 +177,48 @@ describe('MatchService', () => {
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error.code).toBe('network');
   });
+
+  // --- reportIssue (Slice 1 in-app issue report) ---
+  it('reportIssue posts description + telemetry and returns response', async () => {
+    const promise = svc.reportIssue('m1', {
+      description: 'wedge',
+      telemetry: { route: '/match/m1', buildSha: 'abc', consoleErrors: [], recentSignalR: [], promptState: null },
+    });
+    const req = http.expectOne(r => r.method === 'POST' && r.url.endsWith('/matches/m1/report'));
+    expect(req.request.body.description).toBe('wedge');
+    req.flush({ reportId: 'r1', issueNumber: 7, issueUrl: 'https://x/7' }, { status: 201, statusText: 'Created' });
+    const result = await promise;
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.issueNumber).toBe(7);
+  });
+
+  it('reportIssue maps 403 to not-allowlisted error', async () => {
+    const promise = svc.reportIssue('m1', { description: 'x', telemetry: null });
+    const req = http.expectOne(r => r.url.endsWith('/matches/m1/report'));
+    req.flush({ error: 'not-allowlisted' }, { status: 403, statusText: 'Forbidden' });
+    const result = await promise;
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe('not-allowlisted');
+  });
+
+  // --- canReport (allowlist gate for the Report button) ---
+  it('canReport resolves true when the server says so', async () => {
+    const promise = svc.canReport('m1');
+    const req = http.expectOne(r => r.method === 'GET' && r.url.endsWith('/matches/m1/can-report'));
+    req.flush({ canReport: true });
+    expect(await promise).toBe(true);
+  });
+
+  it('canReport resolves false when the server says so', async () => {
+    const promise = svc.canReport('m1');
+    http.expectOne(r => r.url.endsWith('/matches/m1/can-report')).flush({ canReport: false });
+    expect(await promise).toBe(false);
+  });
+
+  it('canReport resolves false on any error', async () => {
+    const promise = svc.canReport('m1');
+    http.expectOne(r => r.url.endsWith('/matches/m1/can-report'))
+      .flush({ error: 'forbidden' }, { status: 403, statusText: 'Forbidden' });
+    expect(await promise).toBe(false);
+  });
 });

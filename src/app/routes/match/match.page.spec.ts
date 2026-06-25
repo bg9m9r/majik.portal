@@ -106,6 +106,8 @@ describe('MatchPage — resilience wiring', () => {
       submitRoll: vi.fn(() => Promise.resolve({ ok: true, value: playingMatch() })),
       playDraw: vi.fn(() => Promise.resolve({ ok: true, value: playingMatch() })),
       updateAutoPassPrefs: vi.fn(() => Promise.resolve({ ok: true, value: undefined })),
+      canReport: vi.fn(() => Promise.resolve(false)),
+      reportIssue: vi.fn(() => Promise.resolve({ ok: true, value: { reportId: 'r1', issueNumber: 7, issueUrl: 'https://x/7' } })),
     };
 
     signalr = {
@@ -515,6 +517,8 @@ describe('MatchPage — header settings cog dropdown', () => {
       submitRoll: vi.fn(() => Promise.resolve({ ok: true, value: playingMatch() })),
       playDraw: vi.fn(() => Promise.resolve({ ok: true, value: playingMatch() })),
       updateAutoPassPrefs: vi.fn(() => Promise.resolve({ ok: true, value: undefined })),
+      canReport: vi.fn(() => Promise.resolve(false)),
+      reportIssue: vi.fn(() => Promise.resolve({ ok: true, value: { reportId: 'r1', issueNumber: 7, issueUrl: 'https://x/7' } })),
     };
     const signalr = {
       opponentJoined$: new Subject(), stateChanged$: new Subject(), rolled$: new Subject(),
@@ -595,6 +599,33 @@ describe('MatchPage — header settings cog dropdown', () => {
     // The cog precedes Back in DOM order (the cog now sits in a wrapper, so
     // compare document position rather than a shared parentElement).
     expect(btn.compareDocumentPosition(back) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy();
+  });
+
+  // In-app issue report (Slice 1): the allowlist-gated Report button sits
+  // in the header row immediately next to the Back link, and ONLY renders
+  // when canReport() is true.
+  function reportButton(fixture: ReturnType<typeof mountPage>['fixture']): HTMLButtonElement | null {
+    return fixture.nativeElement.querySelector('button[data-test="report-issue"]') as HTMLButtonElement | null;
+  }
+
+  it('does NOT render the Report button when canReport is false', () => {
+    const { fixture } = mountPage();
+    expect(fixture.componentInstance.canReport()).toBe(false);
+    expect(reportButton(fixture)).toBeNull();
+  });
+
+  it('renders the Report button next to Back when canReport is true', () => {
+    const { fixture } = mountPage();
+    fixture.componentInstance.canReport.set(true);
+    fixture.detectChanges();
+
+    const btn = reportButton(fixture);
+    expect(btn).toBeTruthy();
+    const back = fixture.nativeElement.querySelector('a[routerLink="/lobby"]') as HTMLElement;
+    expect(back).toBeTruthy();
+    // The Report button precedes Back in DOM order (sits immediately beside it).
+    expect(btn!.compareDocumentPosition(back) & Node.DOCUMENT_POSITION_FOLLOWING)
       .toBeTruthy();
   });
 

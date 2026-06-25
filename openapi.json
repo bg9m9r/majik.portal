@@ -6,7 +6,7 @@
   },
   "servers": [
     {
-      "url": "https://api.majik.tech/"
+      "url": "https://majik-api.onrender.com/"
     }
   ],
   "paths": {
@@ -702,6 +702,78 @@
         }
       }
     },
+    "/matches/{id}/report": {
+      "post": {
+        "tags": [
+          "Matches"
+        ],
+        "operationId": "ReportMatch",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReportIssueRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportIssueResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/matches/{id}/can-report": {
+      "get": {
+        "tags": [
+          "Matches"
+        ],
+        "operationId": "CanReportMatch",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CanReportResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/matches/_eventschemas": {
       "get": {
         "tags": [
@@ -1152,6 +1224,17 @@
           }
         }
       },
+      "CanReportResponse": {
+        "required": [
+          "canReport"
+        ],
+        "type": "object",
+        "properties": {
+          "canReport": {
+            "type": "boolean"
+          }
+        }
+      },
       "CardDrawnPayload": {
         "required": [
           "playerId"
@@ -1559,6 +1642,49 @@
             ],
             "format": "int32"
           }
+        }
+      },
+      "ClientTelemetryDto": {
+        "required": [
+          "route",
+          "buildSha",
+          "consoleErrors",
+          "recentSignalR",
+          "promptState"
+        ],
+        "type": "object",
+        "properties": {
+          "route": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "buildSha": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "consoleErrors": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "recentSignalR": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "promptState": { }
         }
       },
       "ContinuousEffectAddedPayload": {
@@ -3333,6 +3459,53 @@
                 "$ref": "#/components/schemas/BotDecision"
               }
             ]
+          }
+        }
+      },
+      "ReportIssueRequest": {
+        "required": [
+          "description",
+          "telemetry"
+        ],
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "telemetry": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ClientTelemetryDto"
+              }
+            ]
+          }
+        }
+      },
+      "ReportIssueResponse": {
+        "required": [
+          "reportId",
+          "issueNumber",
+          "issueUrl"
+        ],
+        "type": "object",
+        "properties": {
+          "reportId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "issueNumber": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "issueUrl": {
+            "type": "string"
           }
         }
       },

@@ -28,8 +28,11 @@ import { BoardComponent } from './components/board.component';
 import { LayoutControlsComponent } from './components/layout-controls.component';
 import { PromptOverlayComponent, PromptDecision } from './components/prompt-overlay.component';
 import { RotateOverlayComponent } from './components/rotate-overlay.component';
+import { ReportDialogComponent } from './components/report-dialog.component';
 import { Router } from '@angular/router';
 import { ToastService } from '../../ui/toast.service';
+import { ConsoleErrorBuffer } from '../../core/diagnostics/console-error-buffer.service';
+import { environment } from '../../../environments/environment';
 import {
   Ability, BotDecision, CardSnapshot, GameCommand, GameState, Match, MatchError, PromptEnvelope
 } from '../../core/match/match.types';
@@ -54,6 +57,7 @@ import { ConnectionState } from '../../core/signalr/signalr.service';
     LayoutControlsComponent,
     PromptOverlayComponent,
     RotateOverlayComponent,
+    ReportDialogComponent,
   ],
   template: `
     <main class="flex min-h-screen flex-col">
@@ -136,9 +140,21 @@ import { ConnectionState } from '../../core/signalr/signalr.service';
               </div>
             }
           </div>
+          @if (canReport()) {
+            <button
+              type="button"
+              data-test="report-issue"
+              class="text-[color:var(--majik-accent)] underline"
+              (click)="reportDialogOpen.set(true)">Report</button>
+          }
           <a routerLink="/lobby" class="text-[color:var(--majik-accent)] underline">Back</a>
         </div>
       </header>
+      @if (reportDialogOpen()) {
+        <app-report-dialog
+          (submitReport)="onReportSubmit($event)"
+          (cancel)="reportDialogOpen.set(false)" />
+      }
       <section class="flex flex-1 flex-col">
         @if (botThinking()) {
           <div class="flex items-center gap-2 border-b border-[color:var(--majik-line)] px-3 py-1 text-sm text-[color:var(--majik-accent)] animate-pulse">
@@ -245,6 +261,7 @@ export class MatchPage implements OnInit, OnDestroy {
   readonly game = inject(GameStore);
   private readonly selection = inject(SelectionService);
   private readonly toast = inject(ToastService);
+  private readonly errors = inject(ConsoleErrorBuffer);
   // Shared layout prefs — the settings cog dropdown hosts the card-size
   // slider (<app-layout-controls />); the slider's VALUE (cardScale) still
   // persists via LayoutPrefs. Only the popover's open/closed state is
@@ -256,6 +273,13 @@ export class MatchPage implements OnInit, OnDestroy {
   // a local signal (NOT a persisted pref): the popover starts closed on every
   // load. Closed on cog re-click, Escape, and outside-click.
   readonly settingsOpen = signal(false);
+
+  // In-app issue report (Slice 1). `canReport` is fetched once when the
+  // match enters Playing; the Report button (header, next to Back) renders
+  // only when the server says this seated, allowlisted tester may report.
+  // `reportDialogOpen` is the ephemeral open state of the report dialog.
+  readonly canReport = signal(false);
+  readonly reportDialogOpen = signal(false);
   // The cog + popover wrapper — used by the outside-click check to decide
   // whether a document click landed inside the menu (keep open) or outside
   // (close).
@@ -438,6 +462,8 @@ export class MatchPage implements OnInit, OnDestroy {
       if (m.state === 'Playing' && !bootstrapped) {
         bootstrapped = true;
         void this.fetchState();
+        // Allowlist-gate the Report button — fetched once on entering Playing.
+        void this.refreshCanReport();
       }
       if (m.state !== 'Playing') {
         bootstrapped = false;
@@ -772,6 +798,31 @@ export class MatchPage implements OnInit, OnDestroy {
       console.warn('concede failed', r.error);
       this.toast.error(commandRejectionMessage(r.error, 'Could not concede'));
     }
+  }
+
+  // In-app issue report (Slice 1). Allowlist-gate fetch — runs once on
+  // entering Playing. Any error resolves false (button stays hidden).
+  private async refreshCanReport(): Promise<void> {
+    this.canReport.set(await this.matchSvc.canReport(this.id));
+  }
+
+  // Assemble client telemetry (route, build SHA, recent client errors,
+  // recent bot/SignalR decisions, current prompt state) and POST the
+  // report; toast the outcome. Closes the dialog either way.
+  async onReportSubmit(description: string): Promise<void> {
+    const telemetry = {
+      route: this.router.url,
+      buildSha: environment.commitSha,
+      consoleErrors: [...this.errors.recent()],
+      recentSignalR: this.game.recentDecisions().map(d => JSON.stringify(d)).slice(0, 10),
+      promptState: this.game.prompt() ?? null,
+    };
+    const r = await this.matchSvc.reportIssue(this.id, { description, telemetry });
+    if (r.ok) this.toast.info(`Reported — issue #${r.value.issueNumber}. Thanks!`);
+    else if (r.error.code === 'not-allowlisted') this.toast.warn('Reporting not enabled for your account.');
+    else if (r.error.code === 'rate-limited') this.toast.warn('Too many reports — try again later.');
+    else this.toast.error('Could not file report.');
+    this.reportDialogOpen.set(false);
   }
 
   // Undo — UI stub. The engine doesn't expose an undo command today;
