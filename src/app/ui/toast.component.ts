@@ -9,9 +9,16 @@ import { ToastService, ToastSeverity } from './toast.service';
   template: `
     @if (toast.current(); as t) {
       <div role="status" aria-live="polite"
-           class="fixed right-4 top-4 z-50 rounded border px-4 py-2 text-sm shadow"
+           class="fixed right-4 top-4 z-50 flex items-center gap-3 rounded border px-4 py-2 text-sm shadow"
            [ngClass]="classesFor(t.severity)">
-        {{ t.message }}
+        <span>{{ t.message }}</span>
+        @if (t.action; as action) {
+          <button type="button"
+                  class="rounded border border-current/40 px-2 py-0.5 text-xs font-medium underline-offset-2 hover:underline"
+                  (click)="action.run()">
+            {{ action.label }}
+          </button>
+        }
       </div>
     }
   `,

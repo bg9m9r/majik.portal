@@ -70,4 +70,24 @@ describe('ToastService', () => {
     svc.show('whoops', { severity: 'warn' });
     expect(svc.current()?.severity).toBe('warn');
   });
+
+  it('sticky toast persists past the default duration and carries an action', () => {
+    let ran = false;
+    svc.show('Fix live', {
+      severity: 'info',
+      sticky: true,
+      action: { label: 'Reload', run: () => (ran = true) },
+    });
+    vi.advanceTimersByTime(10000);
+    expect(svc.current()).not.toBeNull();
+    svc.current()!.action!.run();
+    expect(ran).toBe(true);
+  });
+
+  it('dismiss() clears a sticky toast', () => {
+    svc.show('Fix live', { severity: 'info', sticky: true });
+    expect(svc.current()).not.toBeNull();
+    svc.dismiss();
+    expect(svc.current()).toBeNull();
+  });
 });

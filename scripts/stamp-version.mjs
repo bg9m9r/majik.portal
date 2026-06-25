@@ -41,3 +41,13 @@ for (const file of files) {
   writeFileSync(file, src);
   console.log(`stamped ${file} → commitSha='${sha}' buildTime='${buildTime}'`);
 }
+
+// Also emit public/version.json. Angular copies public/ verbatim into the
+// build output, so this is served at /version.json — polled by the server's
+// DeploymentWatcher to detect when the live portal build carries a fix.
+const versionJsonPath = join(repoRoot, 'public/version.json');
+writeFileSync(
+  versionJsonPath,
+  JSON.stringify({ commitSha: sha, buildTime }, null, 2) + '\n'
+);
+console.log(`stamped ${versionJsonPath} → commitSha='${sha}' buildTime='${buildTime}'`);
