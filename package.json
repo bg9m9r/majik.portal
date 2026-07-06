@@ -24,7 +24,7 @@
     "@angular/forms": "^21.2.15",
     "@angular/platform-browser": "^21.2.15",
     "@angular/router": "^21.2.15",
-    "@auth0/auth0-angular": "^2.9.0",
+    "@auth0/auth0-angular": "^2.10.0",
     "@microsoft/signalr": "^10.0.0",
     "@ngrx/operators": "^21.1.1",
     "@ngrx/signals": "^21.1.1",
@@ -41,9 +41,9 @@
     "jsdom": "^29.1.1",
     "ng-openapi-gen": "^1.0.5",
     "postcss": "^8.5.16",
-    "prettier": "^3.9.3",
+    "prettier": "^3.9.4",
     "tailwindcss": "^4.3.0",
     "typescript": "~5.9.2",
-    "vitest": "^4.1.9"
+    "vitest": "^4.1.10"
   }
 }
